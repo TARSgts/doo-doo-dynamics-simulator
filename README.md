@@ -4,18 +4,22 @@ An independent, open-source simulation platform being built in stages. The first
 
 **Desktop app and MCP controls:** install with `tools/install-desktop.ps1`, then double-click **Launch Simulator.cmd**. The workbench includes a ribbon, model tree, properties, viewport and solver jobs. Planned features are visibly greyed out. See [desktop and MCP setup](docs/DESKTOP_AND_MCP.md).
 
+**Dark mode is the default**, with a persistent Light/Dark toggle in the header and View menu. The viewport follows the selected theme. The Geometry/Validation ribbons include a quadratic cantilever preset.
+
+**Beam verification:** the [Euler–Bernoulli cantilever study](docs/cantilever/REPORT.md) gives 0.139% tip-section displacement error and a 0.0135% last-mesh change for the C3D10 model. Its C3D4 baseline underpredicts deflection by 50.8% at the tested mesh; element choice matters.
+
 ![Displacement viewer](docs/viewer-preview.png)
 
 ## Working now
 
 - Import one closed STEP, IGES or BREP solid using Gmsh's OpenCASCADE kernel.
-- Generate linear four-node tetrahedra, reject invalid volume elements and export a mesh.
-- Clamp the X-minimum face and distribute a total axial force equally over X-maximum nodes.
-- Solve isotropic linear elasticity through the external CalculiX executable; verify completion, displacement completeness and reaction equilibrium.
+- Generate linear C3D4 or quadratic C3D10 tetrahedra, check corner-element orientation and export a mesh.
+- Clamp the X-minimum face and apply an X/Y/Z force either at a single embedded tip-center node or equally over the X-maximum face nodes.
+- Solve isotropic linear elasticity through CalculiX; verify completion, displacement completeness, force balance and moment balance.
 - Export an offline, rotatable HTML displacement viewer, VTK displacement data and native CalculiX stress/displacement FRD files.
 - Record CAD, input-deck and solver hashes, material properties, mesh settings and dependency versions per run.
 
-This is a research prototype. Stage 1 supports one material, one solid and the specific boundary condition above. Equal nodal forces are not uniform surface traction. Curved end faces, assemblies, contact, nonlinear behavior and arbitrary load directions need later stages. C3D4 elements require mesh-convergence checks, especially for bending and nearly incompressible materials. No Ansys compatibility or accuracy equivalence is claimed.
+This is a research prototype. It supports one material, one solid and the clamp/end-load conditions above. Equal nodal forces are not uniform surface traction. Point loading requires an end face containing the bounding-section center. Assemblies, contact, nonlinear behavior and arbitrary support/face selection need later stages. Prefer C3D10 for bending and perform mesh-convergence checks. A point load has a local stress singularity; the cantilever study validates global displacement and equilibrium, not peak stress. No Ansys compatibility or accuracy equivalence is claimed.
 
 ## Run locally on Windows
 
@@ -27,6 +31,7 @@ This checkout already has a project environment and CalculiX installed. From the
 .\.venv\Scripts\open-sim.exe solve examples\my-bar.step --out runs\my-bar
 Start-Process .\runs\my-bar\results.html
 .\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\open-sim.exe validate-cantilever --out runs\beam-validation
 ```
 
 The supplied `examples/axial-bar.step` is a generated 1 × 0.1 × 0.1 bar. Use a new output folder for each run; existing run folders are deliberately preserved. Failed runs retain their input/log files and should be inspected before retrying into a new folder.
@@ -50,6 +55,8 @@ On another operating system or Python version, create a virtual environment, ins
 ```
 
 All solver quantities use meters, newtons and pascals. `--cad-scale` multiplies coordinates returned by the CAD importer; inspect the resulting mesh dimensions because CAD exporters and import kernels can normalize units. For a file whose imported numerical coordinates are millimeters, use `0.001`. The example's default Poisson ratio is zero to make the analytical axial benchmark simple; choose the appropriate material properties for real models.
+
+For the supplied cantilever geometry, use `--order 2 --load-axis z --load-kind point --load -10 --poisson 0.3 --mesh-size 0.0067`. The `validate-cantilever` command creates that 1 × 0.02 × 0.02 m geometry and runs the full mesh study; plotting dependencies are installed by the desktop installer or `pip install '.[validation]'`.
 
 ## Verification
 

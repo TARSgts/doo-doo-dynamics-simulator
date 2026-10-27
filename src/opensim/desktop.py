@@ -10,7 +10,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QDoubleSpinBox,
                                QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
                                QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
-                               QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
+                               QScrollArea, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
 from opensim.workspace import CAPABILITIES, Workspace
@@ -41,6 +41,47 @@ QPlainTextEdit { border: 0; background: #f9fbfd; font-family: Consolas; font-siz
 QStatusBar { background: #172b43; color: #e2edf7; }
 QStatusBar QLabel { color: #e2edf7; padding: 3px 10px; }
 QSplitter::handle { background: #d5dde7; height: 3px; width: 3px; }
+QWidget#BrandPanel { background:#20364f; border-bottom:2px solid #d99530; }
+QLabel#BrandTitle { color:#edf4ff; font-size:15px; font-weight:600; }
+QLabel#BrandMark { background:#d99530; color:#172437; font-size:16px; font-weight:700; padding:8px; border-radius:6px; }
+QWidget#ViewportTools { background:#f8fafc; }
+QLabel#DetailsHeading { background:#dce5ef; padding:9px; font-weight:600; }
+QLabel#ResultCard { background:white; color:#31485f; border:1px solid #d9e2ec; padding:10px 16px; border-radius:5px; }
+QWidget#DetailsPanel, QScrollArea#PropertiesScroll { background:#f2f5fa; }
+QScrollBar:vertical { background:#e0e7f0; width:10px; margin:0; }
+QScrollBar::handle:vertical { background:#9caec5; min-height:24px; border-radius:4px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
+"""
+
+DARK_STYLE = """
+QMainWindow, QWidget { background:#121b2b; color:#d8e4f1; }
+QMenuBar, QStatusBar { background:#0d1420; color:#dce6f4; }
+QMenu { background:#1c293d; border:1px solid #35445b; }
+QMenu::item:selected { background:#2e4565; }
+QTabWidget::pane { background:#182538; }
+QTabBar::tab { background:#142034; color:#9faec2; }
+QTabBar::tab:selected { background:#20324b; color:#f1c576; border-top-color:#dba24a; }
+QToolButton { background:#182538; color:#d7e4f6; }
+QToolButton:hover { background:#263c59; border-color:#405776; }
+QToolButton:disabled, QPushButton:disabled { color:#6a7a92; background:#182234; border-color:#243248; }
+QPushButton { color:#d5e4f7; background:#22334a; border-color:#3a506c; }
+QPushButton:hover { background:#304a6a; }
+QDockWidget::title { background:#1c2a3f; color:#cfdbed; }
+QTreeWidget { background:#121d2e; color:#b9cbe0; }
+QTreeWidget::item:selected { background:#264364; color:#eef6ff; }
+QDoubleSpinBox, QComboBox { background:#15243a; color:#e6eefb; border-color:#3a4e68; }
+QComboBox QAbstractItemView { background:#1d2e45; color:#e4eefb; selection-background-color:#36567a; }
+QPlainTextEdit { background:#0e1827; color:#9eb6cf; }
+QSplitter::handle { background:#28384e; }
+QScrollArea { border:0; background:#121b2b; }
+QWidget#BrandPanel { background:#101b2d; }
+QLabel#BrandTitle { background:transparent; }
+QLabel#DetailsHeading { background:#1c2c44; color:#c3d5ec; }
+QWidget#ViewportTools { background:#17263b; }
+QLabel#ResultCard { background:#1b2c43; color:#c5ddf5; border-color:#31475f; }
+QWidget#DetailsPanel, QScrollArea#PropertiesScroll { background:#121b2b; }
+QScrollBar:vertical { background:#19273b; }
+QScrollBar::handle:vertical { background:#425c7e; }
 """
 
 
@@ -53,8 +94,10 @@ class SimulatorWindow(QMainWindow):
         self.tree_signature = None
         self.project_revision = None
         self.dirty = False
+        self.theme = None
+        self.analysis_buttons = []
         self.setWindowTitle("Doo Doo Dynamics Simulator — Structural Workbench")
-        self.setMinimumSize(1100, 760)
+        self.setMinimumSize(1100, 720)
         available = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1520, available.width() - 40), min(980, available.height() - 50))
         self.setStyleSheet(STYLE)
@@ -66,6 +109,7 @@ class SimulatorWindow(QMainWindow):
         self.status_label = QLabel("Ready")
         self.statusBar().addWidget(self.status_label, 1)
         self.statusBar().addPermanentWidget(QLabel("SI units  ·  CalculiX 2.23  ·  Local MCP workspace"))
+        self.apply_theme()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(700)
@@ -81,6 +125,11 @@ class SimulatorWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction("Exit", self.close)
         help_menu = self.menuBar().addMenu("Help")
+        view_menu = self.menuBar().addMenu("View")
+        self.dark_action = QAction("Dark mode", self)
+        self.dark_action.setCheckable(True)
+        self.dark_action.toggled.connect(lambda checked: self.set_theme("dark" if checked else "light"))
+        view_menu.addAction(self.dark_action)
         help_menu.addAction("About", lambda: QMessageBox.information(
             self, "Doo Doo Dynamics Simulator",
             "Independent open-source structural workbench\nGPL-2.0-or-later\n\n"
@@ -94,6 +143,8 @@ class SimulatorWindow(QMainWindow):
         button.setMinimumHeight(64)
         if handler:
             button.clicked.connect(lambda checked=False: self.safe(handler))
+            if handler in (self.mesh, self.solve, self.import_cad):
+                self.analysis_buttons.append(button)
         else:
             button.setEnabled(False)
             button.setToolTip("Planned — not implemented")
@@ -105,8 +156,20 @@ class SimulatorWindow(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        banner = QLabel("   DD   /   DOO DOO DYNAMICS SIMULATOR                         STRUCTURAL WORKBENCH")
-        banner.setStyleSheet("background:#20364f;color:#f4f7fb;padding:14px 8px;font-size:15px;font-weight:600;border-bottom:3px solid #d99530")
+        banner = QWidget()
+        banner.setObjectName("BrandPanel")
+        brand_row = QHBoxLayout(banner)
+        brand_row.setContentsMargins(14, 10, 14, 10)
+        mark = QLabel("DD")
+        mark.setObjectName("BrandMark")
+        brand_row.addWidget(mark)
+        title = QLabel("DOO DOO DYNAMICS  /  SIMULATOR")
+        title.setObjectName("BrandTitle")
+        brand_row.addWidget(title, 1)
+        self.theme_button = QPushButton("Light mode")
+        self.theme_button.setAccessibleName("Toggle dark mode")
+        self.theme_button.clicked.connect(lambda: self.set_theme("light" if self.theme == "dark" else "dark"))
+        brand_row.addWidget(self.theme_button)
         layout.addWidget(banner)
         self.ribbon = QTabWidget()
         self.ribbon.setFixedHeight(116)
@@ -115,15 +178,18 @@ class SimulatorWindow(QMainWindow):
                      ("Test plate", "Built-in example", self.create_demo), ("Generate mesh", "Gmsh tetrahedra", self.mesh),
                      ("Solve", "Static structural", self.solve), ("Results", "Displacement", lambda: self.change_view("results"))],
             "Geometry": [("Import CAD", "One closed solid", self.import_cad), ("Test plate", "100 × 40 × 5 mm", self.create_demo),
+                         ("Cantilever", "1 m tip-loaded beam", self.create_beam),
                          ("CAD editing", "Planned" , None), ("Assemblies", "Planned", None)],
             "Mesh": [("Generate mesh", "Linear tetrahedra", self.mesh), ("Show mesh", "Surface edges", lambda: self.change_view("mesh")),
-                     ("Adaptive refinement", "Planned", None), ("Quadratic elements", "Planned", None)],
+                     ("Adaptive refinement", "Planned", None)],
             "Environment": [("Apply settings", "Material / axial force", self.save_parameters),
                             ("Face selection", "Planned", None), ("Contact", "Planned", None)],
             "Solution": [("Solve", "CalculiX static", self.solve), ("Displacement", "Current result", lambda: self.change_view("results")),
                          ("Stress contours", "Planned", None), ("Modal", "Planned", None), ("Thermal", "Planned", None)],
-            "Automation": [("MCP status", "12 local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
+            "Automation": [("MCP status", "13 local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
                            ("Remote access", "Planned", None)],
+            "Validation": [("Cantilever", "Create beam preset", self.create_beam),
+                           ("Reference report", "Euler–Bernoulli study", self.show_validation)],
         }
         for name, buttons in groups.items():
             page = QWidget()
@@ -134,12 +200,22 @@ class SimulatorWindow(QMainWindow):
             row.addStretch()
             self.ribbon.addTab(page, name)
         layout.addWidget(self.ribbon)
+        card_panel = QWidget()
+        card_row = QHBoxLayout(card_panel)
+        card_row.setContentsMargins(10, 8, 10, 8)
+        self.result_cards = []
+        for caption in ("Maximum displacement", "Tip-section displacement", "Force balance"):
+            card = QLabel(caption + "\n—")
+            card.setObjectName("ResultCard")
+            card_row.addWidget(card, 1)
+            self.result_cards.append(card)
+        layout.addWidget(card_panel)
         tools = QWidget()
-        tools.setStyleSheet("background:white;border-bottom:1px solid #d3dde7")
+        tools.setObjectName("ViewportTools")
         tool_row = QHBoxLayout(tools)
         tool_row.setContentsMargins(12, 5, 12, 5)
         self.viewport_title = QLabel("MODEL VIEWPORT")
-        self.viewport_title.setStyleSheet("font-weight:600;color:#53667c")
+        self.viewport_title.setWordWrap(True)
         tool_row.addWidget(self.viewport_title, 1)
         for title, script in (("Fit view", "resetViewport()"), ("Edges", "setEdgeVisibility(!edgeVisibility)")):
             button = QPushButton(title)
@@ -147,14 +223,24 @@ class SimulatorWindow(QMainWindow):
             tool_row.addWidget(button)
         tool_row.addWidget(QLabel("Deformation"))
         self.deformation = QComboBox()
-        self.deformation.addItems(["True scale", "100×", "500×", "1500×"])
-        self.deformation.setCurrentIndex(2)
+        self.deformation.addItems(["Auto (10%)", "True scale", "10×", "100×", "500×"])
+        self.deformation.setCurrentIndex(0)
         self.deformation.currentIndexChanged.connect(self.apply_view_options)
         tool_row.addWidget(self.deformation)
+        self.camera = QComboBox()
+        self.camera.addItems(["Iso", "Front XZ", "Top XY"])
+        self.camera.setToolTip("Camera orientation")
+        self.camera.currentIndexChanged.connect(self.apply_camera)
+        tool_row.addWidget(self.camera)
+        self.result_component = QComboBox()
+        self.result_component.addItems(["Total |U|", "Ux", "Uy", "Uz"])
+        self.result_component.currentIndexChanged.connect(self.apply_view_options)
+        tool_row.addWidget(self.result_component)
         layout.addWidget(tools)
         self.view = QWebEngineView()
         self.view.setAccessibleName("Simulation 3D viewport")
         self.view.loadFinished.connect(self.apply_view_options)
+        self.view.loadFinished.connect(self.apply_camera)
         self.view.setHtml(self.empty_view())
         layout.addWidget(self.view, 1)
         self.legend = QLabel("  Import a solid or create the test plate to begin.  ·  Drag in the viewport to rotate.")
@@ -166,29 +252,33 @@ class SimulatorWindow(QMainWindow):
         return """<html><body style="margin:0;background:radial-gradient(#fff,#dfe7f0);font-family:Segoe UI;color:#243b55;display:grid;place-items:center;height:100vh">
         <div style="text-align:center"><div style="font-size:54px;font-weight:700;color:#b6c6d7">DD</div>
         <h2>Your next simulation starts here</h2><p style="color:#6d8197">New project → Import CAD or Test plate → Generate mesh → Solve</p>
-        <p style="color:#8c9bab;font-size:12px">Static structural · Gmsh meshing · CalculiX solver · MCP automation</p></div></body></html>"""
+        <p style="color:#8c9bab;font-size:12px">Static structural · Gmsh meshing · CalculiX solver · MCP automation</p></div>
+        <script>function setTheme(theme){document.body.style.background=theme==='dark'?'radial-gradient(#22344f,#101827)':'radial-gradient(#fff,#dfe7f0)';document.body.style.color=theme==='dark'?'#dce9f9':'#243b55';}</script></body></html>"""
 
     def build_outline(self):
         dock = QDockWidget("Outline / Model", self)
         dock.setObjectName("outline")
-        dock.setMinimumWidth(290)
+        dock.setMinimumWidth(330)
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.itemClicked.connect(self.select_tree_item)
         splitter.addWidget(self.tree)
         details = QWidget()
+        details.setObjectName("DetailsPanel")
         layout = QVBoxLayout(details)
         heading = QLabel("DETAILS OF STATIC STRUCTURAL")
-        heading.setStyleSheet("background:#e0e7f0;padding:10px;font-weight:600")
+        heading.setObjectName("DetailsHeading")
         layout.addWidget(heading)
         form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.fields = {}
         definitions = [("mesh_size_m", "Mesh size (mm)", 0.001, 100000, 4, 3),
                        ("cad_scale", "CAD scale to m", 0.000001, 100000, 1, 6),
                        ("young_Pa", "Young's E (GPa)", 0.001, 100000, 210, 3),
                        ("poisson", "Poisson ratio", -0.999, 0.499, 0.3, 3),
-                       ("load_N", "Axial force (N)", -1e12, 1e12, 1000, 3)]
+                       ("load_N", "Total force (N)", -1e12, 1e12, 1000, 3)]
         for key, label, minimum, maximum, value, decimals in definitions:
             field = QDoubleSpinBox()
             field.setRange(minimum, maximum)
@@ -200,7 +290,20 @@ class SimulatorWindow(QMainWindow):
             self.fields[key] = field
             form.addRow(label, field)
         layout.addLayout(form)
-        note = QLabel("Fixed support: X-min face\nAxial force: X-max face\nSingle solid · isotropic elasticity")
+        self.selectors = {}
+        for key, label, options in (
+            ("element_order", "Elements", [("Linear · C3D4", 1), ("Quadratic · C3D10", 2)]),
+            ("load_axis", "Force direction", [("X · axial", "x"), ("Y · transverse", "y"), ("Z · transverse", "z")]),
+            ("load_kind", "Force application", [("End face · total", "face"), ("Tip center · point", "point")])):
+            selector = QComboBox()
+            selector.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            selector.setMinimumContentsLength(10)
+            for text, value in options:
+                selector.addItem(text, value)
+            selector.currentIndexChanged.connect(self.mark_dirty)
+            form.addRow(label, selector)
+            self.selectors[key] = selector
+        note = QLabel("Fixed support: X-min face\nForce application: X-max face\nC3D4 can be very stiff in bending.")
         note.setStyleSheet("color:#6f8094;padding:6px")
         layout.addWidget(note)
         self.apply_button = QPushButton("Apply settings")
@@ -211,8 +314,13 @@ class SimulatorWindow(QMainWindow):
         self.details_note.setStyleSheet("color:#8290a2;padding:6px")
         layout.addWidget(self.details_note)
         layout.addStretch()
-        splitter.addWidget(details)
-        splitter.setSizes([320, 400])
+        scroll = QScrollArea()
+        scroll.setObjectName("PropertiesScroll")
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(details)
+        splitter.addWidget(scroll)
+        splitter.setSizes([220, 480])
         dock.setWidget(splitter)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
 
@@ -227,6 +335,8 @@ class SimulatorWindow(QMainWindow):
             button = QPushButton(label)
             button.clicked.connect(lambda checked=False, handler=callback: self.safe(handler))
             layout.addWidget(button)
+            if callback in (self.solve, self.mesh):
+                self.analysis_buttons.append(button)
         heading = QLabel("PLANNED FEATURES")
         heading.setStyleSheet("margin-top:18px;color:#8390a2")
         layout.addWidget(heading)
@@ -280,6 +390,29 @@ class SimulatorWindow(QMainWindow):
         self.workspace.start_job(project["id"], "example")
         self.dirty = False
 
+    def create_beam(self):
+        from opensim.validation import BEAM_PARAMETERS
+        project = self.workspace.create_project("Cantilever beam / " + datetime.now().strftime("%H:%M:%S"))
+        self.workspace.set_parameters(project["id"], BEAM_PARAMETERS)
+        self.workspace.show_project(project["id"], "mesh")
+        self.workspace.start_job(project["id"], "example", example="cantilever_beam")
+        self.dirty = False
+
+    def show_validation(self):
+        report_path = Path(__file__).resolve().parents[2] / "docs" / "cantilever" / "report.json"
+        if not report_path.is_file():
+            raise ValueError("Run open-sim validate-cantilever --out <new folder> to produce the validation study")
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        fine = report["cases"][-1]
+        QMessageBox.information(self, "Published reference benchmark",
+                                f"1 m × 20 mm × 20 mm beam · 10 N tip force\n\n"
+                                f"Euler–Bernoulli: {report['euler_bernoulli_tip_z_m'] * 1000:.6f} mm\n"
+                                f"C3D10 tip-section mean: {fine['tip_mean_z_m'] * 1000:.6f} mm\n"
+                                f"Error: {fine['tip_error_fraction'] * 100:.4f}%\n"
+                                f"Final mesh change: {report['last_mesh_change_fraction'] * 100:.4f}%\n\n"
+                                "This reference study is independent of the currently selected project.\n"
+                                "See docs/cantilever/REPORT.md for assumptions, criteria and plots.")
+
     def import_cad(self):
         project_id = self.require_project()
         path, _ = QFileDialog.getOpenFileName(self, "Import a single CAD solid", "", "CAD (*.step *.stp *.iges *.igs *.brep)")
@@ -297,6 +430,7 @@ class SimulatorWindow(QMainWindow):
         parameters = {key: field.value() for key, field in self.fields.items()}
         parameters["mesh_size_m"] /= 1000
         parameters["young_Pa"] *= 1e9
+        parameters.update({key: selector.currentData() for key, selector in self.selectors.items()})
         self.workspace.set_parameters(self.require_project(), parameters)
         self.dirty = False
         self.details_note.setText("Settings saved. Prior results are retained in job history.")
@@ -324,7 +458,7 @@ class SimulatorWindow(QMainWindow):
 
     def show_mcp(self):
         QMessageBox.information(self, "Local MCP automation",
-                                "12 stdio MCP tools share this desktop workspace.\n\n"
+                                "13 stdio MCP tools share this desktop workspace.\n\n"
                                 "Create/import projects, set inputs, mesh, solve, inspect jobs/results and select views.\n\n"
                                 "Workspace: " + str(self.workspace.root) + "\n\n"
                                 "Server: python -m opensim.mcp_server\nSee docs/DESKTOP_AND_MCP.md for client setup.")
@@ -332,22 +466,49 @@ class SimulatorWindow(QMainWindow):
     def apply_view_options(self, *args):
         state = self.workspace.ui_state()
         mode = state["view"]
-        scale = [1, 100, 500, 1500][self.deformation.currentIndex()]
+        scale = ["auto", 1, 10, 100, 500][self.deformation.currentIndex()]
+        component = ["magnitude", "x", "y", "z"][self.result_component.currentIndex()]
         self.view.page().runJavaScript(
-            f"if(typeof setViewportMode==='function'){{setViewportMode({json.dumps(mode)});setDeformationScale({scale});}}")
+            f"if(typeof setViewportMode==='function'){{setViewportMode({json.dumps(mode)});setDeformationScale({json.dumps(scale)});}}"
+            f"if(typeof setTheme==='function')setTheme({json.dumps(self.theme)});"
+            f"if(typeof setResultComponent==='function')setResultComponent({json.dumps(component)});")
+
+    def apply_camera(self, *args):
+        orientation = ["isometric", "front", "top"][self.camera.currentIndex()]
+        self.view.page().runJavaScript(f"if(typeof setViewOrientation==='function')setViewOrientation({json.dumps(orientation)});")
+
+    def set_theme(self, theme):
+        self.workspace.set_theme(theme)
+        self.apply_theme()
+
+    def apply_theme(self):
+        self.theme = self.workspace.ui_state()["theme"]
+        self.setStyleSheet(STYLE + (DARK_STYLE if self.theme == "dark" else ""))
+        blocker = QSignalBlocker(self.dark_action)
+        self.dark_action.setChecked(self.theme == "dark")
+        del blocker
+        self.theme_button.setText("Light mode" if self.theme == "dark" else "Dark mode")
+        self.legend.setStyleSheet("padding:9px;color:" + ("#9fb9d7;background:#132238" if self.theme == "dark" else "#55697e;background:#fff"))
+        self.apply_view_options()
 
     def refresh(self):
         self.workspace.heartbeat()
         state = self.workspace.ui_state()
+        if state["theme"] != self.theme:
+            self.apply_theme()
         projects = self.workspace.list_projects()
         if not state["project_id"] and projects:
             state = self.workspace.show_project(projects[0]["id"])
         selected = state["project_id"]
+        project_changed = selected != self.project_id
         if selected != self.project_id:
             self.project_id = selected
             self.project_revision = None
             self.dirty = False
         project = self.workspace.get_project(selected) if selected else None
+        if project_changed and project:
+            transverse_point = project["parameters"]["load_kind"] == "point" and project["parameters"]["load_axis"] == "z"
+            self.camera.setCurrentIndex(1 if transverse_point else 0)
         jobs = self.workspace.list_jobs(selected) if selected else []
         signature = [(entry["id"], entry["name"], entry["revision"]) for entry in projects], [(job["id"], job["status"]) for job in jobs], selected
         if signature != self.tree_signature:
@@ -357,9 +518,12 @@ class SimulatorWindow(QMainWindow):
                 root = QTreeWidgetItem([entry["name"]])
                 root.setData(0, Qt.ItemDataRole.UserRole, (entry["id"], "geometry"))
                 self.tree.addTopLevelItem(root)
-                for label, view in (("Geometry (single solid)", "geometry"), ("Mesh / C3D4", "mesh"),
+                element = "C3D10" if entry["parameters"]["element_order"] == 2 else "C3D4"
+                axis = entry["parameters"]["load_axis"].upper()
+                application = "tip point" if entry["parameters"]["load_kind"] == "point" else "end face"
+                for label, view in (("Geometry (single solid)", "geometry"), (f"Mesh / {element}", "mesh"),
                                     ("Static Structural", "geometry"), ("  Fixed Support / X-min", "geometry"),
-                                    ("  Force / X-max", "geometry"), ("Solution / Displacement", "results")):
+                                    (f"  Force / {axis} · {application}", "geometry"), ("Solution / Displacement", "results")):
                     child = QTreeWidgetItem([label])
                     child.setData(0, Qt.ItemDataRole.UserRole, (entry["id"], view))
                     root.addChild(child)
@@ -376,11 +540,19 @@ class SimulatorWindow(QMainWindow):
                 blocker = QSignalBlocker(field)
                 field.setValue(value)
                 del blocker
+            for key, selector in self.selectors.items():
+                blocker = QSignalBlocker(selector)
+                selector.setCurrentIndex(selector.findData(project["parameters"][key]))
+                del blocker
             self.project_revision = project["revision"]
         active = next((job for job in jobs if job["status"] in {"queued", "running"}), None)
         self.apply_button.setEnabled(bool(project) and not active)
         for field in self.fields.values():
             field.setEnabled(bool(project) and not active)
+        for selector in self.selectors.values():
+            selector.setEnabled(bool(project) and not active)
+        for button in self.analysis_buttons:
+            button.setEnabled(bool(project) and not active)
         if project:
             self.status_label.setText(f"{project['name']}  |  " + (f"{active['kind'].title()} {active['status']}…" if active else "Ready"))
             artifact = self.workspace.current_artifact(selected, state["view"])
@@ -403,8 +575,9 @@ class SimulatorWindow(QMainWindow):
                     result = job["result"]
                     output.append(f"  {result['nodes']:,} nodes · {result['tetrahedra']:,} tetrahedra")
                     if "maximum_displacement_m" in result:
-                        output.append(f"  Maximum displacement: {result['maximum_displacement_m'] * 1e6:.4f} µm  |  "
-                                      f"Reaction X: {result['reaction_N'][0]:.4f} N  |  "
+                        direction = result.get("load_axis", "x")
+                        output.append(f"  Maximum displacement: {result['maximum_displacement_m'] * 1000:.6g} mm  |  "
+                                      f"Reaction {direction.upper()}: {result['reaction_N']['xyz'.index(direction)]:.4f} N  |  "
                                       f"Force imbalance: {result['relative_force_imbalance']:.2e}")
             text = "\n".join(output) or "No jobs yet. Import CAD or create a test plate."
             if self.messages.toPlainText() != text:
@@ -413,9 +586,16 @@ class SimulatorWindow(QMainWindow):
                 if state["view"] != "results":
                     raise ValueError("Geometry or mesh view")
                 summary = self.workspace.get_results(selected)["summary"]
-                self.legend.setText(f"  Displacement |U|: 0 → {summary['maximum_displacement_m'] * 1e6:.4f} µm   ·   "
+                self.result_cards[0].setText(f"Maximum |U|\n{summary['maximum_displacement_m'] * 1000:.6g} mm")
+                tip = summary.get("tip_mean_displacement_m", [0, 0, 0])
+                axis = summary.get("load_axis", "x")
+                self.result_cards[1].setText(f"Tip mean U{axis}\n{tip['xyz'.index(axis)] * 1000:.6g} mm")
+                self.result_cards[2].setText(f"Force balance residual\n{summary['relative_force_imbalance']:.2e}")
+                self.legend.setText(f"  Displacement |U|: 0 → {summary['maximum_displacement_m'] * 1000:.6g} mm   ·   "
                                     f"{summary['tetrahedra']:,} elements   ·   Display deformation is exaggerated   ·   Drag to rotate")
             except ValueError:
+                for card, title in zip(self.result_cards, ("Maximum |U|", "Tip displacement", "Force balance")):
+                    card.setText(title + "\n—")
                 label = "No solved result for current settings" if state["view"] == "results" else "Undeformed geometry / mesh preview"
                 self.legend.setText(f"  {label}   ·   Drag to rotate")
 

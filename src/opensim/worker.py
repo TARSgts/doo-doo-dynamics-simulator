@@ -22,7 +22,9 @@ def execute(workspace: Workspace, job_id: str):
         cad = Path(job["payload"]["cad"]) if job["payload"]["cad"] else None
         if job["kind"] == "example":
             cad = directory / "test-object.step"
-            if job["payload"]["example"] == "axial_bar":
+            if job["payload"]["example"] == "cantilever_beam":
+                make_box(cad, (1.0, 0.02, 0.02))
+            elif job["payload"]["example"] == "axial_bar":
                 make_box(cad, (0.1, 0.02, 0.02))
             else:
                 with gmsh_session():
@@ -37,10 +39,13 @@ def execute(workspace: Workspace, job_id: str):
         if job["kind"] == "solve":
             result = solve(cad, directory / "solve", size=parameters["mesh_size_m"],
                            scale=parameters["cad_scale"], young=parameters["young_Pa"],
-                           poisson=parameters["poisson"], load=parameters["load_N"])
+                           poisson=parameters["poisson"], load=parameters["load_N"], order=parameters["element_order"],
+                           load_axis=parameters["load_axis"], load_kind=parameters["load_kind"])
         else:
-            mesh = import_and_mesh(cad, parameters["mesh_size_m"], parameters["cad_scale"], directory / "mesh.msh")
+            mesh = import_and_mesh(cad, parameters["mesh_size_m"], parameters["cad_scale"], directory / "mesh.msh",
+                                   order=parameters["element_order"], tip_point=parameters["load_kind"] == "point")
             result = {"nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra), "view": "mesh",
+                      "element_type": mesh.element_type,
                       "bounds_m": [mesh.points.min(axis=0).tolist(), mesh.points.max(axis=0).tolist()]}
             write_viewer(directory / "preview.html", mesh, np.zeros_like(mesh.points), result)
         workspace.finish_job(job_id, result=result)

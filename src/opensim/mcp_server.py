@@ -10,13 +10,19 @@ from opensim.workspace import CAPABILITIES, Workspace
 def create_server(workspace: Workspace) -> FastMCP:
     server = FastMCP("Doo Doo Dynamics Simulator", instructions=(
         "Control the local simulator workspace. Jobs run asynchronously: poll get_job. "
-        "All quantities are SI. Only static structural with X-min clamped and X-max axial load is implemented. "
+        "All quantities are SI. Static structural supports X-min clamped and X/Y/Z end-face or tip-center point loads, using C3D4 or C3D10. "
         "Inspect get_capabilities before requesting other physics. The desktop reflects shared workspace changes."))
 
     @server.tool()
     def get_capabilities() -> dict[str, Any]:
         """List implemented and disabled planned features and live desktop status."""
         return {"features": CAPABILITIES, "workspace": str(workspace.root), "desktop": workspace.ui_state()}
+
+    @server.tool()
+    def set_desktop_theme(theme: str = "dark") -> dict[str, Any]:
+        """Persist dark or light mode and update the running desktop viewport."""
+        workspace.set_theme(theme)
+        return workspace.ui_state()
 
     @server.tool()
     def list_projects() -> list[dict[str, Any]]:
@@ -42,14 +48,16 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def set_analysis_parameters(project_id: str, mesh_size_m: float = 0.004, cad_scale: float = 1.0,
-                                young_Pa: float = 210e9, poisson: float = 0.3, load_N: float = 1000) -> dict[str, Any]:
+                                young_Pa: float = 210e9, poisson: float = 0.3, load_N: float = 1000,
+                                element_order: int = 1, load_axis: str = "x", load_kind: str = "face") -> dict[str, Any]:
         """Set all static-analysis inputs in SI units. Existing results become stale when inputs change."""
         return workspace.set_parameters(project_id, {"mesh_size_m": mesh_size_m, "cad_scale": cad_scale,
-                                                    "young_Pa": young_Pa, "poisson": poisson, "load_N": load_N})
+                                                    "young_Pa": young_Pa, "poisson": poisson, "load_N": load_N,
+                                                    "element_order": element_order, "load_axis": load_axis, "load_kind": load_kind})
 
     @server.tool()
     def create_test_object(project_id: str, kind: str = "perforated_plate") -> dict[str, Any]:
-        """Create and preview perforated_plate or axial_bar in a background job; return its job ID."""
+        """Create perforated_plate, axial_bar or cantilever_beam; return its background job ID."""
         return workspace.start_job(project_id, "example", example=kind)
 
     @server.tool()

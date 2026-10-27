@@ -11,6 +11,9 @@ Reviewed October 26, 2026 (America/Phoenix).
 | pytest | 8.4.2 | [PyPI](https://pypi.org/project/pytest/8.4.2/); tests only | MIT |
 | setuptools | 80.9.0 | [PyPI](https://pypi.org/project/setuptools/80.9.0/); local build | MIT |
 | REA | 6.8.0 | [morluto/rea](https://github.com/morluto/rea); separate optional research CLI | MIT; transitive components retain their notices |
+| Matplotlib | 3.10.8 | Official PyPI package; validation plots | Matplotlib license, BSD compatible; dependencies retain notices |
+
+`requirements-validation-win-py312.lock` adds plotting wheels and includes the core lock. The desktop lock includes that validation lock, so the full test suite and cantilever report generator are installed together. PySide6 6.10.2 and the MCP SDK 1.26.0 remain pinned in the desktop lock.
 
 `requirements-win-py312.lock` records every installed project/test/build wheel version and SHA-256 for Windows x64 / Python 3.12. Pip's installation reports were used to capture artifact hashes. `tools/rea/package-lock.json` records REA's dependency graph and registry integrity values. Pip and the existing runtimes are bootstrap prerequisites, not included in those locks.
 

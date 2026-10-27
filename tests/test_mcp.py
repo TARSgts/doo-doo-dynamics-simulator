@@ -17,7 +17,9 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
             async with ClientSession(reader, writer) as session:
                 await session.initialize()
                 catalog = await session.list_tools()
-                assert len(catalog.tools) == 12
+                assert len(catalog.tools) == 13
+                themed = await session.call_tool("set_desktop_theme", {"theme": "dark"})
+                assert themed.structuredContent["theme"] == "dark"
                 capabilities = await session.call_tool("get_capabilities", {})
                 assert not capabilities.isError
                 data = capabilities.structuredContent

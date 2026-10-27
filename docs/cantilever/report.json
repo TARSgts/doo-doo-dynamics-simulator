@@ -1,0 +1,88 @@
+{
+  "result": "PASS",
+  "criteria": {
+    "tip_error_below_2_percent": true,
+    "curve_error_below_2_percent": true,
+    "last_mesh_change_below_0_5_percent": true,
+    "force_balance_below_0_001_percent": true,
+    "moment_balance_below_0_001_percent": true
+  },
+  "geometry_m": {
+    "length": 1.0,
+    "width": 0.02,
+    "height": 0.02
+  },
+  "young_Pa": 210000000000.0,
+  "poisson": 0.3,
+  "force_z_N": -10,
+  "inertia_y_m4": 1.3333333333333335e-08,
+  "euler_bernoulli_tip_z_m": -0.0011904761904761901,
+  "expected_reaction_z_N": 10,
+  "expected_root_moment_y_Nm": -10,
+  "last_mesh_change_fraction": 0.00013547102643809213,
+  "cases": [
+    {
+      "case": "linear-baseline",
+      "mesh_size_m": 0.01,
+      "element_type": "C3D4",
+      "nodes": 832,
+      "tetrahedra": 1891,
+      "tip_mean_z_m": -0.0005859062416666666,
+      "point_z_m": -0.0005859081,
+      "tip_error_fraction": 0.5078387569999999,
+      "curve_error_fraction": 0.5078733999999999,
+      "reaction_z_N": 10.000000000000014,
+      "reaction_moment_y_Nm": -9.999999958593747,
+      "force_imbalance": 1.27279220794659e-06,
+      "moment_imbalance": 8.56156275144657e-09
+    },
+    {
+      "case": "quadratic-coarse",
+      "mesh_size_m": 0.02,
+      "element_type": "C3D10",
+      "nodes": 2278,
+      "tetrahedra": 1014,
+      "tip_mean_z_m": -0.001187916625,
+      "point_z_m": -0.001187924,
+      "tip_error_fraction": 0.0021500349999997725,
+      "curve_error_fraction": 0.0021513999999996356,
+      "reaction_z_N": 9.999969199999928,
+      "reaction_moment_y_Nm": -9.999999901283202,
+      "force_imbalance": 3.135212976537569e-06,
+      "moment_imbalance": 1.4644563222774059e-08
+    },
+    {
+      "case": "quadratic-medium",
+      "mesh_size_m": 0.01,
+      "element_type": "C3D10",
+      "nodes": 4381,
+      "tetrahedra": 1891,
+      "tip_mean_z_m": -0.0011886614999999999,
+      "point_z_m": -0.00118867,
+      "tip_error_fraction": 0.0015243399999997909,
+      "curve_error_fraction": 0.0015255999999997092,
+      "reaction_z_N": 10.000019600000035,
+      "reaction_moment_y_Nm": -9.999999985203123,
+      "force_imbalance": 2.231232846006903e-06,
+      "moment_imbalance": 2.8618918936564287e-08
+    },
+    {
+      "case": "quadratic-fine",
+      "mesh_size_m": 0.0067,
+      "element_type": "C3D10",
+      "nodes": 16949,
+      "tetrahedra": 8843,
+      "tip_mean_z_m": -0.0011888225510112381,
+      "point_z_m": -0.001188837,
+      "tip_error_fraction": 0.0013890571505597027,
+      "curve_error_fraction": 0.0013903599999996745,
+      "reaction_z_N": 9.999989899999989,
+      "reaction_moment_y_Nm": -9.999999959539576,
+      "force_imbalance": 1.369282292162932e-06,
+      "moment_imbalance": 1.303853136460942e-08
+    }
+  ],
+  "reference_formula": "w(x) = F*x^2*(3*L-x)/(6*E*I), I=b*h^3/12",
+  "measurement": "Area-averaged tip section displacement; exact quadratic surface integration on flat faces",
+  "limitations": "3D clamped solid versus ideal beam; local point-load stress/displacement singularity is not a convergence target."
+}

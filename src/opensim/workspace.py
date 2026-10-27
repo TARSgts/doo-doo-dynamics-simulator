@@ -12,11 +12,12 @@ import uuid
 
 
 DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
-                      "poisson": 0.3, "load_N": 1000.0}
+                      "poisson": 0.3, "load_N": 1000.0, "element_order": 1,
+                      "load_axis": "x", "load_kind": "face"}
 CAPABILITIES = [
     {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP"},
-    {"name": "Tetrahedral meshing", "enabled": True, "detail": "Gmsh C3D4"},
-    {"name": "Static structural", "enabled": True, "detail": "X-min clamp, X-max axial total force"},
+    {"name": "Tetrahedral meshing", "enabled": True, "detail": "Gmsh C3D4 or quadratic C3D10"},
+    {"name": "Static structural", "enabled": True, "detail": "X-min clamp; X/Y/Z force at tip center or end face"},
     {"name": "Displacement results", "enabled": True, "detail": "Rotatable displacement contour"},
     {"name": "MCP automation", "enabled": True, "detail": "Local stdio tools and shared workspace"},
     *[{"name": name, "enabled": False, "detail": "Planned — not implemented"} for name in
@@ -50,6 +51,8 @@ class Workspace:
                     project_id TEXT, view TEXT NOT NULL DEFAULT 'geometry', heartbeat REAL NOT NULL DEFAULT 0);
                 INSERT OR IGNORE INTO ui(id) VALUES(1);
             """)
+            if "theme" not in {row["name"] for row in connection.execute("PRAGMA table_info(ui)")}:
+                connection.execute("ALTER TABLE ui ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'")
 
     def connect(self):
         connection = sqlite3.connect(self.database, timeout=10)
@@ -78,7 +81,7 @@ class Workspace:
         if row is None:
             raise ValueError("Unknown project")
         project = dict(row)
-        project["parameters"] = json.loads(project["parameters"])
+        project["parameters"] = DEFAULT_PARAMETERS | json.loads(project["parameters"])
         return project
 
     def _assert_idle(self, connection, project_id):
@@ -107,9 +110,12 @@ class Workspace:
         if set(parameters) - set(DEFAULT_PARAMETERS):
             raise ValueError("Unsupported analysis parameter")
         merged = project["parameters"] | parameters
+        numeric = [value for key, value in merged.items() if key not in {"load_axis", "load_kind"}]
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
-               for value in merged.values()):
+               for value in numeric):
             raise ValueError("All parameters must be finite numbers")
+        if merged["element_order"] not in {1, 2} or merged["load_axis"] not in {"x", "y", "z"} or merged["load_kind"] not in {"face", "point"}:
+            raise ValueError("Choose element order 1/2, direction X/Y/Z and face/point application")
         if any(merged[key] <= 0 for key in ("mesh_size_m", "cad_scale", "young_Pa")):
             raise ValueError("Mesh size, CAD scale and Young's modulus must be positive")
         if not -1 < merged["poisson"] < 0.5 or merged["load_N"] == 0:
@@ -118,7 +124,7 @@ class Workspace:
             connection.execute("BEGIN IMMEDIATE")
             self._assert_idle(connection, project_id)
             current = connection.execute("SELECT parameters FROM projects WHERE id=?", (project_id,)).fetchone()
-            current_parameters = json.loads(current["parameters"])
+            current_parameters = DEFAULT_PARAMETERS | json.loads(current["parameters"])
             if any(current_parameters[key] != merged[key] for key in parameters):
                 current_parameters.update(parameters)
                 connection.execute("UPDATE projects SET parameters=?,revision=revision+1 WHERE id=?",
@@ -128,7 +134,7 @@ class Workspace:
     def start_job(self, project_id: str, kind: str, example="perforated_plate") -> dict:
         if kind not in {"example", "mesh", "solve"}:
             raise ValueError("Unsupported job kind")
-        if example not in {"perforated_plate", "axial_bar"}:
+        if example not in {"perforated_plate", "axial_bar", "cantilever_beam"}:
             raise ValueError("Unsupported test object")
         job_id = uuid.uuid4().hex
         with self.connect() as connection:
@@ -143,7 +149,7 @@ class Workspace:
             if kind == "example":
                 project["revision"] += 1
                 connection.execute("UPDATE projects SET revision=? WHERE id=?", (project["revision"], project_id))
-            payload = {"cad": project["cad"], "parameters": json.loads(project["parameters"]), "example": example}
+            payload = {"cad": project["cad"], "parameters": DEFAULT_PARAMETERS | json.loads(project["parameters"]), "example": example}
             now = time.time()
             connection.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?)",
                                (job_id, project_id, kind, "queued", project["revision"],
@@ -232,3 +238,9 @@ class Workspace:
     def heartbeat(self):
         with self.connect() as connection:
             connection.execute("UPDATE ui SET heartbeat=? WHERE id=1", (time.time(),))
+
+    def set_theme(self, theme: str):
+        if theme not in {"dark", "light"}:
+            raise ValueError("Theme must be dark or light")
+        with self.connect() as connection:
+            connection.execute("UPDATE ui SET theme=? WHERE id=1", (theme,))

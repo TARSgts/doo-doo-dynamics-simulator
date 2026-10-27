@@ -16,7 +16,8 @@ def wait_job(workspace, job_id):
 
 
 @pytest.mark.parametrize("parameters", [{"poisson": 0.5}, {"load_N": 0}, {"mesh_size_m": -1},
-                                       {"young_Pa": float("nan")}, {"cad_scale": True}, {"physics": "thermal"}])
+                                       {"young_Pa": float("nan")}, {"cad_scale": True}, {"physics": "thermal"},
+                                       {"element_order": 3}, {"element_order": True}, {"load_axis": "bad"}, {"load_kind": "pressure"}])
 def test_parameter_validation_and_project_isolation(tmp_path, parameters):
     workspace = Workspace(tmp_path)
     project = workspace.create_project("Test")
@@ -25,6 +26,16 @@ def test_parameter_validation_and_project_isolation(tmp_path, parameters):
     with pytest.raises(ValueError, match="Unknown project"):
         workspace.get_project("../../outside")
     assert workspace.get_project(project["id"])["revision"] == 0
+
+
+def test_legacy_project_parameters_receive_defaults(tmp_path):
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Legacy")
+    with workspace.connect() as connection:
+        connection.execute("UPDATE projects SET parameters=? WHERE id=?", ('{"load_N":1000}', project["id"]))
+    assert workspace.get_project(project["id"])["parameters"]["element_order"] == 1
+    workspace.set_parameters(project["id"], {"load_axis": "z"})
+    assert workspace.get_project(project["id"])["parameters"]["load_axis"] == "z"
 
 
 def test_capabilities_distinguish_planned_features():

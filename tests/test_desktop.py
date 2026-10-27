@@ -29,6 +29,19 @@ def test_desktop_has_real_actions_disabled_roadmap_and_shared_state(tmp_path):
         window.refresh()
         assert "MESH" in window.viewport_title.text()
         assert workspace.ui_state()["desktop_connected"]
+        assert window.theme == "dark"
+        window.theme_button.click()
+        assert window.theme == "light"
+        assert Workspace(tmp_path).ui_state()["theme"] == "light"
+        window.theme_button.click()
+        assert window.theme == "dark"
+        assert window.dark_action.isChecked()
+        window.selectors["element_order"].setCurrentIndex(1)
+        window.selectors["load_axis"].setCurrentIndex(2)
+        window.selectors["load_kind"].setCurrentIndex(1)
+        window.save_parameters()
+        parameters = workspace.get_project(project["id"])["parameters"]
+        assert (parameters["element_order"], parameters["load_axis"], parameters["load_kind"]) == (2, "z", "point")
     finally:
         window.close()
         window.view.setPage(None)

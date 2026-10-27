@@ -1,4 +1,4 @@
--r requirements-win-py312.lock
+-r requirements-validation-win-py312.lock
 PySide6==6.10.2 --hash=sha256:032bad6b18a17fcbf4dddd0397f49b07f8aae7f1a45b7e4de7037bf7fd6e0edf
 mcp==1.26.0 --hash=sha256:904a21c33c25aa98ddbeb47273033c435e595bbacfdb177f4bd87f6dceebe1ca
 PySide6_Addons==6.10.2 --hash=sha256:c20150068525a17494f3b6576c5d61c417cf9a5870659e29f5ebd83cd20a78ea

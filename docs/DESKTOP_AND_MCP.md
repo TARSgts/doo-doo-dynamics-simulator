@@ -2,6 +2,8 @@
 
 The native Windows desktop application provides an engineering ribbon, model outline, material/load/mesh properties, rotatable viewport, analysis toolbox and job log. It uses original interface code and common engineering-workbench conventions. It contains no Ansys interface assets, source code or branding.
 
+Dark mode is on by default. Use the header button or View → Dark mode to switch; the preference persists in the shared workspace. The renderer supports both palettes, automatic deformation scaling, signed displacement components, a color bar, and clamp/load annotations. The properties pane scrolls vertically, input controls disable during active jobs, and top result cards summarize displacement and force balance.
+
 ![Native desktop workbench](desktop-preview.png)
 
 ## Install and launch
@@ -31,7 +33,7 @@ The desktop/MCP extension uses the official `PySide6==6.10.2` and `mcp==1.26.0` 
 
 Project inputs, job statuses and results persist in `workspace/workspace.sqlite3` and per-project folders. The workspace is ignored by Git. Input changes invalidate displayed results without deleting historical job files. Active jobs prevent changes to that project's inputs. Job failure messages and worker/solver logs are retained. Cancelling or recovering interrupted workers is not implemented yet; normal jobs finish independently of the GUI window.
 
-Implemented analysis remains one solid and one isotropic linear material with an X-min clamp and equal nodal X-max axial forces. Planned modal, thermal, transient, CFD, electromagnetic, contact, nonlinear, optimization and GPU features are **disabled controls**, with tooltips saying they are not implemented. The MCP capability catalog reports the same distinction. Geometry mode displays an undeformed tessellated model, not a CAD editor; contour results show displacement only.
+Implemented analysis supports one solid and one isotropic linear material with an X-min clamp and X/Y/Z end forces, using either C3D4 or C3D10. Choose an end-face total nodal force or a single point at the planar tip center. The cantilever preset uses a 1 m × 20 mm × 20 mm beam with −10 N in Z and C3D10. Planned modal, thermal, transient, CFD, electromagnetic, contact, nonlinear, optimization and GPU features remain **disabled controls**. Geometry mode displays undeformed tessellation, not a CAD editor; contour results show total or signed-component displacement only.
 
 ## MCP connection
 
@@ -72,10 +74,11 @@ Other MCP clients can launch the same command using a standard stdio configurati
 | Tool | Purpose |
 | --- | --- |
 | `get_capabilities` | Available/planned features, workspace and desktop heartbeat |
+| `set_desktop_theme` | Persist dark/light mode and update the live desktop |
 | `list_projects` / `create_project` / `get_project` | Project discovery and creation |
 | `import_cad` | Copy an explicitly selected local CAD file into the project |
-| `set_analysis_parameters` | Set all five analysis inputs in SI units |
-| `create_test_object` | Generate a perforated plate or axial bar as a background job |
+| `set_analysis_parameters` | Set SI inputs, element order, force direction and face/point application |
+| `create_test_object` | Generate a perforated plate, axial bar or cantilever beam |
 | `mesh_project` / `solve_project` | Start asynchronous meshing or static structural solve |
 | `get_job` | Poll status, failure or numerical summary |
 | `get_results` | Current results and artifact paths; rejects stale inputs |
@@ -85,6 +88,6 @@ Typical sequence: create project → set parameters → create/import CAD → wa
 
 ## Verified behavior
 
-The full suite passes 26 tests locally, including a real MCP stdio session, parameter validation, disabled UI controls, cross-process workspace jobs, stale-result rejection, malformed-CAD failure and the original structural tests. A separate actual MCP workflow created the perforated plate, generated 7,291 tetrahedra, solved the 1,000 N case and returned maximum displacement **2.8404 µm** before selecting its desktop results view. The screenshot is a capture of the running native Qt app with those results.
+The full suite passes 34 tests locally, including a real MCP stdio session, persistent theme toggling, parameter validation, disabled UI controls, C3D10 node mapping and quadratic face integration, point-force deck generation, cross-process jobs, stale-result rejection, malformed-CAD failure and the structural benchmarks. The [cantilever report](cantilever/REPORT.md) documents the bending comparison and mesh refinement. A separate MCP workflow configured the quadratic beam, applied its point load, solved it, selected its desktop results view and enabled dark mode.
 
 The native app was also launched with `pythonw.exe`; invoking its desktop Solve action completed a second real solver job, refreshed the shared job log and displayed the same numerical result. The Codex registration was added and verified on the development machine; an already-running chat must reconnect or restart to discover the new server.

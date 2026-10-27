@@ -2,6 +2,8 @@
 
 Executed October 26, 2026, on Windows x64 with Python 3.12.14, Gmsh 4.15.2, NumPy 2.3.4 and CalculiX 2.23 (`ccx_static.exe`, SPOOLES).
 
+The expanded suite now has **34 passing tests**. See the [long cantilever validation](cantilever/REPORT.md) for the C3D10 tip-point-load benchmark, three quadratic meshes, C3D4 failure baseline, curve comparison and force/moment checks. Dark/light rendering and persistent theme toggles were also exercised in a native desktop session.
+
 `python -m pytest -q`: **15 passed**, including the real solver integration test; no solver skips. `pip check`: no broken requirements.
 
 ## Axial bar

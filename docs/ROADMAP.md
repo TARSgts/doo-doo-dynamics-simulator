@@ -14,6 +14,8 @@ Exit evidence: reproduce the supplied benchmark with a real solver and inspect t
 
 The initial native Qt workbench, persistent project/job state and 12-tool local MCP interface are implemented. The desktop exposes the current Stage 1 solver; future physics controls are disabled. This does not complete the modeling and validation work below.
 
+Additional implemented work: C3D10 meshing and export, planar tip-center point loads in X/Y/Z, moment equilibrium, a reproducible Euler–Bernoulli beam benchmark, persistent dark/light themes and a thirteenth MCP tool for theme selection. Quadratic elements and transverse loads are available; general face/support selection remains planned.
+
 Add a versioned project schema; CAD face selection and persistent named groups; consistent pressure/traction integration; arbitrary vector loads and displacement constraints; multiple materials and load cases; automatic rigid-body checks; stress parsing, von Mises contours and reaction summaries. Add patch tests, bending benchmarks, manufactured solutions, distorted-element tests and quantitative convergence studies before expanding supported analyses.
 
 ## Stage 3 — accuracy and usability

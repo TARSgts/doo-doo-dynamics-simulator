@@ -25,22 +25,27 @@ def find_solver(explicit: str | None = None) -> Path:
     raise FileNotFoundError("Set CCX_EXECUTABLE to a trusted CalculiX ccx executable")
 
 
-def write_deck(mesh: Mesh, path: Path, young: float, poisson: float, load: float):
+def write_deck(mesh: Mesh, path: Path, young: float, poisson: float, load: float,
+               load_axis="x", load_kind="face"):
     if not np.isfinite(young) or young <= 0:
         raise ValueError("Young's modulus must be positive and finite")
     if not np.isfinite(poisson) or not -1 < poisson < 0.5:
         raise ValueError("Poisson ratio must be between -1 and 0.5, exclusive")
     if not np.isfinite(load) or load == 0:
-        raise ValueError("Axial load must be nonzero and finite")
+        raise ValueError("Load must be nonzero and finite")
+    if load_axis not in {"x", "y", "z"} or load_kind not in {"face", "point"}:
+        raise ValueError("Choose an X/Y/Z load and face or point application")
     fixed = mesh.end_nodes("min")
     loaded = mesh.end_nodes("max")
     for nodes in (fixed, loaded):
         if len(nodes) < 3 or np.linalg.matrix_rank(mesh.points[nodes] - mesh.points[nodes[0]]) < 2:
             raise ValueError("Each X end must contain a planar face with at least three noncollinear nodes")
-    lines = ["*HEADING", "Independent open-simulation axial load", "*NODE, NSET=NALL"]
+    if load_kind == "point":
+        loaded = np.array([mesh.tip_node()])
+    lines = ["*HEADING", "Independent open-simulation static structural", "*NODE, NSET=NALL"]
     lines.extend(f"{index + 1}, " + ", ".join(f"{value:.15g}" for value in point)
                  for index, point in enumerate(mesh.points))
-    lines.append("*ELEMENT, TYPE=C3D4, ELSET=SOLID")
+    lines.append(f"*ELEMENT, TYPE={mesh.element_type}, ELSET=SOLID")
     lines.extend(f"{index + 1}, " + ", ".join(str(int(node) + 1) for node in element)
                  for index, element in enumerate(mesh.tetrahedra))
     lines.append("*NSET, NSET=FIX")
@@ -48,7 +53,8 @@ def write_deck(mesh: Mesh, path: Path, young: float, poisson: float, load: float
     lines.extend(["*MATERIAL, NAME=ELASTIC", "*ELASTIC", f"{young:.15g}, {poisson:.15g}",
                   "*SOLID SECTION, ELSET=SOLID, MATERIAL=ELASTIC", "*BOUNDARY", "FIX, 1, 3, 0",
                   "*STEP", "*STATIC, SOLVER=SPOOLES", "*CLOAD"])
-    lines.extend(f"{int(node) + 1}, 1, {load / len(loaded):.15g}" for node in loaded)
+    direction = "xyz".index(load_axis) + 1
+    lines.extend(f"{int(node) + 1}, {direction}, {load / len(loaded):.15g}" for node in loaded)
     lines.extend(["*NODE PRINT, NSET=NALL", "U", "*NODE PRINT, NSET=FIX", "RF",
                   "*NODE FILE", "U", "*EL FILE", "S", "*END STEP"])
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
