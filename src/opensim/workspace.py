@@ -9,15 +9,16 @@ import sys
 import threading
 import time
 import uuid
+from opensim.load_settings import LOAD_KINDS, LOAD_SURFACES
 
 
 DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
                       "poisson": 0.3, "load_N": 1000.0, "element_order": 1,
-                      "load_axis": "x", "load_kind": "face", "density_kg_m3": 7850.0, "mode_count": 6}
+                      "load_axis": "x", "load_kind": "face", "load_surface": "x-max", "density_kg_m3": 7850.0, "mode_count": 6}
 CAPABILITIES = [
     {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP"},
     {"name": "Tetrahedral meshing", "enabled": True, "detail": "Gmsh C3D4 or quadratic C3D10"},
-    {"name": "Static structural", "enabled": True, "detail": "X-min clamp; X/Y/Z force at tip center or end face"},
+    {"name": "Static structural", "enabled": True, "detail": "X-min clamp; point, legacy equal-node end load, or uniform vector traction on a bounding-plane patch"},
     {"name": "Displacement results", "enabled": True, "detail": "Rotatable displacement contour"},
     {"name": "MCP automation", "enabled": True, "detail": "Local stdio tools and shared workspace"},
     {"name": "Modal analysis", "enabled": True, "detail": "Undamped unprestressed modes; X-min face fixed; positive density"},
@@ -115,12 +116,13 @@ class Workspace:
         if set(parameters) - set(DEFAULT_PARAMETERS):
             raise ValueError("Unsupported analysis parameter")
         merged = project["parameters"] | parameters
-        numeric = [value for key, value in merged.items() if key not in {"load_axis", "load_kind"}]
+        numeric = [value for key, value in merged.items() if key not in {"load_axis", "load_kind", "load_surface"}]
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
                for value in numeric):
             raise ValueError("All parameters must be finite numbers")
-        if merged["element_order"] not in {1, 2} or merged["load_axis"] not in {"x", "y", "z"} or merged["load_kind"] not in {"face", "point"}:
-            raise ValueError("Choose element order 1/2, direction X/Y/Z and face/point application")
+        if (merged["element_order"] not in {1, 2} or merged["load_axis"] not in {"x", "y", "z"}
+                or merged["load_kind"] not in LOAD_KINDS or merged["load_surface"] not in LOAD_SURFACES):
+            raise ValueError("Choose element order 1/2, X/Y/Z, face/point/traction and a bounding-plane surface")
         if any(merged[key] <= 0 for key in ("mesh_size_m", "cad_scale", "young_Pa")):
             raise ValueError("Mesh size, CAD scale and Young's modulus must be positive")
         from opensim.modal_parameters import validate_modal_parameters

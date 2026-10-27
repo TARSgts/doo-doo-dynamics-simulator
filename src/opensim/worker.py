@@ -46,7 +46,7 @@ def execute(workspace: Workspace, job_id: str):
             result = solve(cad, directory / "solve", size=parameters["mesh_size_m"],
                            scale=parameters["cad_scale"], young=parameters["young_Pa"],
                            poisson=parameters["poisson"], load=parameters["load_N"], order=parameters["element_order"],
-                           load_axis=parameters["load_axis"], load_kind=parameters["load_kind"])
+                           load_axis=parameters["load_axis"], load_kind=parameters["load_kind"], load_surface=parameters["load_surface"])
         else:
             mesh = import_and_mesh(cad, parameters["mesh_size_m"], parameters["cad_scale"], directory / "mesh.msh",
                                    order=parameters["element_order"], tip_point=parameters["load_kind"] == "point")

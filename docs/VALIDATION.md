@@ -43,6 +43,12 @@ The native desktop Modal action ran a real background solve, selected mode 3 (10
 
 The full suite passed **74 tests in 56.36 seconds**, with no skips, after modal integration. No new dependencies were required. The worker and desktop checks were rerun after the final layout and geometry-preview adjustments.
 
+## Uniform distributed surface load
+
+The [distributed-load study](distributed/REPORT.md) validates total-force-based, consistently integrated vector traction. A 1,000 × 20 × 20 mm beam carries −10 N uniformly over its Z-max surface: −500 Pa in Z, equivalent to q=−10 N/m. Fine C3D10 tip mean is −0.445632043 mm against `qL⁴/(8EI)` = −0.446428571 mm, **0.1784% error**. The last mesh change is **0.0202%**. Reaction force is +10 N Z and root moment −5 N·m Y within equilibrium tolerances. Two axial uniform-stress meshes each agree with `FL/(EA)` within 0.000005%.
+
+The full suite passed **116 tests in 63.58 seconds**, with no skips. This includes P1/P2 surface integration across six surfaces and three force directions, exact quadratic virtual work, load scaling/reversal, support-load reaction correction, real beam/axial solves and a real MCP distributed solve. The native desktop also solved the beam and displayed nine illustrative load arrows. See the report for model limits.
+
 ## Axial bar
 
 Independent rectangular solid: length 1 m, width and height 0.1 m, Young's modulus 210 GPa, Poisson ratio 0, applied axial total force 1000 N. The X-minimum face is clamped. Equal nodal loads are used at X maximum, so end traction is not exactly uniform and a small difference from the ideal bar is expected.

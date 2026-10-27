@@ -206,6 +206,7 @@ class SimulatorWindow(QMainWindow):
                            ("Reference report", "Euler–Bernoulli study", self.show_validation),
                            ("Timoshenko", "Bending + shear study", lambda: self.show_reference_report("timoshenko")),
                            ("Modal beam", "Frequency verification", lambda: self.show_reference_report("modal")),
+                           ("Distributed load", "Uniform traction study", lambda: self.show_reference_report("distributed")),
                            ("Circular hole", "Kirsch stress study", lambda: self.show_reference_report("hole"))],
         }
         for name, buttons in groups.items():
@@ -340,7 +341,8 @@ class SimulatorWindow(QMainWindow):
         for key, label, options in (
             ("element_order", "Elements", [("Linear · C3D4", 1), ("Quadratic · C3D10", 2)]),
             ("load_axis", "Force direction", [("X · axial", "x"), ("Y · transverse", "y"), ("Z · transverse", "z")]),
-            ("load_kind", "Force application", [("End face · total", "face"), ("Tip center · point", "point")])):
+            ("load_kind", "Force application", [("End face · equal nodes", "face"), ("Tip center · point", "point"), ("Uniform surface traction", "traction")]),
+            ("load_surface", "Traction surface", [(f"{axis.upper()}-{side}", f"{axis}-{side}") for axis in "xyz" for side in ("min", "max")])):
             selector = QComboBox()
             selector.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             selector.setMinimumContentsLength(10)
@@ -349,7 +351,7 @@ class SimulatorWindow(QMainWindow):
             selector.currentIndexChanged.connect(self.mark_dirty)
             form.addRow(label, selector)
             self.selectors[key] = selector
-        note = QLabel("Fixed support: X-min face\nStatic force: X-max face\nModal: no load or prestress; density required.\nC3D10 is preferred for bending.")
+        note = QLabel("Fixed support: X-min face\nTraction: total force (N) spread uniformly over the selected bounding-plane surface.\nSurface selector applies only to traction.\nModal: no loads or prestress.")
         note.setStyleSheet("color:#6f8094;padding:6px")
         layout.addWidget(note)
         self.apply_button = QPushButton("Apply settings")
@@ -460,7 +462,7 @@ class SimulatorWindow(QMainWindow):
                                 "See docs/cantilever/REPORT.md for assumptions, criteria and plots.")
 
     def show_reference_report(self, benchmark):
-        titles = {"timoshenko": "Timoshenko beam validation", "hole": "Circular-hole stress validation", "modal": "Modal beam validation"}
+        titles = {"timoshenko": "Timoshenko beam validation", "hole": "Circular-hole stress validation", "modal": "Modal beam validation", "distributed": "Distributed-load validation"}
         if benchmark not in titles:
             raise ValueError("Unknown reference benchmark")
         if benchmark in self.reference_dialogs:
@@ -515,6 +517,8 @@ class SimulatorWindow(QMainWindow):
     def mark_dirty(self):
         self.dirty = True
         self.details_note.setText("Settings changed. Apply settings or Solve to use them.")
+        if "load_surface" in self.selectors:
+            self.selectors["load_surface"].setEnabled(self.selectors["load_kind"].currentData() == "traction")
 
     def save_parameters(self):
         parameters = {key: field.value() for key, field in self.fields.items()}
@@ -684,7 +688,8 @@ class SimulatorWindow(QMainWindow):
                 self.tree.addTopLevelItem(root)
                 element = "C3D10" if entry["parameters"]["element_order"] == 2 else "C3D4"
                 axis = entry["parameters"]["load_axis"].upper()
-                application = "tip point" if entry["parameters"]["load_kind"] == "point" else "end face"
+                application = ("uniform traction / " + entry["parameters"]["load_surface"] if entry["parameters"]["load_kind"] == "traction"
+                               else "tip point" if entry["parameters"]["load_kind"] == "point" else "end face (equal nodes)")
                 for label, view in (("Geometry (single solid)", "geometry"), (f"Mesh / {element}", "mesh"),
                                     ("Static Structural", "geometry"), ("  Fixed Support / X-min", "geometry"),
                                     (f"  Static force / {axis} · {application}", "geometry"), ("Solution / Displacement", "results"),
@@ -716,11 +721,13 @@ class SimulatorWindow(QMainWindow):
             field.setEnabled(bool(project) and not active)
         for selector in self.selectors.values():
             selector.setEnabled(bool(project) and not active)
+        self.selectors["load_surface"].setEnabled(bool(project) and not active and self.selectors["load_kind"].currentData() == "traction")
         self.details_heading.setText("DETAILS OF MODAL ANALYSIS" if state["view"] == "modal" else "DETAILS OF STATIC STRUCTURAL")
         if state["view"] == "modal":
             self.fields["load_N"].setEnabled(False)
             self.selectors["load_axis"].setEnabled(False)
             self.selectors["load_kind"].setEnabled(False)
+            self.selectors["load_surface"].setEnabled(False)
         for button in self.analysis_buttons:
             button.setEnabled(bool(project) and not active)
         if project:

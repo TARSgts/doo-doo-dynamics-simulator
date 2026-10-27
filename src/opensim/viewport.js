@@ -219,8 +219,10 @@ function drawOverlay(){
   const anchor=projection.project([bounds[0][0],center[1],center[2]]);
   context.fillStyle=themeDark?'#41c8d6':'#087f8c';context.beginPath();context.arc(anchor[0],anchor[1],4*pixel,0,2*Math.PI);context.fill();context.fillText(catMode?'NO ZOOMIES':'FIXED',anchor[0]-15*pixel,anchor[1]+25*pixel);
   if(simulation.summary.load_point_m){
-    const vector=simulation.summary.load_point_displacement_m||[0,0,0];
-    const position=simulation.summary.load_point_m.map((value,axis)=>value+factor*vector[axis]);
+    const markers=simulation.summary.load_markers||[{point_m:simulation.summary.load_point_m,displacement_m:simulation.summary.load_point_displacement_m||[0,0,0]}];
+    for(let markerIndex=0;markerIndex<markers.length;markerIndex++){
+    const vector=markers[markerIndex].displacement_m;
+    const position=markers[markerIndex].point_m.map((value,axis)=>value+factor*vector[axis]);
     const point=projection.project(position),direction='xyz'.indexOf(simulation.summary.load_axis||'x');
     const shifted=position.slice();shifted[direction]+=span*0.1*Math.sign(simulation.summary.load_N);
     const reference=projection.project(shifted),length=Math.hypot(reference[0]-point[0],reference[1]-point[1])||1;
@@ -228,7 +230,8 @@ function drawOverlay(){
     context.strokeStyle=themeDark?'#f1b956':'#a56608';context.fillStyle=context.strokeStyle;context.lineWidth=2*pixel;
     context.beginPath();context.moveTo(...start);context.lineTo(point[0],point[1]);context.stroke();context.beginPath();context.moveTo(point[0],point[1]);
     context.lineTo(point[0]-unit[0]*10*pixel-unit[1]*5*pixel,point[1]-unit[1]*10*pixel+unit[0]*5*pixel);context.lineTo(point[0]-unit[0]*10*pixel+unit[1]*5*pixel,point[1]-unit[1]*10*pixel-unit[0]*5*pixel);context.closePath();context.fill();
-    context.fillText(`${simulation.summary.load_N} N · ${(simulation.summary.load_axis||'x').toUpperCase()}`,start[0]-15*pixel,start[1]-10*pixel);
+    if(markerIndex===0)context.fillText(`${simulation.summary.load_kind==='traction'?'Total ':''}${simulation.summary.load_N} N · ${(simulation.summary.load_axis||'x').toUpperCase()}`,start[0]-15*pixel,start[1]-10*pixel);
+    }
   }
 }
 function renderFrame(){

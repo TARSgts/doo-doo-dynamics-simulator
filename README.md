@@ -18,19 +18,21 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 **Modal analysis:** extract 1–30 natural frequencies and normalized mode shapes from the desktop **Modal analysis** button, CLI or MCP. Enter density in kg/m³, choose quadratic elements for bending, solve and select a mode to animate. The [modal beam study](docs/modal/REPORT.md) validates six bending frequencies within 0.402% of theory, plus shapes, mesh stability and density scaling. See [modal setup and limits](docs/MODAL.md).
 
+**Distributed loads:** choose **Uniform surface traction**, a bounding-plane surface and X/Y/Z direction, then enter the **total force in N**. The solver integrates that force consistently over the selected surface. The [uniformly loaded beam study](docs/distributed/REPORT.md) gives 0.1784% tip-deflection error and 0.0202% last-mesh change. See [load setup and scope](docs/DISTRIBUTED_LOADS.md).
+
 ![Displacement viewer](docs/viewer-preview.png)
 
 ## Working now
 
 - Import one closed STEP, IGES or BREP solid using Gmsh's OpenCASCADE kernel.
 - Generate linear C3D4 or quadratic C3D10 tetrahedra, check corner-element orientation and export a mesh.
-- Clamp the X-minimum face and apply an X/Y/Z force either at a single embedded tip-center node or equally over the X-maximum face nodes.
+- Clamp the X-minimum face and apply an X/Y/Z force at a tip-center node, through the legacy equal-node X-max load, or as uniform traction integrated over a selected X/Y/Z min/max boundary surface.
 - Solve isotropic linear elasticity through CalculiX; verify completion, displacement completeness, force balance and moment balance.
 - Export an offline, rotatable HTML displacement viewer, VTK displacement data and native CalculiX stress/displacement FRD files.
 - Record CAD, input-deck and solver hashes, material properties, mesh settings and dependency versions per run.
 - Extract undamped, unprestressed natural frequencies with the X-min face fixed, export every mode as HTML/VTK and retain raw eigenvectors. Animate normalized shapes with arbitrary display amplitude and 1 Hz playback.
 
-This is a research prototype. It supports one material, one solid and the clamp/end-load conditions above. Equal nodal forces are not uniform surface traction. Point loading requires an end face containing the bounding-section center. Assemblies, contact, nonlinear behavior and arbitrary support/face selection need later stages. Prefer C3D10 for bending and perform mesh-convergence checks. A point load has a local stress singularity; the cantilever study validates global displacement and equilibrium, not peak stress. No Ansys compatibility or accuracy equivalence is claimed.
+This is a research prototype. It supports one material, one solid and the fixed-support/load conditions above. The legacy equal-node load and the new consistent uniform traction are separate choices. Point loading requires an end face containing the bounding-section center. Assemblies, contact, nonlinear behavior and arbitrary support/CAD-face selection need later stages. Prefer C3D10 for bending and perform mesh-convergence checks. A point load has a local stress singularity; the cantilever studies validate global displacement and equilibrium, not peak stress. No Ansys compatibility or accuracy equivalence is claimed.
 
 ## Run locally on Windows
 
@@ -47,6 +49,7 @@ Start-Process .\runs\my-bar\results.html
 .\.venv\Scripts\open-sim.exe validate-timoshenko --out runs\timoshenko-validation
 .\.venv\Scripts\open-sim.exe modal examples\my-bar.step --mesh-size 0.02 --density 7850 --modes 6 --out runs\modal-bar
 .\.venv\Scripts\open-sim.exe validate-modal --out runs\modal-validation
+.\.venv\Scripts\open-sim.exe validate-distributed --out runs\distributed-validation
 ```
 
 The supplied `examples/axial-bar.step` is a generated 1 × 0.1 × 0.1 bar. Use a new output folder for each run; existing run folders are deliberately preserved. Failed runs retain their input/log files and should be inspected before retrying into a new folder.

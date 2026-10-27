@@ -10,7 +10,7 @@ from opensim.workspace import CAPABILITIES, Workspace
 def create_server(workspace: Workspace) -> FastMCP:
     server = FastMCP("Doo Doo Dynamics Simulator", instructions=(
         "Control the local simulator workspace. Jobs run asynchronously: poll get_job. "
-        "All quantities are SI. Static structural supports X-min clamped and X/Y/Z end-face or tip-center point loads, using C3D4 or C3D10. "
+        "All quantities are SI. Static structural supports X-min clamped and X/Y/Z point, legacy equal-node face, or uniform vector traction loads, using C3D4 or C3D10. Traction takes total force in N, not pressure, and load_surface selects an X/Y/Z min/max bounding-plane patch. "
         "Undamped unprestressed modal analysis is available with positive density and X-min fixed support. "
         "Inspect get_capabilities before requesting other physics. The desktop reflects shared workspace changes."))
 
@@ -65,11 +65,11 @@ def create_server(workspace: Workspace) -> FastMCP:
     @server.tool()
     def set_analysis_parameters(project_id: str, mesh_size_m: float = 0.004, cad_scale: float = 1.0,
                                 young_Pa: float = 210e9, poisson: float = 0.3, load_N: float = 1000,
-                                element_order: int = 1, load_axis: str = "x", load_kind: str = "face") -> dict[str, Any]:
-        """Set all static-analysis inputs in SI units. Existing results become stale when inputs change."""
+                                element_order: int = 1, load_axis: str = "x", load_kind: str = "face", load_surface: str = "x-max") -> dict[str, Any]:
+        """Set SI static inputs. traction spreads load_N uniformly over load_surface; face retains legacy equal-node end loading. Changed inputs invalidate prior results."""
         return workspace.set_parameters(project_id, {"mesh_size_m": mesh_size_m, "cad_scale": cad_scale,
                                                     "young_Pa": young_Pa, "poisson": poisson, "load_N": load_N,
-                                                    "element_order": element_order, "load_axis": load_axis, "load_kind": load_kind})
+                                                    "element_order": element_order, "load_axis": load_axis, "load_kind": load_kind, "load_surface": load_surface})
 
     @server.tool()
     def create_test_object(project_id: str, kind: str = "perforated_plate") -> dict[str, Any]:

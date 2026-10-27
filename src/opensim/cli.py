@@ -16,21 +16,22 @@ def digest(path: Path) -> str:
 
 
 def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
-          poisson=0.0, load=1000.0, ccx=None, order=1, load_axis="x", load_kind="face") -> dict:
+          poisson=0.0, load=1000.0, ccx=None, order=1, load_axis="x", load_kind="face", load_surface="x-max") -> dict:
     executable = find_solver(ccx)
     if not cad.is_file():
         raise FileNotFoundError(cad)
     output.mkdir(parents=True, exist_ok=False)
     mesh = import_and_mesh(cad, size, scale, output / "mesh.msh", order=order, tip_point=load_kind == "point")
-    write_deck(mesh, output / "model.inp", young, poisson, load, load_axis, load_kind)
+    loading = write_deck(mesh, output / "model.inp", young, poisson, load, load_axis, load_kind, load_surface)
     run_solver(executable, output)
     displacement, reactions = parse_dat(output / "model.dat", len(mesh.points))
     fixed_ids = {int(node) + 1 for node in mesh.end_nodes("min")}
     if set(reactions) != fixed_ids:
         raise ValueError("Reaction results do not match the fixed node set")
+    reported_reactions = {node: force.copy() for node, force in reactions.items()}
+    reactions = {node: np.asarray(force) - loading.forces[node - 1] for node, force in reactions.items()}
     resultant = np.sum(list(reactions.values()), axis=0)
-    applied = np.zeros(3)
-    applied["xyz".index(load_axis)] = load
+    applied = loading.forces.sum(axis=0)
     relative_imbalance = float(np.linalg.norm(resultant + applied) / abs(load))
     if relative_imbalance > 1e-4:
         raise ValueError("Reaction forces fail global equilibrium tolerance")
@@ -39,7 +40,7 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
     loaded = np.array([mesh.tip_node()]) if load_kind == "point" else mesh.end_nodes("max")
     reaction_moment = np.sum([np.cross(mesh.points[node - 1] - reference, force)
                               for node, force in reactions.items()], axis=0)
-    applied_moment = np.cross(mesh.points[loaded].mean(axis=0) - reference, applied)
+    applied_moment = np.cross(mesh.points - reference, loading.forces).sum(axis=0)
     moment_scale = abs(load) * np.ptp(mesh.points[:, 0])
     moment_imbalance = float(np.linalg.norm(reaction_moment + applied_moment) / moment_scale)
     if moment_imbalance > 1e-4:
@@ -48,13 +49,27 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
                "maximum_displacement_m": float(np.linalg.norm(displacement, axis=1).max()),
                "mean_loaded_ux_m": float(displacement[mesh.end_nodes("max"), 0].mean()),
                "tip_mean_displacement_m": mesh.tip_average(displacement).tolist(),
-               "load_point_m": mesh.points[loaded].mean(axis=0).tolist(),
+               "load_point_m": loading.centroid.tolist(),
                "load_point_displacement_m": displacement[loaded].mean(axis=0).tolist(),
                "reaction_moment_Nm": reaction_moment.tolist(), "applied_moment_Nm": applied_moment.tolist(),
                "relative_moment_imbalance": moment_imbalance, "load_axis": load_axis, "load_kind": load_kind,
                "reaction_N": resultant.tolist(), "relative_force_imbalance": relative_imbalance,
                "load_N": load, "young_Pa": young, "poisson": poisson,
                "boundary_condition": f"X minimum clamped; {load_axis.upper()} load at X maximum ({load_kind})"}
+    if load_kind == "traction":
+        summary.pop("load_point_displacement_m")
+        summary["tip_node_mean_ux_m"] = summary.pop("mean_loaded_ux_m")
+        markers = []
+        for index in np.linspace(0, len(loading.faces) - 1, min(9, len(loading.faces)), dtype=int):
+            face = loading.faces[index]
+            vector = displacement[face].mean(axis=0) if len(face) == 3 else (-displacement[face[:3]].sum(axis=0) + 4 * displacement[face[3:]].sum(axis=0)) / 9
+            markers.append({"point_m": mesh.points[face[:3]].mean(axis=0).tolist(), "displacement_m": vector.tolist()})
+        summary.update({"load_surface": load_surface, "loaded_area_m2": loading.area,
+                        "uniform_traction_Pa": load / loading.area, "load_markers": markers,
+                        "applied_force_N": applied.tolist(),
+                        "reported_support_forces_N": np.sum(list(reported_reactions.values()), axis=0).tolist(),
+                        "applied_force_at_support_N": loading.forces[mesh.end_nodes("min")].sum(axis=0).tolist(),
+                        "boundary_condition": f"X minimum clamped; uniform {load_axis.upper()} traction on {load_surface}; total force {load} N"})
     manifest = {"schema_version": 1, "cad_path": str(cad.resolve()), "cad_sha256": digest(cad),
                 "ccx_path": str(executable), "ccx_sha256": digest(executable),
                 "mesh_size_m": size, "cad_scale_to_m": scale, "element_order": order,
@@ -63,7 +78,8 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2, allow_nan=False), encoding="utf-8")
     write_vtk(output / "results.vtk", mesh, displacement)
     write_viewer(output / "results.html", mesh, displacement, summary)
-    np.savez_compressed(output / "fields.npz", points=mesh.points, tetrahedra=mesh.tetrahedra, displacement=displacement)
+    np.savez_compressed(output / "fields.npz", points=mesh.points, tetrahedra=mesh.tetrahedra, displacement=displacement,
+                        applied_forces_N=loading.forces)
     return summary
 
 
@@ -83,7 +99,9 @@ def main():
     run.add_argument("--ccx")
     run.add_argument("--order", type=int, choices=[1, 2], default=1)
     run.add_argument("--load-axis", choices=["x", "y", "z"], default="x")
-    run.add_argument("--load-kind", choices=["face", "point"], default="face")
+    run.add_argument("--load-kind", choices=["face", "point", "traction"], default="face")
+    from opensim.load_settings import LOAD_SURFACES
+    run.add_argument("--load-surface", choices=LOAD_SURFACES, default="x-max", help="Bounding-plane patch for uniform traction; --load is total signed force in N")
     commands.add_parser("doctor", help="Show installed mesher and solver paths")
     validation = commands.add_parser("validate-cantilever", help="Run point-tip beam validation and a mesh study")
     validation.add_argument("--out", type=Path, required=True)
@@ -104,9 +122,17 @@ def main():
     modal.add_argument("--ccx")
     modal_validation = commands.add_parser("validate-modal", help="Validate beam eigenfrequencies, shapes and density scaling")
     modal_validation.add_argument("--out", type=Path, required=True)
+    distributed = commands.add_parser("validate-distributed", help="Validate uniform surface traction with axial and uniformly loaded beam studies")
+    distributed.add_argument("--out", type=Path, required=True)
     arguments = parser.parse_args()
     try:
-        if arguments.command == "modal":
+        if arguments.command == "validate-distributed":
+            from opensim.distributed_validation import run_distributed_validation
+            report = run_distributed_validation(arguments.out)
+            print(json.dumps(report, indent=2))
+            if report["result"] != "PASS":
+                parser.exit(1, "Distributed-load validation did not meet acceptance criteria\n")
+        elif arguments.command == "modal":
             from opensim.modal import solve_modal
             summary = solve_modal(arguments.cad, arguments.out, arguments.mesh_size, arguments.cad_scale,
                                   arguments.young, arguments.poisson, arguments.density, arguments.modes,
@@ -144,7 +170,7 @@ def main():
         else:
             summary = solve(arguments.cad, arguments.out, arguments.mesh_size, arguments.cad_scale,
                             arguments.young, arguments.poisson, arguments.load, arguments.ccx,
-                            arguments.order, arguments.load_axis, arguments.load_kind)
+                            arguments.order, arguments.load_axis, arguments.load_kind, arguments.load_surface)
             print(json.dumps(summary, indent=2))
     except (ValueError, FileNotFoundError, FileExistsError, RuntimeError) as error:
         parser.exit(1, f"open-sim: {error}\n")

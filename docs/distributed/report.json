@@ -1,0 +1,97 @@
+{
+  "result": "PASS",
+  "criteria": {
+    "beam_tip_error_below_2_percent": true,
+    "beam_edge_curve_error_below_2_percent": true,
+    "last_mesh_change_below_0_5_percent": true,
+    "axial_errors_below_0_001_percent": true,
+    "all_force_balances_below_1e_5": true,
+    "all_moment_balances_below_1e_5": true
+  },
+  "beam_geometry_m": [
+    1,
+    0.02,
+    0.02
+  ],
+  "young_Pa": 210000000000.0,
+  "poisson": 0.3,
+  "total_force_z_N": -10,
+  "uniform_line_load_N_per_m": -10,
+  "surface": "z-max",
+  "expected_tip_z_m": -0.0004464285714285713,
+  "expected_reaction_z_N": 10,
+  "expected_root_moment_y_Nm": -5,
+  "last_mesh_change_fraction": 0.00020205743762761338,
+  "edge_curve_error_fraction": 0.001784319999999715,
+  "beam_cases": [
+    {
+      "case": "coarse",
+      "mesh_size_m": 0.02,
+      "elements": 1015,
+      "nodes": 2280,
+      "tip_z_m": -0.0004451699,
+      "error_fraction": 0.0028194239999996817,
+      "reaction_z_N": 10.000001944444422,
+      "reaction_moment_y_Nm": -4.999999997060548,
+      "force_imbalance": 1.3549570621105997e-06,
+      "moment_imbalance": 1.308978647552706e-08,
+      "loaded_area_m2": 0.01999999999999994,
+      "traction_Pa": -500.0000000000015,
+      "applied_at_support_z_N": -0.01944444444444458,
+      "reported_support_force_z_N": 9.980557499999977
+    },
+    {
+      "case": "medium",
+      "mesh_size_m": 0.01,
+      "elements": 1889,
+      "nodes": 4378,
+      "tip_z_m": -0.00044554200000000005,
+      "error_fraction": 0.0019859199999996413,
+      "reaction_z_N": 9.999997231665692,
+      "reaction_moment_y_Nm": -4.999999843488282,
+      "force_imbalance": 3.3561398666018937e-07,
+      "moment_imbalance": 1.6768559975472842e-08,
+      "loaded_area_m2": 0.02000000000000002,
+      "traction_Pa": -499.9999999999995,
+      "applied_at_support_z_N": -0.010310531665688636,
+      "reported_support_force_z_N": 9.98968670000001
+    },
+    {
+      "case": "fine",
+      "mesh_size_m": 0.0067,
+      "elements": 8843,
+      "nodes": 16956,
+      "tip_z_m": -0.0004456320432687877,
+      "error_fraction": 0.001784223077915259,
+      "reaction_z_N": 10.000002227939461,
+      "reaction_moment_y_Nm": -4.999999992833003,
+      "force_imbalance": 1.2035025522452043e-06,
+      "moment_imbalance": 1.312514565705835e-08,
+      "loaded_area_m2": 0.01999999999999999,
+      "traction_Pa": -500.0000000000002,
+      "applied_at_support_z_N": -0.008582007939445527,
+      "reported_support_force_z_N": 9.991420220000023
+    }
+  ],
+  "axial_cases": [
+    {
+      "case": "axial-coarse",
+      "tip_x_m": 4.761905e-07,
+      "expected_x_m": 4.7619047619047607e-07,
+      "error_fraction": 5.000000014021566e-08,
+      "force_imbalance": 9.999999747381903e-09,
+      "moment_imbalance": 2.512182277483699e-10
+    },
+    {
+      "case": "axial-fine",
+      "tip_x_m": 4.761905e-07,
+      "expected_x_m": 4.7619047619047607e-07,
+      "error_fraction": 5.000000014021566e-08,
+      "force_imbalance": 5.0000000214823945e-08,
+      "moment_imbalance": 4.617243899996372e-10
+    }
+  ],
+  "load_integration": "Uniform vector traction F/A: P1 triangle nodal forces A*t/3; P2 straight triangle corner forces zero, midside forces A*t/3. Shared-node contributions are accumulated.",
+  "reaction_recovery": "CalculiX RF at a support includes CLOAD there; true reaction is RF minus applied nodal force. Moments use every applied nodal force at its actual coordinate.",
+  "limitations": "Single constant traction vector on one axis-aligned bounding-plane boundary patch. Not arbitrary face picking, pressure, follower loading or spatially varying loading. Beam theory neglects shear and 3D end effects; global displacement and equilibrium are validated, not local root peak stress."
+}

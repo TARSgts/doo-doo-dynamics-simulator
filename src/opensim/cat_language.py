@@ -2,6 +2,8 @@ import re
 
 
 PHRASES = {
+    "Uniform surface traction": "Spread da boops", "Traction surface": "Boop dis surface",
+    "Distributed load": "Boops everywhere", "Uniform traction study": "Evenly spread boop science",
     "Doo Doo Dynamics Simulator — Structural Workbench": "Doo Doo Dynamics Simulator — Catputer Lab",
     "DOO DOO DYNAMICS  /  SIMULATOR": "DOO DOO DYNAMICS  /  MEOWMULATOR",
     "File": "Box of stuff", "Help": "Halp", "View": "Lookies", "About": "Who dis?", "Exit": "I go nap",

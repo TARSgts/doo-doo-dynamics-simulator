@@ -62,6 +62,19 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
                     assert len(results.structuredContent["modes"]) == 3
                     shown = await session.call_tool("show_in_desktop", {"project_id": project_id, "view": "modal", "mode": 2})
                     assert shown.structuredContent["modal_mode"] == 2
+                    configured_load = await session.call_tool("set_analysis_parameters", {"project_id": project_id, "mesh_size_m": 0.01, "element_order": 2,
+                        "poisson": 0, "load_N": -10, "load_axis": "z", "load_kind": "traction", "load_surface": "z-max"})
+                    assert configured_load.structuredContent["parameters"]["load_surface"] == "z-max"
+                    load_job = await session.call_tool("solve_project", {"project_id": project_id})
+                    while True:
+                        load_status = await session.call_tool("get_job", {"job_id": load_job.structuredContent["id"]})
+                        if load_status.structuredContent["status"] not in {"queued", "running"}:
+                            break
+                        await asyncio.sleep(0.05)
+                    assert load_status.structuredContent["status"] == "completed"
+                    load_result = await session.call_tool("get_results", {"project_id": project_id})
+                    assert load_result.structuredContent["summary"]["reaction_N"][2] == pytest.approx(10, rel=1e-5)
+                    assert load_result.structuredContent["summary"]["reaction_moment_Nm"][1] == pytest.approx(-0.5, rel=1e-5)
                 selected = await session.call_tool("show_in_desktop", {"project_id": project_id, "view": "mesh"})
                 assert selected.structuredContent["project_id"] == project_id
                 rejected = await session.call_tool("set_analysis_parameters", {"project_id": project_id, "poisson": 0.5})
