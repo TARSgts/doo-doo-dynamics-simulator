@@ -1,5 +1,7 @@
 # Doo Doo Dynamics Simulator
 
+<img src="src/opensim/assets/app-icon.png" width="80" height="80" alt="Doo Doo Dynamics Simulator icon">
+
 An independent, open-source simulation platform being built in stages. The first stage runs a complete CAD → Gmsh tetrahedral mesh → CalculiX linear static solve → displacement viewer workflow.
 
 **Desktop app and MCP controls:** install with `tools/install-desktop.ps1`, then double-click **Launch Simulator.cmd**. The workbench includes a ribbon, model tree, properties, viewport and solver jobs. Planned features are visibly greyed out. See [desktop and MCP setup](docs/DESKTOP_AND_MCP.md).

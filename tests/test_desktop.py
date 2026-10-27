@@ -93,6 +93,9 @@ def test_desktop_has_real_actions_disabled_roadmap_and_shared_state(tmp_path):
         assert window.fields["density_kg_m3"].value() == 7850
         assert window.fields["mode_count"].value() == 6
         assert window.project_id == project["id"]
+        assert not window.windowIcon().isNull()
+        for size in (16, 32, 256):
+            assert not window.windowIcon().pixmap(size, size).isNull()
         assert window.application_title.parentWidget() is window.menuWidget()
         assert "DOO DOO DYNAMICS" in window.application_title.text()
         workspace.set_parameters(project["id"], {"load_N": 2500})

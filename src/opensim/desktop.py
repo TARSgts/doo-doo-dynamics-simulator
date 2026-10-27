@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 from PySide6.QtCore import Qt, QSignalBlocker, QTimer, QUrl
-from PySide6.QtGui import QAction, QFont, QTextDocument
+from PySide6.QtGui import QAction, QFont, QIcon, QTextDocument
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QDoubleSpinBox,
                                QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLineEdit,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QD
 from opensim.workspace import CAPABILITIES, Workspace
 from opensim.results import refresh_viewer
 from opensim.cat_language import cat_text
+from opensim.app_identity import ICON_PATH, set_process_identity
 
 
 STYLE = """
@@ -88,7 +89,10 @@ QWidget#ApplicationHeader { background:#0d1420; }
 
 class SimulatorWindow(QMainWindow):
     def __init__(self, workspace: Workspace):
+        set_process_identity()
         super().__init__()
+        self.setWindowIcon(QIcon(str(ICON_PATH)))
+        QApplication.instance().setWindowIcon(self.windowIcon())
         self.workspace = workspace
         self.project_id = None
         self.loaded_view = None

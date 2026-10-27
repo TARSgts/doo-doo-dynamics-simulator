@@ -10,6 +10,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Desktop application installation failed.' }
     & .\.venv\Scripts\python.exe -m pip check
     if ($LASTEXITCODE -ne 0) { throw 'Desktop dependency check failed.' }
+    if ($env:CI -ne 'true') { & (Join-Path $PSScriptRoot 'create-shortcuts.ps1') }
     Write-Output 'Installed. Double-click Launch Simulator.cmd or run .venv\Scripts\doo-doo-dynamics.exe.'
 } finally {
     Pop-Location
