@@ -10,6 +10,54 @@ from opensim.desktop import SimulatorWindow
 from opensim.workspace import Workspace
 
 
+def test_bottom_progress_busy_completed_failed_and_project_switch(tmp_path):
+    import time
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    first = workspace.create_project("First")
+    workspace.show_project(first["id"])
+    window = SimulatorWindow(workspace)
+    try:
+        job = {"id": "progress-test", "kind": "solve", "status": "queued", "progress_stage": "queued",
+               "created": time.time() - 65, "updated": time.time()}
+        window.update_job_progress(job)
+        assert window.job_progress.maximum() == 0
+        assert "Waiting to start" in window.progress_label.text()
+        assert "01:" in window.progress_label.text()
+        job.update(status="running", progress_stage="solving")
+        window.update_job_progress(job)
+        assert window.job_progress.maximum() == 0
+        assert "CalculiX solving" in window.progress_label.text()
+        workspace.set_language("cat")
+        window.update_job_progress(job)
+        assert "Doing a science, meow" in window.progress_label.text()
+        job.update(status="completed", progress_stage="completed")
+        window.update_job_progress(job)
+        assert window.job_progress.maximum() == 100 and window.job_progress.value() == 100
+        job.update(status="failed", progress_stage="failed")
+        window.update_job_progress(job)
+        assert window.job_progress.value() == 0
+        assert "bonked" in window.progress_label.text()
+        with workspace.connect() as connection:
+            connection.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?)", ("stored-progress", first["id"], "mesh", "completed", 0,
+                               "{}", None, None, time.time() - 5, time.time()))
+        window.refresh()
+        assert window.job_progress.value() == 100
+        workspace.set_parameters(first["id"], {"load_N": 2000})
+        window.refresh()
+        assert window.progress_panel.isHidden()
+        second = workspace.create_project("Second")
+        workspace.show_project(second["id"])
+        window.refresh()
+        assert window.progress_panel.isHidden()
+        assert window.job_progress.value() == 0
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
 def test_property_fields_stay_inside_narrow_and_wide_dock_in_both_languages(tmp_path):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QDockWidget, QScrollArea

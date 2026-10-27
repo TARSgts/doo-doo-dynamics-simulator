@@ -53,6 +53,7 @@ def test_failed_import_job_retains_failure_and_logs(tmp_path):
     job = workspace.start_job(project["id"], "mesh")
     failed = wait_job(workspace, job["id"])
     assert failed["status"] == "failed"
+    assert failed["progress_stage"] == "failed"
     assert failed["error"]
     assert (workspace.job_directory(job["id"]) / "worker.log").is_file()
     assert workspace.current_artifact(project["id"]) is None
@@ -75,6 +76,7 @@ def test_real_worker_jobs_and_stale_result_handling(tmp_path):
     assert workspace.current_artifact(project["id"], "mesh").is_file()
     solve_job = workspace.start_job(project["id"], "solve")
     assert wait_job(workspace, solve_job["id"])["status"] == "completed"
+    assert workspace.get_job(solve_job["id"])["progress_stage"] == "completed"
     result = workspace.get_results(project["id"])
     assert result["summary"]["reaction_N"][0] == pytest.approx(-1000, rel=1e-5)
     original = workspace.current_artifact(project["id"])

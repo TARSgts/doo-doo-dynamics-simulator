@@ -11,6 +11,7 @@ import time
 import uuid
 from opensim.load_settings import LOAD_KINDS, LOAD_SURFACES
 from opensim.region_settings import validate_region
+from opensim.job_progress import STAGE_LABELS
 
 
 DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
@@ -53,6 +54,8 @@ class Workspace:
                     result TEXT, error TEXT, created REAL NOT NULL, updated REAL NOT NULL);
                 CREATE UNIQUE INDEX IF NOT EXISTS one_active_job ON jobs(project_id)
                     WHERE status IN ('queued', 'running');
+                CREATE TABLE IF NOT EXISTS job_progress (
+                    job_id TEXT PRIMARY KEY, stage TEXT NOT NULL, updated REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS ui (id INTEGER PRIMARY KEY CHECK(id=1),
                     project_id TEXT, view TEXT NOT NULL DEFAULT 'geometry', heartbeat REAL NOT NULL DEFAULT 0);
                 INSERT OR IGNORE INTO ui(id) VALUES(1);
@@ -175,9 +178,10 @@ class Workspace:
                 connection.execute("UPDATE projects SET revision=?,parameters=? WHERE id=?", (project["revision"], project["parameters"], project_id))
             payload = {"cad": project["cad"], "parameters": DEFAULT_PARAMETERS | json.loads(project["parameters"]), "example": example}
             now = time.time()
-            connection.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?)",
+            connection.execute("INSERT INTO jobs(id,project_id,kind,status,revision,payload,result,error,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)",
                                (job_id, project_id, kind, "queued", project["revision"],
                                 json.dumps(payload), None, None, now, now))
+            connection.execute("INSERT INTO job_progress VALUES(?,?,?)", (job_id, "queued", now))
         directory = self.job_directory(job_id)
         directory.mkdir(parents=True)
         try:
@@ -199,10 +203,14 @@ class Workspace:
 
     def get_job(self, job_id: str) -> dict:
         with self.connect() as connection:
-            row = connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+            row = connection.execute("SELECT jobs.*,job_progress.stage AS progress_stage FROM jobs LEFT JOIN job_progress ON jobs.id=job_progress.job_id WHERE jobs.id=?", (job_id,)).fetchone()
         if row is None:
             raise ValueError("Unknown job")
         job = dict(row)
+        if job["status"] in {"completed", "failed"}:
+            job["progress_stage"] = job["status"]
+        elif not job["progress_stage"]:
+            job["progress_stage"] = "queued" if job["status"] == "queued" else "starting"
         job["payload"] = json.loads(job["payload"])
         job["result"] = json.loads(job["result"]) if job["result"] else None
         return job
@@ -221,6 +229,18 @@ class Workspace:
             connection.execute("UPDATE jobs SET status=?,result=?,error=?,updated=? WHERE id=?",
                                ("failed" if error else "completed", json.dumps(result) if result else None,
                                 error, time.time(), job_id))
+            connection.execute("INSERT INTO job_progress VALUES(?,?,?) ON CONFLICT(job_id) DO UPDATE SET stage=excluded.stage,updated=excluded.updated",
+                               (job_id, "failed" if error else "completed", time.time()))
+
+    def set_job_progress(self, job_id: str, stage: str):
+        if stage not in STAGE_LABELS or stage in {"completed", "failed"}:
+            raise ValueError("Choose a running job stage; completion is recorded by finish_job")
+        self.get_job(job_id)
+        with self.connect() as connection:
+            now = time.time()
+            connection.execute("INSERT INTO job_progress(job_id,stage,updated) SELECT id,?,? FROM jobs WHERE id=? AND status IN ('queued','running') ON CONFLICT(job_id) DO UPDATE SET stage=excluded.stage,updated=excluded.updated",
+                               (stage, now, job_id))
+            connection.execute("UPDATE jobs SET updated=? WHERE id=? AND status IN ('queued','running')", (now, job_id))
 
     def current_artifact(self, project_id: str, view="results", mode=1) -> Path | None:
         project = self.get_project(project_id)

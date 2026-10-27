@@ -19,8 +19,12 @@ def execute(workspace: Workspace, job_id: str):
     with workspace.connect() as connection:
         connection.execute("UPDATE jobs SET status='running',updated=? WHERE id=?", (time.time(), job_id))
     try:
+        def progress(stage):
+            workspace.set_job_progress(job_id, stage)
+        progress("starting")
         cad = Path(job["payload"]["cad"]) if job["payload"]["cad"] else None
         if job["kind"] == "example":
+            progress("creating")
             cad = directory / "test-object.step"
             if job["payload"]["example"] == "cantilever_beam":
                 make_box(cad, (1.0, 0.02, 0.02))
@@ -41,20 +45,22 @@ def execute(workspace: Workspace, job_id: str):
             result = solve_modal(cad, directory / "modal", size=parameters["mesh_size_m"],
                                  scale=parameters["cad_scale"], young=parameters["young_Pa"],
                                  poisson=parameters["poisson"], density=parameters["density_kg_m3"],
-                                 mode_count=parameters["mode_count"], order=parameters["element_order"], support_region=parameters["support_region"])
+                                 mode_count=parameters["mode_count"], order=parameters["element_order"], support_region=parameters["support_region"], progress=progress)
         elif job["kind"] == "solve":
             result = solve(cad, directory / "solve", size=parameters["mesh_size_m"],
                            scale=parameters["cad_scale"], young=parameters["young_Pa"],
                            poisson=parameters["poisson"], load=parameters["load_N"], order=parameters["element_order"],
                            load_axis=parameters["load_axis"], load_kind=parameters["load_kind"], load_surface=parameters["load_surface"],
-                           support_region=parameters["support_region"], load_region=parameters["load_region"])
+                           support_region=parameters["support_region"], load_region=parameters["load_region"], progress=progress)
         else:
+            progress("meshing")
             mesh = import_and_mesh(cad, parameters["mesh_size_m"], parameters["cad_scale"], directory / "mesh.msh",
                                    order=parameters["element_order"], tip_point=parameters["load_kind"] == "point")
             result = {"nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra), "view": "mesh",
                       "cad_faces": mesh.surface_catalog(),
                       "element_type": mesh.element_type,
                       "bounds_m": [mesh.points.min(axis=0).tolist(), mesh.points.max(axis=0).tolist()]}
+            progress("exporting")
             write_viewer(directory / "preview.html", mesh, np.zeros_like(mesh.points), result)
         workspace.finish_job(job_id, result=result)
     except Exception as error:

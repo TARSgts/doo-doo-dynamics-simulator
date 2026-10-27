@@ -19,16 +19,24 @@ def digest(path: Path) -> str:
 
 def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
           poisson=0.0, load=1000.0, ccx=None, order=1, load_axis="x", load_kind="face", load_surface="x-max",
-          support_region=None, load_region=None) -> dict:
+          support_region=None, load_region=None, progress=None) -> dict:
     executable = find_solver(ccx)
     if not cad.is_file():
         raise FileNotFoundError(cad)
     output.mkdir(parents=True, exist_ok=False)
+    if progress:
+        progress("meshing")
     mesh = import_and_mesh(cad, size, scale, output / "mesh.msh", order=order, tip_point=load_kind == "point")
+    if progress:
+        progress("preparing")
     solver_length_scale = 1000.0 if support_region or load_region else 1.0
     loading = write_deck(mesh, output / "model.inp", young, poisson, load, load_axis, load_kind, load_surface,
                          support_region, load_region, solver_length_scale)
+    if progress:
+        progress("solving")
     run_solver(executable, output)
+    if progress:
+        progress("reading")
     displacement, reactions = parse_dat(output / "model.dat", len(mesh.points))
     displacement /= solver_length_scale
     stress = read_stress(output / "model.frd", len(mesh.points)) * solver_length_scale ** 2
@@ -96,6 +104,8 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
                     "maximum_von_mises_Pa": float(equivalent.max()), "stress_measure": "Recovered nodal stress; ideal support edges may be singular"})
     if support_region or load_region:
         summary["boundary_condition"] = "Selected surface region fully fixed; selected load region carries constant global vector traction. No contact/sliding model."
+    if progress:
+        progress("exporting")
     manifest = {"schema_version": 1, "cad_path": str(cad.resolve()), "cad_sha256": digest(cad),
                 "solver_length_unit_m": 1 / solver_length_scale, "solver_force_unit_N": 1,
                 "solver_stress_unit_Pa": solver_length_scale ** 2,

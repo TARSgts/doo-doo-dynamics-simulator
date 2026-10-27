@@ -85,16 +85,24 @@ def parse_modal_dat(path: Path, node_count: int, mode_count: int):
 
 
 def solve_modal(cad: Path, output: Path, size=0.01, scale=1.0, young=210e9,
-                poisson=0.3, density=7850.0, mode_count=6, ccx=None, order=2, support_region=None):
+                poisson=0.3, density=7850.0, mode_count=6, ccx=None, order=2, support_region=None, progress=None):
     validate_modal_parameters(density, mode_count)
     executable = find_solver(ccx)
     if not cad.is_file():
         raise FileNotFoundError(cad)
     output.mkdir(parents=True, exist_ok=False)
+    if progress:
+        progress("meshing")
     mesh = import_and_mesh(cad, size, scale, output / "mesh.msh", order=order)
+    if progress:
+        progress("preparing")
     solver_length_scale = 1000.0 if support_region else 1.0
     write_modal_deck(mesh, output / "model.inp", young, poisson, density, mode_count, support_region, solver_length_scale)
+    if progress:
+        progress("solving")
     run_solver(executable, output)
+    if progress:
+        progress("reading")
     frequencies, eigenvalues, raw_modes = parse_modal_dat(output / "model.dat", len(mesh.points), mode_count)
     maxima = np.max(np.linalg.norm(raw_modes, axis=2), axis=1)
     shapes = raw_modes / maxima[:, None, None]
@@ -112,6 +120,8 @@ def solve_modal(cad: Path, output: Path, size=0.01, scale=1.0, young=210e9,
                "clamp_shape_residual": clamp_residual,
                "normalization": "Each displayed eigenvector has maximum nodal vector magnitude 1 (dimensionless)",
                "interpretation": "Undamped, unprestressed free vibration; no static loads. Display amplitude and animation speed are arbitrary."}
+    if progress:
+        progress("exporting")
     for index, shape in enumerate(shapes, start=1):
         mode_summary = summary | {"mode_number": index, "frequency_Hz": float(frequencies[index - 1])}
         write_viewer(output / f"mode-{index}.html", mesh, shape, mode_summary)

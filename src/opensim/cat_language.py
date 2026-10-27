@@ -2,6 +2,11 @@ import re
 
 
 PHRASES = {
+    "Waiting to start": "Waiting for science", "Starting job": "Waking up da cat", "Creating geometry": "Making da shape",
+    "Generating mesh": "Making tiny triangles", "Preparing solver input": "Arranging da beans",
+    "CalculiX solving": "Doing a science, meow", "Reading solver results": "Inspecting science loot",
+    "Saving results": "Stashing da science", "Completed": "Science complete, nya",
+    "Failed — see job log": "Science bonked — see job log", "Working": "Paws busy",
     "Uniform surface traction": "Spread da boops", "Traction surface": "Boop dis surface",
     "Distributed load": "Boops everywhere", "Uniform traction study": "Evenly spread boop science",
     "Doo Doo Dynamics Simulator — Structural Workbench": "Doo Doo Dynamics Simulator — Catputer Lab",

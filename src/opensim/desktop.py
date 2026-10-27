@@ -4,13 +4,14 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import time
 
 from PySide6.QtCore import Qt, QSignalBlocker, QTimer, QUrl
 from PySide6.QtGui import QAction, QFont, QIcon, QTextDocument
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QDoubleSpinBox,
                                QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLineEdit,
-                               QLabel, QMainWindow, QMenuBar, QMessageBox, QPlainTextEdit, QPushButton,
+                               QLabel, QMainWindow, QMenuBar, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
                                QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -18,6 +19,7 @@ from opensim.workspace import CAPABILITIES, Workspace
 from opensim.results import refresh_viewer
 from opensim.cat_language import cat_text
 from opensim.app_identity import ICON_PATH, set_process_identity
+from opensim.job_progress import STAGE_LABELS, elapsed_label
 
 
 STYLE = """
@@ -44,6 +46,8 @@ QDoubleSpinBox, QComboBox { padding: 5px; border: 1px solid #cbd4df; background:
 QPlainTextEdit { border: 0; background: #f9fbfd; font-family: Consolas; font-size: 11px; }
 QStatusBar { background: #172b43; color: #e2edf7; }
 QStatusBar QLabel { color: #e2edf7; padding: 3px 10px; }
+QProgressBar { border:1px solid #9aaec7; border-radius:4px; background:#dbe5f0; text-align:center; color:#27374a; }
+QProgressBar::chunk { background:#d99b35; border-radius:3px; }
 QSplitter::handle { background: #d5dde7; height: 3px; width: 3px; }
 QWidget#ViewportTools { background:#f8fafc; }
 QLabel#DetailsHeading { background:#dce5ef; padding:9px; font-weight:600; }
@@ -59,6 +63,7 @@ QLabel#ApplicationTitle { color:#edf4ff; font-size:14px; font-weight:600; backgr
 DARK_STYLE = """
 QMainWindow, QWidget { background:#121b2b; color:#d8e4f1; }
 QMenuBar, QStatusBar { background:#0d1420; color:#dce6f4; }
+QProgressBar { border-color:#405674; background:#17263b; color:#e6eefb; }
 QMenu { background:#1c293d; border:1px solid #35445b; }
 QMenu::item:selected { background:#2e4565; }
 QTabWidget::pane { background:#182538; }
@@ -115,8 +120,31 @@ class SimulatorWindow(QMainWindow):
         self.build_toolbox()
         self.build_logs()
         self.status_label = QLabel("Ready")
+        self.status_label.setMinimumWidth(0)
+        self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.statusBar().addWidget(self.status_label, 1)
-        self.statusBar().addPermanentWidget(QLabel("SI units  ·  CalculiX 2.23  ·  Local MCP workspace"))
+        self.progress_panel = QWidget()
+        progress_row = QHBoxLayout(self.progress_panel)
+        progress_row.setContentsMargins(0, 0, 8, 0)
+        progress_row.setSpacing(6)
+        self.progress_label = QLabel("No active job")
+        self.progress_label.setMinimumWidth(0)
+        self.progress_label.setMaximumWidth(260)
+        self.progress_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        progress_row.addWidget(self.progress_label, 1)
+        self.job_progress = QProgressBar()
+        self.job_progress.setAccessibleName("Simulation job progress")
+        self.job_progress.setFixedWidth(150)
+        self.job_progress.setFixedHeight(18)
+        self.job_progress.setRange(0, 100)
+        self.job_progress.setValue(0)
+        self.job_progress.setTextVisible(False)
+        progress_row.addWidget(self.job_progress)
+        self.progress_panel.setMinimumWidth(290)
+        self.progress_panel.setMaximumWidth(430)
+        self.statusBar().addPermanentWidget(self.progress_panel, 1)
+        self.units_label = QLabel("SI units  ·  CalculiX 2.23  ·  Local MCP workspace")
+        self.statusBar().addPermanentWidget(self.units_label)
         self.apply_theme()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
@@ -721,7 +749,7 @@ class SimulatorWindow(QMainWindow):
             del blocker
         self.cat_button.setText("Cat mode: ON" if active else "Cat mode: OFF")
         self.cat_button.setToolTip("Switch back to English" if active else "A deeply unserious feline translation. Meow.")
-        skipped = {self.cat_button, self.viewport_title, self.status_label}
+        skipped = {self.cat_button, self.viewport_title, self.status_label, self.progress_label}
         for widget in self.findChildren(QLabel) + self.findChildren(QPushButton) + self.findChildren(QToolButton):
             if widget not in skipped:
                 self.present_text((widget, "text"), widget.text(), widget.setText)
@@ -821,6 +849,8 @@ class SimulatorWindow(QMainWindow):
                 del blocker
             self.project_revision = project["revision"]
         active = next((job for job in jobs if job["status"] in {"queued", "running"}), None)
+        matching = next((job for job in jobs if project and job["revision"] == project["revision"]), None)
+        self.update_job_progress(active or matching)
         self.apply_button.setEnabled(bool(project) and not active)
         for field in self.fields.values():
             field.setEnabled(bool(project) and not active)
@@ -920,6 +950,36 @@ class SimulatorWindow(QMainWindow):
                 label = "No solved result for current settings" if state["view"] in {"results", "modal"} else "Undeformed geometry / mesh preview"
                 self.legend.setText(f"  {label}   ·   Drag to rotate")
         self.apply_language()
+
+    def update_job_progress(self, job):
+        if job is None:
+            self.job_progress.setRange(0, 100)
+            self.job_progress.setValue(0)
+            self.progress_label.setText("No active job")
+            self.progress_panel.hide()
+            self.units_label.show()
+            return
+        self.progress_panel.show()
+        active = job["status"] in {"queued", "running"}
+        stage = job.get("progress_stage", "starting") if active else job["status"]
+        label = STAGE_LABELS.get(stage, "Working")
+        if job["status"] == "running" and stage == "queued":
+            label = "Working"
+        if self.workspace.ui_state()["language"] == "cat":
+            label = cat_text(label)
+        elapsed = elapsed_label((time.time() if active else job["updated"]) - job["created"])
+        self.progress_label.setText(f"{label} · {elapsed}")
+        self.progress_label.setToolTip(f"{job['kind'].title()} · {job['id']}\n{label} · elapsed {elapsed}")
+        self.units_label.setVisible(not active)
+        self.job_progress.setTextVisible(not active)
+        if active:
+            self.job_progress.setRange(0, 0)
+            self.job_progress.setToolTip("Work is in progress. This stage has no reliable percentage estimate.")
+        else:
+            self.job_progress.setRange(0, 100)
+            self.job_progress.setValue(100 if job["status"] == "completed" else 0)
+            self.job_progress.setFormat("Complete" if job["status"] == "completed" else "Failed")
+            self.job_progress.setToolTip(label)
 
 
 def main():
