@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doo Doo Dynamics Simulator | Structural Results</title>
+<style>
+body{margin:0;background:#101923;color:#e6edf3;font:16px system-ui}main{max-width:1100px;margin:auto;padding:32px}h1{font-size:30px;margin-bottom:8px}p{color:#aebdcb;line-height:1.5}canvas{display:block;width:100%;height:540px;background:#152330;border:1px solid #304457;border-radius:12px;touch-action:none}label{display:block;margin:20px 0}input{width:240px;vertical-align:middle}pre{white-space:pre-wrap;color:#9fdccc}button{background:#25475d;color:white;border:1px solid #4b738c;padding:8px 14px;border-radius:6px}.legend{height:12px;max-width:400px;background:linear-gradient(90deg,#3066ed,#38d9bf,#f2bd40,#ed5030)}
+</style>
+<main><h1>Doo Doo Dynamics Simulator</h1><p>Linear static structural results · SI units · four-node tetrahedra</p>
+<canvas id="view" aria-label="Rotatable surface mesh colored by displacement magnitude"></canvas>
+<label>Deformation display scale <input id="scale" type="range" min="0" max="2000" value="500"><output id="factor">500×</output></label>
+<button id="reset">Reset view</button><p>Drag to rotate. Color shows displacement magnitude in meters. Display deformation is exaggerated; calculations use the original geometry.</p>
+<div class="legend"></div><p id="range"></p><pre id="summary"></pre>
+<p>Stage 1 research prototype. Stress output is retained in CalculiX FRD format; this viewer shows displacement only.</p></main>
+<script>
+const simulation = __SIMULATION_DATA__;
+const canvas = document.getElementById('view');
+const context = canvas.getContext('2d');
+const slider = document.getElementById('scale');
+const magnitudes = simulation.displacement.map(vector => Math.hypot(...vector));
+const maximum = Math.max(...magnitudes);
+const bounds = [0,1,2].map(axis => [Math.min(...simulation.points.map(point => point[axis])), Math.max(...simulation.points.map(point => point[axis]))]);
+const center = bounds.map(bound => (bound[0]+bound[1])/2);
+const span = Math.max(...bounds.map(bound => bound[1]-bound[0]));
+let yaw = -0.45, pitch = 0.5, drag = null;
+function draw(){
+  canvas.width = canvas.clientWidth * devicePixelRatio; canvas.height = canvas.clientHeight * devicePixelRatio;
+  context.clearRect(0,0,canvas.width,canvas.height);
+  const zoom = Math.min(canvas.width,canvas.height)*0.8/span;
+  const points = simulation.points.map((point,index) => {
+    const moved = point.map((value,axis) => value-center[axis]+Number(slider.value)*simulation.displacement[index][axis]);
+    const horizontal = moved[0]*Math.cos(yaw)-moved[1]*Math.sin(yaw);
+    const depth = moved[0]*Math.sin(yaw)+moved[1]*Math.cos(yaw);
+    return [canvas.width/2+horizontal*zoom,canvas.height/2-(moved[2]*Math.cos(pitch)-depth*Math.sin(pitch))*zoom,depth*Math.cos(pitch)+moved[2]*Math.sin(pitch)];
+  });
+  const faces = simulation.faces.slice().sort((left,right) => left.reduce((sum,index)=>sum+points[index][2],0)-right.reduce((sum,index)=>sum+points[index][2],0));
+  for(const face of faces){
+    const fraction = maximum ? face.reduce((sum,index)=>sum+magnitudes[index],0)/3/maximum : 0;
+    context.beginPath(); face.forEach((index,position)=>position ? context.lineTo(...points[index].slice(0,2)) : context.moveTo(...points[index].slice(0,2))); context.closePath();
+    context.fillStyle = `hsl(${225*(1-fraction)} 75% 57%)`; context.fill(); context.strokeStyle='#14232b88'; context.lineWidth=0.6*devicePixelRatio; context.stroke();
+  }
+}
+slider.oninput=()=>{document.getElementById('factor').value=slider.value+'×';draw()};
+canvas.onpointerdown=event=>{drag=[event.clientX,event.clientY];canvas.setPointerCapture(event.pointerId)};
+canvas.onpointermove=event=>{if(drag){yaw+=(event.clientX-drag[0])*0.008;pitch+=(event.clientY-drag[1])*0.008;drag=[event.clientX,event.clientY];draw()}};
+canvas.onpointerup=canvas.onpointercancel=()=>drag=null;
+document.getElementById('reset').onclick=()=>{yaw=-0.45;pitch=0.5;draw()};
+document.getElementById('range').textContent=`0 m → ${maximum.toExponential(5)} m`;
+document.getElementById('summary').textContent=JSON.stringify(simulation.summary,null,2);
+window.addEventListener('resize',draw);draw();
+</script></html>

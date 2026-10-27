@@ -1,0 +1,18 @@
+name: Tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  windows-structural:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned dependencies and CalculiX
+        shell: pwsh
+        run: ./tools/setup.ps1 -Python python
+      - name: Run tests including real solver
+        shell: pwsh
+        run: ./.venv/Scripts/python.exe -m pytest -q
