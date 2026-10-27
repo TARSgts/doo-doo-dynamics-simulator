@@ -93,6 +93,8 @@ Typical sequence: create project → set parameters → create/import CAD → wa
 
 ## Verified behavior
 
+The model tree and properties panel have an 8-pixel vertical resize handle with a hover highlight, resize cursor and drag hint. Both panels retain useful minimum heights and cannot collapse accidentally. The desktop layout check drags the handle and verifies that the two panels resize in opposite directions and can return to their original sizes.
+
 The compact ribbon uses single-line buttons with hover explanations. Sample model creation is confined to the Examples tab; Home and Geometry contain project actions, while Validation contains reference reports. Reduced ribbon, card and toolbar spacing moves the viewport higher. The ribbon measures 80 logical pixels tall with Segoe UI 10 on Windows, down from 116, and scrolls horizontally when commands exceed the available width. Native layout checks covered every tab at 1100 and 1520 window widths in both themes and both languages without clipped command labels. The seven desktop tests also pass.
 
 Hover over a button, numeric field or dropdown for a short plain-language explanation. Property labels carry the same help as their inputs. Help covers material and load units, mesh tradeoffs, static versus modal behavior, display-only deformation scaling, and support/load region entry. It stays readable in both themes and remains in English in Cat mode for clarity. Seven focused desktop tests pass, including control coverage, refresh/theme/language persistence and unchanged project settings.

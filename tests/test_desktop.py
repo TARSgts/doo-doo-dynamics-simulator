@@ -139,7 +139,9 @@ def test_bottom_progress_busy_completed_failed_and_project_switch(tmp_path):
 
 def test_property_fields_stay_inside_narrow_and_wide_dock_in_both_languages(tmp_path):
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QDockWidget, QScrollArea
+    from PySide6.QtWidgets import QDockWidget, QScrollArea, QSplitter
+    from PySide6.QtTest import QTest
+    from PySide6.QtCore import QPoint
     application = QApplication.instance() or QApplication([])
     workspace = Workspace(tmp_path)
     project = workspace.create_project("Properties sizing")
@@ -149,6 +151,21 @@ def test_property_fields_stay_inside_narrow_and_wide_dock_in_both_languages(tmp_
     try:
         dock = window.findChild(QDockWidget, "outline")
         scroll = window.findChild(QScrollArea, "PropertiesScroll")
+        splitter = window.findChild(QSplitter, "ModelPropertiesSplitter")
+        handle = splitter.handle(1)
+        assert handle.height() >= 8
+        assert not splitter.childrenCollapsible()
+        before = splitter.sizes()
+        point = handle.rect().center()
+        QTest.mousePress(handle, Qt.MouseButton.LeftButton, pos=point)
+        QTest.mouseMove(handle, point + QPoint(0, 70))
+        QTest.mouseRelease(handle, Qt.MouseButton.LeftButton, pos=point + QPoint(0, 70))
+        application.processEvents()
+        assert splitter.sizes()[0] > before[0]
+        assert splitter.sizes()[1] < before[1]
+        splitter.setSizes(before)
+        application.processEvents()
+        assert abs(splitter.sizes()[0] - before[0]) <= 1
         for language in ("en", "cat"):
             window.set_language(language)
             for width in (330, 420, 550):

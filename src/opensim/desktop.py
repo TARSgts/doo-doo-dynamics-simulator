@@ -52,7 +52,8 @@ QStatusBar { background: #172b43; color: #e2edf7; }
 QStatusBar QLabel { color: #e2edf7; padding: 3px 10px; }
 QProgressBar { border:1px solid #9aaec7; border-radius:4px; background:#dbe5f0; text-align:center; color:#27374a; }
 QProgressBar::chunk { background:#d99b35; border-radius:3px; }
-QSplitter::handle { background: #d5dde7; height: 3px; width: 3px; }
+QSplitter::handle { background: #d5dde7; }
+QSplitter::handle:hover { background:#d99530; }
 QWidget#ViewportTools { background:#f8fafc; }
 QLabel#DetailsHeading { background:#dce5ef; padding:9px; font-weight:600; }
 QLabel#ResultCard { background:white; color:#31485f; border:1px solid #d9e2ec; padding:5px 10px; border-radius:5px; }
@@ -86,6 +87,7 @@ QDoubleSpinBox, QComboBox { background:#15243a; color:#e6eefb; border-color:#3a4
 QComboBox QAbstractItemView { background:#1d2e45; color:#e4eefb; selection-background-color:#36567a; }
 QPlainTextEdit { background:#0e1827; color:#9eb6cf; }
 QSplitter::handle { background:#28384e; }
+QSplitter::handle:hover { background:#dba24a; }
 QScrollArea { border:0; background:#121b2b; }
 QLabel#DetailsHeading { background:#1c2c44; color:#c3d5ec; }
 QWidget#ViewportTools { background:#17263b; }
@@ -396,7 +398,11 @@ class SimulatorWindow(QMainWindow):
         dock.setObjectName("outline")
         dock.setMinimumWidth(330)
         splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setObjectName("ModelPropertiesSplitter")
+        splitter.setHandleWidth(8)
+        splitter.setChildrenCollapsible(False)
         self.tree = QTreeWidget()
+        self.tree.setMinimumHeight(80)
         self.tree.setHeaderHidden(True)
         self.tree.itemClicked.connect(self.select_tree_item)
         splitter.addWidget(self.tree)
@@ -488,8 +494,12 @@ class SimulatorWindow(QMainWindow):
         scroll.setObjectName("PropertiesScroll")
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidgetResizable(True)
+        scroll.setMinimumHeight(100)
+        scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         scroll.setWidget(details)
         splitter.addWidget(scroll)
+        splitter.handle(1).setCursor(Qt.CursorShape.SplitVCursor)
+        splitter.handle(1).setToolTip("Drag up or down to resize the model tree and settings panel.")
         splitter.setSizes([220, 480])
         dock.setWidget(splitter)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
