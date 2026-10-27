@@ -93,6 +93,8 @@ Typical sequence: create project → set parameters → create/import CAD → wa
 
 ## Verified behavior
 
+The compact ribbon uses single-line buttons with hover explanations. Sample model creation is confined to the Examples tab; Home and Geometry contain project actions, while Validation contains reference reports. Reduced ribbon, card and toolbar spacing moves the viewport higher. The ribbon measures 80 logical pixels tall with Segoe UI 10 on Windows, down from 116, and scrolls horizontally when commands exceed the available width. Native layout checks covered every tab at 1100 and 1520 window widths in both themes and both languages without clipped command labels. The seven desktop tests also pass.
+
 Hover over a button, numeric field or dropdown for a short plain-language explanation. Property labels carry the same help as their inputs. Help covers material and load units, mesh tradeoffs, static versus modal behavior, display-only deformation scaling, and support/load region entry. It stays readable in both themes and remains in English in Cat mode for clarity. Seven focused desktop tests pass, including control coverage, refresh/theme/language persistence and unchanged project settings.
 
 Number fields in the left properties panel ignore mouse-wheel input even when focused. The wheel can scroll the containing panel without altering analysis values. Typing, keyboard arrows and the field's stepper buttons remain available. Desktop checks cover both integer and decimal fields, both wheel directions, focused/unfocused states and unchanged project inputs. A synthetic wheel event delivered to a visible native field also verified panel scrolling.

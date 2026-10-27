@@ -33,6 +33,8 @@ QMenu { background: white; }
 QTabWidget::pane { border: 0; background: #f6f8fb; }
 QTabBar::tab { background: #e5eaf1; padding: 9px 19px; color: #45576c; }
 QTabBar::tab:selected { background: #fff; color: #1c344f; border-top: 3px solid #d99530; }
+QTabWidget#CommandRibbon QTabBar::tab { padding:5px 13px; }
+QTabWidget#CommandRibbon QToolButton { padding:5px 10px; }
 QToolButton { background: transparent; border: 1px solid transparent; padding: 9px 15px; border-radius: 4px; }
 QToolButton:hover { background: #e5edf7; border-color: #cad7e6; }
 QToolButton:disabled { color: #a6aeba; background: #eff1f4; }
@@ -53,7 +55,7 @@ QProgressBar::chunk { background:#d99b35; border-radius:3px; }
 QSplitter::handle { background: #d5dde7; height: 3px; width: 3px; }
 QWidget#ViewportTools { background:#f8fafc; }
 QLabel#DetailsHeading { background:#dce5ef; padding:9px; font-weight:600; }
-QLabel#ResultCard { background:white; color:#31485f; border:1px solid #d9e2ec; padding:10px 16px; border-radius:5px; }
+QLabel#ResultCard { background:white; color:#31485f; border:1px solid #d9e2ec; padding:5px 10px; border-radius:5px; }
 QWidget#DetailsPanel, QScrollArea#PropertiesScroll { background:#f2f5fa; }
 QScrollBar:vertical { background:#e0e7f0; width:10px; margin:0; }
 QScrollBar::handle:vertical { background:#9caec5; min-height:24px; border-radius:4px; }
@@ -203,8 +205,7 @@ class SimulatorWindow(QMainWindow):
         header_row.addWidget(self.theme_button)
         self.setMenuWidget(header)
         file_menu = self.application_menu.addMenu("File")
-        for title, handler in (("New project", self.new_project), ("Import CAD…", self.import_cad),
-                               ("Create test plate", self.create_demo)):
+        for title, handler in (("New project", self.new_project), ("Import CAD…", self.import_cad)):
             action = QAction(title, self)
             action.triggered.connect(lambda checked=False, callback=handler: self.safe(callback))
             file_menu.addAction(action)
@@ -228,9 +229,10 @@ class SimulatorWindow(QMainWindow):
 
     def ribbon_button(self, layout, title, description, handler=None):
         button = QToolButton()
-        button.setText(title + "\n" + description)
+        button.setText(title)
+        button.setAccessibleDescription(description)
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        button.setMinimumHeight(64)
+        button.setMinimumHeight(30)
         if handler:
             button.setToolTip(BUTTON_HELP[title])
             button.clicked.connect(lambda checked=False: self.safe(handler))
@@ -264,13 +266,13 @@ class SimulatorWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         self.ribbon = QTabWidget()
-        self.ribbon.setFixedHeight(116)
+        self.ribbon.setObjectName("CommandRibbon")
+        self.ribbon.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         groups = {
             "Home": [("New project", "Workspace", self.new_project), ("Import CAD", "STEP / IGES / BREP", self.import_cad),
-                     ("Test plate", "Built-in example", self.create_demo), ("Generate mesh", "Gmsh tetrahedra", self.mesh),
+                     ("Generate mesh", "Gmsh tetrahedra", self.mesh),
                      ("Solve", "Static structural", self.solve), ("Results", "Displacement", lambda: self.change_view("results"))],
-            "Geometry": [("Import CAD", "One closed solid", self.import_cad), ("Test plate", "100 × 40 × 5 mm", self.create_demo),
-                         ("Cantilever", "1 m tip-loaded beam", self.create_beam),
+            "Geometry": [("Import CAD", "One closed solid", self.import_cad),
                          ("CAD editing", "Planned" , None), ("Assemblies", "Planned", None)],
             "Mesh": [("Generate mesh", "Linear tetrahedra", self.mesh), ("Show mesh", "Surface edges", lambda: self.change_view("mesh")),
                      ("Adaptive refinement", "Planned", None)],
@@ -280,8 +282,9 @@ class SimulatorWindow(QMainWindow):
                          ("Stress contours", "Recovered von Mises", self.show_stress), ("Modal", "Natural frequencies", self.modal), ("Thermal", "Planned", None)],
             "Automation": [("MCP status", "16 local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
                            ("Remote access", "Planned", None)],
-            "Validation": [("Cantilever", "Create beam preset", self.create_beam),
-                           ("Reference report", "Euler–Bernoulli study", self.show_validation),
+            "Examples": [("Test plate", "100 × 40 × 5 mm", self.create_demo),
+                         ("Cantilever", "1 m tip-loaded beam", self.create_beam)],
+            "Validation": [("Reference report", "Euler–Bernoulli study", self.show_validation),
                            ("Timoshenko", "Bending + shear study", lambda: self.show_reference_report("timoshenko")),
                            ("Modal beam", "Frequency verification", lambda: self.show_reference_report("modal")),
                            ("Distributed load", "Uniform traction study", lambda: self.show_reference_report("distributed")),
@@ -290,15 +293,24 @@ class SimulatorWindow(QMainWindow):
         for name, buttons in groups.items():
             page = QWidget()
             row = QHBoxLayout(page)
-            row.setContentsMargins(10, 2, 10, 2)
+            row.setContentsMargins(8, 2, 8, 2)
+            row.setSpacing(4)
             for title, description, handler in buttons:
                 self.ribbon_button(row, title, description, handler)
             row.addStretch()
-            self.ribbon.addTab(page, name)
+            row.setSizeConstraint(QHBoxLayout.SizeConstraint.SetMinimumSize)
+            scroller = QScrollArea()
+            scroller.setWidgetResizable(True)
+            scroller.setFrameShape(QScrollArea.Shape.NoFrame)
+            scroller.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroller.setWidget(page)
+            self.ribbon.addTab(scroller, name)
+        self.update_ribbon_height()
         layout.addWidget(self.ribbon)
         card_panel = QWidget()
         card_row = QHBoxLayout(card_panel)
-        card_row.setContentsMargins(10, 8, 10, 8)
+        card_row.setContentsMargins(8, 3, 8, 3)
+        card_row.setSpacing(6)
         self.result_cards = []
         for caption in ("Maximum displacement", "Tip-section displacement", "Force balance"):
             card = QLabel(caption + "\n—")
@@ -309,7 +321,7 @@ class SimulatorWindow(QMainWindow):
         tools = QWidget()
         tools.setObjectName("ViewportTools")
         tool_row = QHBoxLayout(tools)
-        tool_row.setContentsMargins(12, 5, 12, 5)
+        tool_row.setContentsMargins(8, 2, 8, 2)
         self.viewport_title = QLabel("MODEL VIEWPORT")
         self.viewport_title.setWordWrap(True)
         tool_row.addWidget(self.viewport_title, 1)
@@ -366,10 +378,16 @@ class SimulatorWindow(QMainWindow):
         layout.addWidget(self.legend)
         self.setCentralWidget(central)
 
+    def update_ribbon_height(self):
+        command_height = max(self.ribbon.widget(i).widget().sizeHint().height() for i in range(self.ribbon.count()))
+        scroll_height = self.ribbon.widget(0).horizontalScrollBar().sizeHint().height()
+        self.ribbon.setFixedHeight(self.ribbon.tabBar().sizeHint().height() + command_height + scroll_height + 4)
+
     def empty_view(self):
         return """<html><body style="margin:0;background:radial-gradient(#fff,#dfe7f0);font-family:Segoe UI;color:#243b55;display:grid;place-items:center;height:100vh">
         <div style="text-align:center"><div style="font-size:54px;font-weight:700;color:#b6c6d7">DD</div>
-        <h2>Your next simulation starts here</h2><p style="color:#6d8197">New project → Import CAD or Test plate → Generate mesh → Solve</p>
+        <h2>Your next simulation starts here</h2><p style="color:#6d8197">New project → Import CAD → Generate mesh → Solve</p>
+        <p style="color:#6d8197">Or open the Examples tab to try a plate or cantilever beam.</p>
         <p style="color:#8c9bab;font-size:12px">Static structural · Gmsh meshing · CalculiX solver · MCP automation</p></div>
         <script>function setTheme(theme){document.body.style.background=theme==='dark'?'radial-gradient(#22344f,#101827)':'radial-gradient(#fff,#dfe7f0)';document.body.style.color=theme==='dark'?'#dce9f9':'#243b55';}</script></body></html>"""
 
@@ -831,6 +849,7 @@ class SimulatorWindow(QMainWindow):
             for child_index in range(root.childCount()):
                 child = root.child(child_index)
                 self.present_text((self.tree, index, child_index), child.text(0), lambda value, item=child: item.setText(0, value))
+        self.update_ribbon_height()
         if previous != self.language:
             self.apply_view_options()
 

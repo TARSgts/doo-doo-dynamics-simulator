@@ -13,7 +13,7 @@ PHRASES = {
     "DOO DOO DYNAMICS  /  SIMULATOR": "DOO DOO DYNAMICS  /  MEOWMULATOR",
     "File": "Box of stuff", "Help": "Halp", "View": "Lookies", "About": "Who dis?", "Exit": "I go nap",
     "Home": "Cat bed", "Geometry": "Shapez", "Mesh": "Tiny triangles", "Environment": "Surroundings",
-    "Solution": "Science", "Automation": "Robot paws", "Validation": "Did it work tho?",
+    "Solution": "Science", "Automation": "Robot paws", "Examples": "Practice toys", "Validation": "Did it work tho?",
     "New project": "New cardboard box", "Workspace": "Cardboard kingdom", "Import CAD": "Bring da shape",
     "Create test plate": "Spawn snack plate", "Test plate": "Snack plate", "Built-in example": "One we made earlier, nya",
     "Generate mesh": "Make tiny triangles", "Gmsh tetrahedra": "Gmsh triangle beans", "Linear tetrahedra": "Pointy beans",
