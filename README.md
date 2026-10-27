@@ -14,6 +14,8 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 **Timoshenko verification:** the [thin-beam and shear-control study](docs/timoshenko/REPORT.md) compares nine independent 3D solves with bending-plus-shear theory. The thin beam differs by 0.1701%; a shorter zero-Poisson control differs by 0.0329% and recovers 98.59% of the theoretical shear increment. A retained short ν=0.3 study documents clamp effects. Open the Timoshenko and circular-hole reports from the desktop Validation ribbon.
 
+**Modal analysis:** extract 1–30 natural frequencies and normalized mode shapes from the desktop **Modal analysis** button, CLI or MCP. Enter density in kg/m³, choose quadratic elements for bending, solve and select a mode to animate. The [modal beam study](docs/modal/REPORT.md) validates six bending frequencies within 0.402% of theory, plus shapes, mesh stability and density scaling. See [modal setup and limits](docs/MODAL.md).
+
 ![Displacement viewer](docs/viewer-preview.png)
 
 ## Working now
@@ -24,6 +26,7 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 - Solve isotropic linear elasticity through CalculiX; verify completion, displacement completeness, force balance and moment balance.
 - Export an offline, rotatable HTML displacement viewer, VTK displacement data and native CalculiX stress/displacement FRD files.
 - Record CAD, input-deck and solver hashes, material properties, mesh settings and dependency versions per run.
+- Extract undamped, unprestressed natural frequencies with the X-min face fixed, export every mode as HTML/VTK and retain raw eigenvectors. Animate normalized shapes with arbitrary display amplitude and 1 Hz playback.
 
 This is a research prototype. It supports one material, one solid and the clamp/end-load conditions above. Equal nodal forces are not uniform surface traction. Point loading requires an end face containing the bounding-section center. Assemblies, contact, nonlinear behavior and arbitrary support/face selection need later stages. Prefer C3D10 for bending and perform mesh-convergence checks. A point load has a local stress singularity; the cantilever study validates global displacement and equilibrium, not peak stress. No Ansys compatibility or accuracy equivalence is claimed.
 
@@ -40,6 +43,8 @@ Start-Process .\runs\my-bar\results.html
 .\.venv\Scripts\open-sim.exe validate-cantilever --out runs\beam-validation
 .\.venv\Scripts\open-sim.exe validate-hole --out runs\hole-validation
 .\.venv\Scripts\open-sim.exe validate-timoshenko --out runs\timoshenko-validation
+.\.venv\Scripts\open-sim.exe modal examples\my-bar.step --mesh-size 0.02 --density 7850 --modes 6 --out runs\modal-bar
+.\.venv\Scripts\open-sim.exe validate-modal --out runs\modal-validation
 ```
 
 The supplied `examples/axial-bar.step` is a generated 1 × 0.1 × 0.1 bar. Use a new output folder for each run; existing run folders are deliberately preserved. Failed runs retain their input/log files and should be inspected before retrying into a new folder.

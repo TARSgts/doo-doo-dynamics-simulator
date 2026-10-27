@@ -84,13 +84,18 @@ Other MCP clients can launch the same command using a standard stdio configurati
 | `mesh_project` / `solve_project` | Start asynchronous meshing or static structural solve |
 | `get_job` | Poll status, failure or numerical summary |
 | `get_results` | Current results and artifact paths; rejects stale inputs |
-| `show_in_desktop` | Select project and geometry/mesh/results view |
+| `set_modal_parameters` | Set positive density and 1–30 requested modes |
+| `run_modal_analysis` | Start unprestressed frequency extraction with X-min fixed |
+| `get_modal_results` | Frequencies, raw data and per-mode HTML/VTK artifacts |
+| `show_in_desktop` | Select project and geometry/mesh/results/modal view and mode number |
 
 Typical sequence: create project → set parameters → create/import CAD → wait for meshing → solve → poll job → get results → show in desktop. Each returned job ID identifies a distinct output folder. The server accepts only the implemented job kinds; it does not expose arbitrary command execution or an executable-path override.
 
 ## Verified behavior
 
-The full suite passes 54 tests locally, including a real MCP stdio session, persistent theme toggling, parameter validation, disabled UI controls, saved-viewer upgrades, top-header placement, C3D10 node mapping and quadratic face integration, point-force deck generation, cross-process jobs, stale-result rejection, malformed-CAD failure and the structural benchmarks. The [cantilever report](cantilever/REPORT.md) documents the bending comparison and mesh refinement. A separate MCP workflow configured the quadratic beam, applied its point load, solved it, selected its desktop results view and enabled dark mode.
+Modal analysis is now enabled in the desktop toolbox and Solution ribbon. Density, mode count, mode selection and normalized animation are available; see [modal setup](MODAL.md) and [validation](modal/REPORT.md). The MCP catalog has expanded from 13 to **16** tools with `set_modal_parameters`, `run_modal_analysis` and `get_modal_results`. `show_in_desktop` also accepts `view="modal"` and a `mode` number. Static and modal results stay separate and both reject stale revisions. Reconnect an existing MCP client to discover the new catalog.
+
+The full suite passes 74 tests locally, including a real MCP stdio modal solve, persistent theme toggling, parameter validation, disabled UI controls, saved-viewer upgrades, top-header placement, C3D10 node mapping and quadratic face integration, point-force deck generation, cross-process jobs, stale-result rejection, malformed-CAD failure and the structural benchmarks. The [cantilever report](cantilever/REPORT.md) documents the bending comparison and mesh refinement. A separate MCP workflow configured the quadratic beam, applied its point load, solved it, selected its desktop results view and enabled dark mode.
 
 The Validation ribbon also opens the [Timoshenko bending/shear report](timoshenko/REPORT.md) and [circular-hole stress report](hole/REPORT.md) in native desktop report windows. These published reference studies are explicitly separate from the selected project's settings. A new thin-beam desktop project was solved through the shared background worker and displayed with the front XZ camera and Uz contours, matching the Timoshenko study's fine-mesh result.
 

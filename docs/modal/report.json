@@ -1,0 +1,112 @@
+{
+  "result": "PASS",
+  "criteria": {
+    "all_six_frequency_errors_below_2_percent": true,
+    "last_mesh_frequency_changes_below_0_5_percent": true,
+    "density_scaling_error_below_0_01_percent": true,
+    "all_shape_MAC_above_0_995": true,
+    "all_clamped_shape_components_below_1e_8": true
+  },
+  "geometry_m": [
+    1.0,
+    0.02,
+    0.02
+  ],
+  "young_Pa": 210000000000.0,
+  "poisson": 0.3,
+  "density_kg_m3": 7850.0,
+  "analytical_frequencies_Hz": [
+    16.710331888881605,
+    16.710331888881605,
+    104.72186237274533,
+    104.72186237274533,
+    293.22424697822424,
+    293.22424697822424
+  ],
+  "fine_relative_errors": [
+    0.0008005891928033471,
+    0.0008059750822397849,
+    0.001054816733034758,
+    0.0010500421808192772,
+    0.004011424670182895,
+    0.004006650167342696
+  ],
+  "last_mesh_change_fraction": 0.0002512641943730465,
+  "density_scaling_error_fraction": 3.823042817874267e-07,
+  "fine_longitudinal_shape_MAC": [
+    0.9999998925477614,
+    0.9999999492236601,
+    0.9999992233497742,
+    0.9999998901454104,
+    0.999997557435777,
+    0.9999973677724221
+  ],
+  "cases": [
+    {
+      "case": "coarse",
+      "mesh_size_m": 0.02,
+      "density_kg_m3": 7850.0,
+      "elements": 1015,
+      "nodes": 2280,
+      "frequencies_Hz": [
+        16.73229,
+        16.73275,
+        104.6823,
+        104.6851,
+        292.3249,
+        292.3287
+      ],
+      "clamp_residual": 0.0
+    },
+    {
+      "case": "medium",
+      "mesh_size_m": 0.01,
+      "density_kg_m3": 7850.0,
+      "elements": 1889,
+      "nodes": 4378,
+      "frequencies_Hz": [
+        16.72547,
+        16.72558,
+        104.6284,
+        104.6287,
+        292.1198,
+        292.1228
+      ],
+      "clamp_residual": 0.0
+    },
+    {
+      "case": "fine",
+      "mesh_size_m": 0.0067,
+      "density_kg_m3": 7850.0,
+      "elements": 8843,
+      "nodes": 16956,
+      "frequencies_Hz": [
+        16.72371,
+        16.7238,
+        104.6114,
+        104.6119,
+        292.048,
+        292.0494
+      ],
+      "clamp_residual": 0.0
+    },
+    {
+      "case": "density-scaling",
+      "mesh_size_m": 0.01,
+      "density_kg_m3": 31400.0,
+      "elements": 1889,
+      "nodes": 4378,
+      "frequencies_Hz": [
+        8.362737,
+        8.362788,
+        52.3142,
+        52.31437,
+        146.0599,
+        146.0614
+      ],
+      "clamp_residual": 0.0
+    }
+  ],
+  "reference": "f_n=beta_n\u00b2/(2*pi*L\u00b2)*sqrt(E*I/(rho*A)); cos(beta)*cosh(beta)=-1",
+  "limitations": "Euler\u2013Bernoulli slender-beam approximation versus 3D clamp, shear and rotary inertia. Square section gives paired bending modes whose orientation/sign is arbitrary. MAC compares the dominant transverse component along a corner edge with the corresponding longitudinal beam shape, not a full mass-weighted 3D MAC. No stiffness/mass residual check or forced-response validation is claimed."
+}

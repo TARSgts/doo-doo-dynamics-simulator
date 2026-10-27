@@ -91,9 +91,34 @@ def main():
     hole.add_argument("--out", type=Path, required=True)
     timoshenko = commands.add_parser("validate-timoshenko", help="Validate thin and shear-sensitive solid beams against Timoshenko theory")
     timoshenko.add_argument("--out", type=Path, required=True)
+    modal = commands.add_parser("modal", help="Extract unprestressed natural frequencies and mode shapes, X-min fixed")
+    modal.add_argument("cad", type=Path)
+    modal.add_argument("--out", type=Path, required=True)
+    modal.add_argument("--mesh-size", type=float, default=0.01)
+    modal.add_argument("--cad-scale", type=float, default=1.0)
+    modal.add_argument("--young", type=float, default=210e9)
+    modal.add_argument("--poisson", type=float, default=0.3)
+    modal.add_argument("--density", type=float, default=7850.0)
+    modal.add_argument("--modes", type=int, default=6)
+    modal.add_argument("--order", type=int, choices=[1, 2], default=2)
+    modal.add_argument("--ccx")
+    modal_validation = commands.add_parser("validate-modal", help="Validate beam eigenfrequencies, shapes and density scaling")
+    modal_validation.add_argument("--out", type=Path, required=True)
     arguments = parser.parse_args()
     try:
-        if arguments.command == "validate-timoshenko":
+        if arguments.command == "modal":
+            from opensim.modal import solve_modal
+            summary = solve_modal(arguments.cad, arguments.out, arguments.mesh_size, arguments.cad_scale,
+                                  arguments.young, arguments.poisson, arguments.density, arguments.modes,
+                                  arguments.ccx, arguments.order)
+            print(json.dumps(summary, indent=2))
+        elif arguments.command == "validate-modal":
+            from opensim.modal_validation import run_modal_validation
+            report = run_modal_validation(arguments.out)
+            print(json.dumps(report, indent=2))
+            if report["result"] != "PASS":
+                parser.exit(1, "Modal validation did not meet acceptance criteria\n")
+        elif arguments.command == "validate-timoshenko":
             from opensim.timoshenko_validation import run_timoshenko_validation
             report = run_timoshenko_validation(arguments.out)
             print(json.dumps(report, indent=2))

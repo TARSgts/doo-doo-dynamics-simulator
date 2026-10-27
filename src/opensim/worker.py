@@ -36,7 +36,13 @@ def execute(workspace: Workspace, job_id: str):
                     gmsh.write(str(cad))
             with workspace.connect() as connection:
                 connection.execute("UPDATE projects SET cad=? WHERE id=?", (str(cad), job["project_id"]))
-        if job["kind"] == "solve":
+        if job["kind"] == "modal":
+            from opensim.modal import solve_modal
+            result = solve_modal(cad, directory / "modal", size=parameters["mesh_size_m"],
+                                 scale=parameters["cad_scale"], young=parameters["young_Pa"],
+                                 poisson=parameters["poisson"], density=parameters["density_kg_m3"],
+                                 mode_count=parameters["mode_count"], order=parameters["element_order"])
+        elif job["kind"] == "solve":
             result = solve(cad, directory / "solve", size=parameters["mesh_size_m"],
                            scale=parameters["cad_scale"], young=parameters["young_Pa"],
                            poisson=parameters["poisson"], load=parameters["load_N"], order=parameters["element_order"],

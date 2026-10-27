@@ -58,6 +58,10 @@ def test_desktop_has_real_actions_disabled_roadmap_and_shared_state(tmp_path):
         assert {"Thermal analysis", "Contact", "GPU solve"}.issubset(disabled)
         actions = [button for button in window.findChildren(QToolButton) if button.text().startswith("Solve")]
         assert actions and all(button.isEnabled() for button in actions)
+        modal_actions = [button for button in window.findChildren(QPushButton) if button.text() == "Modal analysis"]
+        assert modal_actions and all(button.isEnabled() for button in modal_actions)
+        assert window.fields["density_kg_m3"].value() == 7850
+        assert window.fields["mode_count"].value() == 6
         assert window.project_id == project["id"]
         assert window.application_title.parentWidget() is window.menuWidget()
         assert "DOO DOO DYNAMICS" in window.application_title.text()

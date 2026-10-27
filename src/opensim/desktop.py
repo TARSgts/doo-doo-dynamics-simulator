@@ -11,7 +11,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QDoubleSpinBox,
                                QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
                                QLabel, QMainWindow, QMenuBar, QMessageBox, QPlainTextEdit, QPushButton,
-                               QScrollArea, QSizePolicy, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
+                               QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
 from opensim.workspace import CAPABILITIES, Workspace
@@ -150,7 +150,7 @@ class SimulatorWindow(QMainWindow):
         help_menu.addAction("About", lambda: QMessageBox.information(
             self, "Doo Doo Dynamics Simulator",
             "Independent open-source structural workbench\nGPL-2.0-or-later\n\n"
-            "Single-solid, linear static prototype. Grey controls are planned and unavailable.\n"
+            "Single-solid linear static and modal prototype. Grey controls are planned and unavailable.\n"
             "Built with Gmsh, CalculiX and Qt for Python. Independent of Ansys."))
 
     def ribbon_button(self, layout, title, description, handler=None):
@@ -160,7 +160,7 @@ class SimulatorWindow(QMainWindow):
         button.setMinimumHeight(64)
         if handler:
             button.clicked.connect(lambda checked=False: self.safe(handler))
-            if handler in (self.mesh, self.solve, self.import_cad):
+            if handler in (self.mesh, self.solve, self.modal, self.import_cad):
                 self.analysis_buttons.append(button)
         else:
             button.setEnabled(False)
@@ -187,12 +187,13 @@ class SimulatorWindow(QMainWindow):
             "Environment": [("Apply settings", "Material / axial force", self.save_parameters),
                             ("Face selection", "Planned", None), ("Contact", "Planned", None)],
             "Solution": [("Solve", "CalculiX static", self.solve), ("Displacement", "Current result", lambda: self.change_view("results")),
-                         ("Stress contours", "Planned", None), ("Modal", "Planned", None), ("Thermal", "Planned", None)],
-            "Automation": [("MCP status", "13 local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
+                         ("Stress contours", "Planned", None), ("Modal", "Natural frequencies", self.modal), ("Thermal", "Planned", None)],
+            "Automation": [("MCP status", "16 local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
                            ("Remote access", "Planned", None)],
             "Validation": [("Cantilever", "Create beam preset", self.create_beam),
                            ("Reference report", "Euler–Bernoulli study", self.show_validation),
                            ("Timoshenko", "Bending + shear study", lambda: self.show_reference_report("timoshenko")),
+                           ("Modal beam", "Frequency verification", lambda: self.show_reference_report("modal")),
                            ("Circular hole", "Kirsch stress study", lambda: self.show_reference_report("hole"))],
         }
         for name, buttons in groups.items():
@@ -241,6 +242,26 @@ class SimulatorWindow(QMainWindow):
         self.result_component.currentIndexChanged.connect(self.apply_view_options)
         tool_row.addWidget(self.result_component)
         layout.addWidget(tools)
+        self.modal_tools = QWidget()
+        modal_row = QHBoxLayout(self.modal_tools)
+        modal_row.setContentsMargins(12, 4, 12, 4)
+        modal_row.addWidget(QLabel("Mode"))
+        self.modal_selector = QComboBox()
+        self.modal_selector.setMinimumWidth(190)
+        self.modal_selector.setMinimumContentsLength(20)
+        self.modal_selector.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.modal_selector.setAccessibleName("Select mode shape")
+        self.modal_selector.currentIndexChanged.connect(self.select_mode)
+        modal_row.addWidget(self.modal_selector)
+        self.animate_mode = QPushButton("Animate mode")
+        self.animate_mode.setCheckable(True)
+        self.animate_mode.toggled.connect(self.apply_view_options)
+        modal_row.addWidget(self.animate_mode)
+        modal_note = QLabel("Normalized shape · arbitrary amplitude · animation plays at 1 Hz")
+        modal_note.setWordWrap(True)
+        modal_row.addWidget(modal_note, 1)
+        layout.addWidget(self.modal_tools)
+        self.modal_tools.hide()
         self.view = QWebEngineView()
         self.view.setAccessibleName("Simulation 3D viewport")
         self.view.loadFinished.connect(self.apply_view_options)
@@ -272,6 +293,7 @@ class SimulatorWindow(QMainWindow):
         details.setObjectName("DetailsPanel")
         layout = QVBoxLayout(details)
         heading = QLabel("DETAILS OF STATIC STRUCTURAL")
+        self.details_heading = heading
         heading.setObjectName("DetailsHeading")
         layout.addWidget(heading)
         form = QFormLayout()
@@ -282,6 +304,7 @@ class SimulatorWindow(QMainWindow):
                        ("cad_scale", "CAD scale to m", 0.000001, 100000, 1, 6),
                        ("young_Pa", "Young's E (GPa)", 0.001, 100000, 210, 3),
                        ("poisson", "Poisson ratio", -0.999, 0.499, 0.3, 3),
+                       ("density_kg_m3", "Density (kg/m³)", 0.001, 1e9, 7850, 3),
                        ("load_N", "Total force (N)", -1e12, 1e12, 1000, 3)]
         for key, label, minimum, maximum, value, decimals in definitions:
             field = QDoubleSpinBox()
@@ -294,6 +317,13 @@ class SimulatorWindow(QMainWindow):
             self.fields[key] = field
             form.addRow(label, field)
         layout.addLayout(form)
+        mode_count = QSpinBox()
+        mode_count.setRange(1, 30)
+        mode_count.setValue(6)
+        mode_count.setAccessibleName("Requested modes")
+        mode_count.valueChanged.connect(self.mark_dirty)
+        self.fields["mode_count"] = mode_count
+        form.addRow("Requested modes", mode_count)
         self.selectors = {}
         for key, label, options in (
             ("element_order", "Elements", [("Linear · C3D4", 1), ("Quadratic · C3D10", 2)]),
@@ -307,7 +337,7 @@ class SimulatorWindow(QMainWindow):
             selector.currentIndexChanged.connect(self.mark_dirty)
             form.addRow(label, selector)
             self.selectors[key] = selector
-        note = QLabel("Fixed support: X-min face\nForce application: X-max face\nC3D4 can be very stiff in bending.")
+        note = QLabel("Fixed support: X-min face\nStatic force: X-max face\nModal: no load or prestress; density required.\nC3D10 is preferred for bending.")
         note.setStyleSheet("color:#6f8094;padding:6px")
         layout.addWidget(note)
         self.apply_button = QPushButton("Apply settings")
@@ -335,11 +365,11 @@ class SimulatorWindow(QMainWindow):
         contents = QWidget()
         layout = QVBoxLayout(contents)
         layout.addWidget(QLabel("AVAILABLE NOW"))
-        for label, callback in (("Static Structural", self.solve), ("Generate Mesh", self.mesh), ("MCP Controls", self.show_mcp)):
+        for label, callback in (("Static Structural", self.solve), ("Modal analysis", self.modal), ("Generate Mesh", self.mesh), ("MCP Controls", self.show_mcp)):
             button = QPushButton(label)
             button.clicked.connect(lambda checked=False, handler=callback: self.safe(handler))
             layout.addWidget(button)
-            if callback in (self.solve, self.mesh):
+            if callback in (self.solve, self.modal, self.mesh):
                 self.analysis_buttons.append(button)
         heading = QLabel("PLANNED FEATURES")
         heading.setStyleSheet("margin-top:18px;color:#8390a2")
@@ -418,7 +448,7 @@ class SimulatorWindow(QMainWindow):
                                 "See docs/cantilever/REPORT.md for assumptions, criteria and plots.")
 
     def show_reference_report(self, benchmark):
-        titles = {"timoshenko": "Timoshenko beam validation", "hole": "Circular-hole stress validation"}
+        titles = {"timoshenko": "Timoshenko beam validation", "hole": "Circular-hole stress validation", "modal": "Modal beam validation"}
         if benchmark not in titles:
             raise ValueError("Unknown reference benchmark")
         if benchmark in self.reference_dialogs:
@@ -493,6 +523,16 @@ class SimulatorWindow(QMainWindow):
         self.workspace.start_job(self.require_project(), "solve")
         self.workspace.show_project(self.project_id, "results")
 
+    def modal(self):
+        self.save_parameters()
+        self.workspace.start_job(self.require_project(), "modal")
+        self.workspace.show_project(self.project_id, "modal")
+
+    def select_mode(self, *args):
+        if self.modal_selector.currentData() is not None and self.project_id:
+            self.workspace.show_project(self.project_id, "modal", self.modal_selector.currentData())
+            self.refresh()
+
     def change_view(self, view):
         self.workspace.show_project(self.require_project(), view)
 
@@ -506,7 +546,7 @@ class SimulatorWindow(QMainWindow):
 
     def show_mcp(self):
         QMessageBox.information(self, "Local MCP automation",
-                                "13 stdio MCP tools share this desktop workspace.\n\n"
+                                "16 stdio MCP tools share this desktop workspace.\n\n"
                                 "Create/import projects, set inputs, mesh, solve, inspect jobs/results and select views.\n\n"
                                 "Workspace: " + str(self.workspace.root) + "\n\n"
                                 "Server: python -m opensim.mcp_server\nSee docs/DESKTOP_AND_MCP.md for client setup.")
@@ -514,11 +554,15 @@ class SimulatorWindow(QMainWindow):
     def apply_view_options(self, *args):
         state = self.workspace.ui_state()
         mode = state["view"]
+        self.animate_mode.setText("Pause mode" if self.animate_mode.isChecked() else "Animate mode")
         scale = ["auto", 1, 10, 100, 500][self.deformation.currentIndex()]
+        if mode == "modal":
+            scale = "auto"
         component = ["magnitude", "x", "y", "z"][self.result_component.currentIndex()]
         self.view.page().runJavaScript(
             f"if(typeof setViewportMode==='function'){{setViewportMode({json.dumps(mode)});setDeformationScale({json.dumps(scale)});}}"
             f"if(typeof setTheme==='function')setTheme({json.dumps(self.theme)});"
+            f"if(typeof setModeAnimation==='function')setModeAnimation({json.dumps(mode == 'modal' and self.animate_mode.isChecked())});"
             f"if(typeof setResultComponent==='function')setResultComponent({json.dumps(component)});")
 
     def apply_camera(self, *args):
@@ -579,7 +623,8 @@ class SimulatorWindow(QMainWindow):
                 application = "tip point" if entry["parameters"]["load_kind"] == "point" else "end face"
                 for label, view in (("Geometry (single solid)", "geometry"), (f"Mesh / {element}", "mesh"),
                                     ("Static Structural", "geometry"), ("  Fixed Support / X-min", "geometry"),
-                                    (f"  Force / {axis} · {application}", "geometry"), ("Solution / Displacement", "results")):
+                                    (f"  Static force / {axis} · {application}", "geometry"), ("Solution / Displacement", "results"),
+                                    ("Modal / Natural frequencies", "modal")):
                     child = QTreeWidgetItem([label])
                     child.setData(0, Qt.ItemDataRole.UserRole, (entry["id"], view))
                     root.addChild(child)
@@ -607,11 +652,37 @@ class SimulatorWindow(QMainWindow):
             field.setEnabled(bool(project) and not active)
         for selector in self.selectors.values():
             selector.setEnabled(bool(project) and not active)
+        self.details_heading.setText("DETAILS OF MODAL ANALYSIS" if state["view"] == "modal" else "DETAILS OF STATIC STRUCTURAL")
+        if state["view"] == "modal":
+            self.fields["load_N"].setEnabled(False)
+            self.selectors["load_axis"].setEnabled(False)
+            self.selectors["load_kind"].setEnabled(False)
         for button in self.analysis_buttons:
             button.setEnabled(bool(project) and not active)
         if project:
             self.status_label.setText(f"{project['name']}  |  " + (f"{active['kind'].title()} {active['status']}…" if active else "Ready"))
-            artifact = self.workspace.current_artifact(selected, state["view"])
+            modal_result = None
+            if state["view"] == "modal":
+                try:
+                    modal_result = self.workspace.get_modal_results(selected)
+                except ValueError:
+                    pass
+            self.modal_tools.setVisible(state["view"] == "modal")
+            self.deformation.setEnabled(state["view"] != "modal")
+            self.animate_mode.setEnabled(bool(modal_result))
+            self.modal_selector.setEnabled(bool(modal_result))
+            blocker = QSignalBlocker(self.modal_selector)
+            frequencies = modal_result["summary"]["frequencies_Hz"] if modal_result else []
+            if frequencies and not 1 <= state["modal_mode"] <= len(frequencies):
+                state = self.workspace.show_project(selected, "modal", 1)
+            labels = [f"{index} · {frequency:.6g} Hz" for index, frequency in enumerate(frequencies, start=1)]
+            if labels != [self.modal_selector.itemText(index) for index in range(self.modal_selector.count())]:
+                self.modal_selector.clear()
+                for index, label in enumerate(labels, start=1):
+                    self.modal_selector.addItem(label, index)
+            self.modal_selector.setCurrentIndex(self.modal_selector.findData(state["modal_mode"]))
+            del blocker
+            artifact = self.workspace.current_artifact(selected, state["view"], state["modal_mode"])
             view_key = str(artifact), state["view"]
             if view_key != self.loaded_view:
                 self.loaded_view = view_key
@@ -635,10 +706,21 @@ class SimulatorWindow(QMainWindow):
                         output.append(f"  Maximum displacement: {result['maximum_displacement_m'] * 1000:.6g} mm  |  "
                                       f"Reaction {direction.upper()}: {result['reaction_N']['xyz'.index(direction)]:.4f} N  |  "
                                       f"Force imbalance: {result['relative_force_imbalance']:.2e}")
+                    elif result.get("analysis") == "modal":
+                        output.append("  Frequencies (Hz): " + ", ".join(f"{frequency:.6g}" for frequency in result["frequencies_Hz"]))
             text = "\n".join(output) or "No jobs yet. Import CAD or create a test plate."
             if self.messages.toPlainText() != text:
                 self.messages.setPlainText(text)
             try:
+                if state["view"] == "modal" and modal_result:
+                    summary = modal_result["summary"]
+                    selected_mode = state["modal_mode"]
+                    frequency = summary["frequencies_Hz"][selected_mode - 1]
+                    self.result_cards[0].setText(f"Mode {selected_mode} frequency\n{frequency:.6g} Hz")
+                    self.result_cards[1].setText(f"Extracted modes\n{summary['mode_count']}")
+                    self.result_cards[2].setText("Mode shape\nNormalized · dimensionless")
+                    self.legend.setText(f"  Mode {selected_mode}: {frequency:.6g} Hz · X-min fixed · no prestress · arbitrary amplitude · 1 Hz animation playback")
+                    return
                 if state["view"] != "results":
                     raise ValueError("Geometry or mesh view")
                 summary = self.workspace.get_results(selected)["summary"]
@@ -652,7 +734,7 @@ class SimulatorWindow(QMainWindow):
             except ValueError:
                 for card, title in zip(self.result_cards, ("Maximum |U|", "Tip displacement", "Force balance")):
                     card.setText(title + "\n—")
-                label = "No solved result for current settings" if state["view"] == "results" else "Undeformed geometry / mesh preview"
+                label = "No solved result for current settings" if state["view"] in {"results", "modal"} else "Undeformed geometry / mesh preview"
                 self.legend.setText(f"  {label}   ·   Drag to rotate")
 
 

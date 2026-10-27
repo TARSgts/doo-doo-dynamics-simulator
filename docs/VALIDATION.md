@@ -35,6 +35,14 @@ Every solve passes force/moment residuals below 1e−5. The thin beam's shear te
 
 After this addition, the complete suite passed **54 tests in 40.96 seconds**, including all nine Timoshenko solver cases, with no skips.
 
+## Modal frequencies and mode shapes
+
+The [modal cantilever benchmark](modal/REPORT.md), executed October 27, 2026, uses a 1,000 × 20 × 20 mm square solid beam with E=210 GPa, ν=0.3 and density 7,850 kg/m³. All six modes pass the 2% Euler–Bernoulli frequency criterion; the largest error is 0.4012%. Maximum last-mesh change is 0.0251%. All longitudinal edge-shape MAC values exceed 0.999997, and fixed-node normalized mode components are zero in the recorded results. Quadrupling density halves all frequencies on the same mesh within 0.000039%.
+
+The native desktop Modal action ran a real background solve, selected mode 3 (104.6114 Hz), animated it, and retained one WebGL geometry upload. Separate browser checks verified animation and pause in WebGL and Canvas fallback with no page errors. Mode labels and exported data explicitly distinguish normalized eigenvectors from physical displacement amplitudes. Real stdio MCP checks cover the expanded catalog and modal settings. See the benchmark report for limits on pair orientation, shear/rotary inertia and the edge-based MAC measurement.
+
+The full suite passed **74 tests in 56.36 seconds**, with no skips, after modal integration. No new dependencies were required. The worker and desktop checks were rerun after the final layout and geometry-preview adjustments.
+
 ## Axial bar
 
 Independent rectangular solid: length 1 m, width and height 0.1 m, Young's modulus 210 GPa, Poisson ratio 0, applied axial total force 1000 N. The X-minimum face is clamped. Equal nodal loads are used at X maximum, so end traction is not exactly uniform and a small difference from the ideal bar is expected.

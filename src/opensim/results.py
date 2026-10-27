@@ -7,7 +7,7 @@ import numpy as np
 from opensim.geometry import Mesh
 
 
-def write_vtk(path: Path, mesh: Mesh, displacement: np.ndarray):
+def write_vtk(path: Path, mesh: Mesh, displacement: np.ndarray, quantity="displacement_m"):
     lines = ["# vtk DataFile Version 3.0", "Open simulation SI results", "ASCII",
              "DATASET UNSTRUCTURED_GRID", f"POINTS {len(mesh.points)} double"]
     lines.extend(" ".join(f"{value:.15g}" for value in point) for point in mesh.points)
@@ -16,9 +16,10 @@ def write_vtk(path: Path, mesh: Mesh, displacement: np.ndarray):
     lines.extend(f"{width} " + " ".join(str(int(node)) for node in element) for element in mesh.tetrahedra)
     lines.append(f"CELL_TYPES {len(mesh.tetrahedra)}")
     lines.extend("24" if width == 10 else "10" for _ in mesh.tetrahedra)
-    lines.extend([f"POINT_DATA {len(mesh.points)}", "VECTORS displacement_m double"])
+    lines.extend([f"POINT_DATA {len(mesh.points)}", f"VECTORS {quantity} double"])
     lines.extend(" ".join(f"{value:.15g}" for value in vector) for vector in displacement)
-    lines.extend(["SCALARS displacement_magnitude_m double 1", "LOOKUP_TABLE default"])
+    magnitude = "displacement_magnitude_m" if quantity == "displacement_m" else quantity + "_magnitude"
+    lines.extend([f"SCALARS {magnitude} double 1", "LOOKUP_TABLE default"])
     lines.extend(f"{value:.15g}" for value in np.linalg.norm(displacement, axis=1))
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
 

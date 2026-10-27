@@ -11,7 +11,23 @@ def create_server(workspace: Workspace) -> FastMCP:
     server = FastMCP("Doo Doo Dynamics Simulator", instructions=(
         "Control the local simulator workspace. Jobs run asynchronously: poll get_job. "
         "All quantities are SI. Static structural supports X-min clamped and X/Y/Z end-face or tip-center point loads, using C3D4 or C3D10. "
+        "Undamped unprestressed modal analysis is available with positive density and X-min fixed support. "
         "Inspect get_capabilities before requesting other physics. The desktop reflects shared workspace changes."))
+
+    @server.tool()
+    def set_modal_parameters(project_id: str, density_kg_m3: float = 7850.0, mode_count: int = 6) -> dict[str, Any]:
+        """Set density and 1–30 requested modes. Elasticity, mesh and fixed X-min support come from the project."""
+        return workspace.set_parameters(project_id, {"density_kg_m3": density_kg_m3, "mode_count": mode_count})
+
+    @server.tool()
+    def run_modal_analysis(project_id: str) -> dict[str, Any]:
+        """Start undamped, unprestressed CalculiX eigenfrequency extraction. Static force is ignored; poll get_job."""
+        return workspace.start_job(project_id, "modal")
+
+    @server.tool()
+    def get_modal_results(project_id: str) -> dict[str, Any]:
+        """Return natural frequencies in Hz, normalized mode viewers and raw mode data for current inputs."""
+        return workspace.get_modal_results(project_id)
 
     @server.tool()
     def get_capabilities() -> dict[str, Any]:
@@ -81,9 +97,9 @@ def create_server(workspace: Workspace) -> FastMCP:
         return workspace.get_results(project_id)
 
     @server.tool()
-    def show_in_desktop(project_id: str, view: str = "results") -> dict[str, Any]:
-        """Select the project and geometry, mesh or results view in the running desktop app."""
-        return workspace.show_project(project_id, view)
+    def show_in_desktop(project_id: str, view: str = "results", mode: int = 1) -> dict[str, Any]:
+        """Select geometry, mesh, static results or modal view and mode number in the running desktop app."""
+        return workspace.show_project(project_id, view, mode)
 
     return server
 

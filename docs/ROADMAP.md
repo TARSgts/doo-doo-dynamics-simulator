@@ -20,6 +20,8 @@ The dedicated circular-hole benchmark now includes CPS8R plane-stress meshing, c
 
 The [Timoshenko benchmark](timoshenko/REPORT.md) adds thin-beam total-deflection verification, a shorter zero-Poisson shear control and a retained short-beam Poisson/clamp diagnostic, with three C3D10 meshes each. The desktop Validation ribbon opens these reference reports without changing the selected model.
 
+Initial modal analysis is implemented: positive density, 1–30 modes, X-min fixed support, unprestressed CalculiX eigenfrequency extraction, normalized mode viewers/animation, CLI and MCP controls, and a [six-mode beam benchmark](modal/REPORT.md) covering mesh refinement, shape comparison and density scaling. See [scope](MODAL.md).
+
 Add a versioned project schema; CAD face selection and persistent named groups; consistent pressure/traction integration in the general solid workflow; arbitrary vector loads and displacement constraints; multiple materials and load cases; automatic rigid-body checks; general stress parsing, von Mises contours and reaction summaries. Add patch tests, manufactured solutions and distorted-element tests before expanding supported analyses.
 
 ## Stage 3 — accuracy and usability
@@ -28,7 +30,7 @@ Quadratic tetrahedra, element-quality reports, local refinement and convergence 
 
 ## Stage 4 — more physics
 
-Add modal, steady/transient thermal and thermoelastic analysis through documented open-source solver interfaces. Each capability requires an analytical or independently published benchmark, a mesh/time-step study and a documented validity range. Contact, plasticity and geometric nonlinearity follow only after those validation foundations.
+Expand modal analysis to named supports, free-free modes and independently validated prestress before adding modal forced response. Add steady/transient thermal and thermoelastic analysis through documented open-source solver interfaces. Each capability requires an analytical or independently published benchmark, a mesh/time-step study and a documented validity range. Contact, plasticity and geometric nonlinearity follow only after those validation foundations.
 
 ## Stage 5 — extensible platform
 

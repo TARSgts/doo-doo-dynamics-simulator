@@ -13,15 +13,16 @@ import uuid
 
 DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
                       "poisson": 0.3, "load_N": 1000.0, "element_order": 1,
-                      "load_axis": "x", "load_kind": "face"}
+                      "load_axis": "x", "load_kind": "face", "density_kg_m3": 7850.0, "mode_count": 6}
 CAPABILITIES = [
     {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP"},
     {"name": "Tetrahedral meshing", "enabled": True, "detail": "Gmsh C3D4 or quadratic C3D10"},
     {"name": "Static structural", "enabled": True, "detail": "X-min clamp; X/Y/Z force at tip center or end face"},
     {"name": "Displacement results", "enabled": True, "detail": "Rotatable displacement contour"},
     {"name": "MCP automation", "enabled": True, "detail": "Local stdio tools and shared workspace"},
+    {"name": "Modal analysis", "enabled": True, "detail": "Undamped unprestressed modes; X-min face fixed; positive density"},
     *[{"name": name, "enabled": False, "detail": "Planned — not implemented"} for name in
-      ("Modal analysis", "Thermal analysis", "Transient dynamics", "Fluid dynamics",
+      ("Thermal analysis", "Transient dynamics", "Fluid dynamics",
        "Electromagnetics", "Contact", "Nonlinear materials", "Optimization", "GPU solve")],
 ]
 
@@ -53,6 +54,8 @@ class Workspace:
             """)
             if "theme" not in {row["name"] for row in connection.execute("PRAGMA table_info(ui)")}:
                 connection.execute("ALTER TABLE ui ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'")
+            if "modal_mode" not in {row["name"] for row in connection.execute("PRAGMA table_info(ui)")}:
+                connection.execute("ALTER TABLE ui ADD COLUMN modal_mode INTEGER NOT NULL DEFAULT 1")
 
     def connect(self):
         connection = sqlite3.connect(self.database, timeout=10)
@@ -118,6 +121,8 @@ class Workspace:
             raise ValueError("Choose element order 1/2, direction X/Y/Z and face/point application")
         if any(merged[key] <= 0 for key in ("mesh_size_m", "cad_scale", "young_Pa")):
             raise ValueError("Mesh size, CAD scale and Young's modulus must be positive")
+        from opensim.modal_parameters import validate_modal_parameters
+        validate_modal_parameters(merged["density_kg_m3"], merged["mode_count"])
         if not -1 < merged["poisson"] < 0.5 or merged["load_N"] == 0:
             raise ValueError("Use -1 < Poisson ratio < 0.5 and a nonzero axial load")
         with self.connect() as connection:
@@ -132,7 +137,7 @@ class Workspace:
         return self.get_project(project_id)
 
     def start_job(self, project_id: str, kind: str, example="perforated_plate") -> dict:
-        if kind not in {"example", "mesh", "solve"}:
+        if kind not in {"example", "mesh", "solve", "modal"}:
             raise ValueError("Unsupported job kind")
         if example not in {"perforated_plate", "axial_bar", "cantilever_beam"}:
             raise ValueError("Unsupported test object")
@@ -198,16 +203,21 @@ class Workspace:
                                ("failed" if error else "completed", json.dumps(result) if result else None,
                                 error, time.time(), job_id))
 
-    def current_artifact(self, project_id: str, view="results") -> Path | None:
+    def current_artifact(self, project_id: str, view="results", mode=1) -> Path | None:
         project = self.get_project(project_id)
         for job in self.list_jobs(project_id):
             if job["revision"] != project["revision"] or job["status"] != "completed":
                 continue
             directory = self.job_directory(job["id"])
+            if view == "modal" and job["kind"] == "modal":
+                if isinstance(mode, bool) or not isinstance(mode, int) or not 1 <= mode <= job["result"]["mode_count"]:
+                    raise ValueError("Selected mode is outside the completed result range")
+                return directory / "modal" / f"mode-{mode}.html"
             if view == "results" and job["kind"] == "solve":
                 return directory / "solve" / "results.html"
             if view in {"geometry", "mesh"}:
-                candidate = directory / ("solve/results.html" if job["kind"] == "solve" else "preview.html")
+                relative = "modal/mode-1.html" if job["kind"] == "modal" else "solve/results.html" if job["kind"] == "solve" else "preview.html"
+                candidate = directory / relative
                 if candidate.is_file():
                     return candidate
         return None
@@ -221,12 +231,28 @@ class Workspace:
                                       for name in ("results.html", "results.vtk", "model.frd", "manifest.json")}}
         raise ValueError("No completed solve for the current project inputs")
 
-    def show_project(self, project_id: str, view="geometry") -> dict:
+    def get_modal_results(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        for job in self.list_jobs(project_id):
+            if job["revision"] == project["revision"] and job["kind"] == "modal" and job["status"] == "completed":
+                directory = self.job_directory(job["id"]) / "modal"
+                return {"job_id": job["id"], "summary": job["result"],
+                        "artifacts": {name: str(directory / name) for name in ("modes.npz", "model.frd", "manifest.json")},
+                        "modes": [{"mode": index, "frequency_Hz": frequency, "viewer": str(directory / f"mode-{index}.html"),
+                                   "vtk": str(directory / f"mode-{index}.vtk")}
+                                  for index, frequency in enumerate(job["result"]["frequencies_Hz"], start=1)]}
+        raise ValueError("No completed modal solve for the current project inputs")
+
+    def show_project(self, project_id: str, view="geometry", mode=1) -> dict:
         self.get_project(project_id)
-        if view not in {"geometry", "mesh", "results"}:
-            raise ValueError("View must be geometry, mesh or results")
+        if view not in {"geometry", "mesh", "results", "modal"}:
+            raise ValueError("View must be geometry, mesh, results or modal")
+        if isinstance(mode, bool) or not isinstance(mode, int) or not 1 <= mode <= 30:
+            raise ValueError("Mode must be an integer from 1 to 30")
+        if view == "modal":
+            self.current_artifact(project_id, view, mode)
         with self.connect() as connection:
-            connection.execute("UPDATE ui SET project_id=?,view=? WHERE id=1", (project_id, view))
+            connection.execute("UPDATE ui SET project_id=?,view=?,modal_mode=? WHERE id=1", (project_id, view, mode))
         return self.ui_state()
 
     def ui_state(self) -> dict:

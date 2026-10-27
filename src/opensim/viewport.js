@@ -5,6 +5,8 @@ const context = canvas.getContext('2d');
 const slider = document.getElementById('scale');
 const nodeCount = simulation.points.length;
 const faceCount = simulation.faces.length;
+const isModal = simulation.summary.analysis === 'modal';
+let modeAnimation = false, modePhase = 1;
 const coordinates = new Float64Array(nodeCount * 3);
 const deformation = new Float64Array(nodeCount * 3);
 const deformed = new Float64Array(nodeCount * 3);
@@ -34,7 +36,7 @@ for(let node=0;node<nodeCount;node++){
 let yaw=-0.45, pitch=0.5, drag=null;
 let viewportMode=simulation.summary.view==='mesh'?'mesh':'results';
 let edgeVisibility=true, themeDark=!document.body.classList.contains('desktop');
-let deformationOverride=null, resultComponent='magnitude';
+let deformationOverride=isModal && maximum ? span*0.1/maximum : null, resultComponent='magnitude';
 let framePending=false, deformationDirty=true, fitRequested=true, colorDirty=true;
 let factor=0, cameraZoom=1, panX=0, panY=0, depthScale=1;
 let target=center.slice(), deformedBounds=bounds.map(bound=>bound.slice());
@@ -100,7 +102,7 @@ function createGpuRenderer(){
       gpu.viewport(0,0,meshCanvas.width,meshCanvas.height);gpu.clear(gpu.COLOR_BUFFER_BIT|gpu.DEPTH_BUFFER_BIT);
       gpu.useProgram(program);gpu.uniformMatrix4fv(uniforms.projection,false,matrix);
       gpu.uniform3fv(uniforms.target,target.map((value,axis)=>value-center[axis]));
-      gpu.uniform1f(uniforms.deformationScale,factor);
+      gpu.uniform1f(uniforms.deformationScale,factor*modePhase);
       const component=[0,0,0,0];component[componentIndex()]=1;gpu.uniform4fv(uniforms.component,component);
       gpu.uniform2fv(uniforms.range,scalarRanges[componentIndex()]);gpu.uniform1i(uniforms.results,viewportMode==='results');
       gpu.uniform3fv(uniforms.solidColor,themeDark?[0.44,0.55,0.68]:[0.68,0.75,0.82]);
@@ -125,7 +127,8 @@ meshCanvas.addEventListener('webglcontextrestored',()=>{gpuRenderer=createGpuRen
 function componentIndex(){return resultComponent==='magnitude'?0:'xyz'.indexOf(resultComponent)+1;}
 function setTheme(theme){themeDark=theme==='dark';document.body.classList.toggle('dark',themeDark);draw();}
 function setResultComponent(component){if(!['magnitude','x','y','z'].includes(component))return;resultComponent=component;colorDirty=true;draw();}
-function setViewportMode(mode){if(viewportMode!==mode){viewportMode=mode;deformationDirty=true;fitRequested=true;}draw();}
+function setViewportMode(mode){if(mode==='modal')mode='results';if(viewportMode!==mode){viewportMode=mode;deformationDirty=true;fitRequested=true;}draw();}
+function setModeAnimation(value){modeAnimation=isModal && Boolean(value);if(!modeAnimation)modePhase=1;draw();}
 function setEdgeVisibility(value){edgeVisibility=Boolean(value);draw();}
 function setDeformationScale(value){deformationOverride=value==='auto'?(maximum?span*0.1/maximum:0):Number(value);deformationDirty=true;fitRequested=true;draw();}
 function resetViewport(){panX=panY=0;fitRequested=true;draw();}
@@ -141,7 +144,9 @@ function updateDeformation(){
   deformedBounds=[[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];
   for(let node=0;node<nodeCount;node++)for(let axis=0;axis<3;axis++){
     const value=coordinates[node*3+axis]+factor*deformation[node*3+axis];deformed[node*3+axis]=value;
-    deformedBounds[axis][0]=Math.min(deformedBounds[axis][0],value);deformedBounds[axis][1]=Math.max(deformedBounds[axis][1],value);
+    const amplitude=isModal?Math.abs(factor*deformation[node*3+axis]):0;
+    deformedBounds[axis][0]=Math.min(deformedBounds[axis][0],isModal?coordinates[node*3+axis]-amplitude:value);
+    deformedBounds[axis][1]=Math.max(deformedBounds[axis][1],isModal?coordinates[node*3+axis]+amplitude:value);
   }
   target=deformedBounds.map(bound=>(bound[0]+bound[1])/2);
   depthScale=Math.max(span*0.01,Math.hypot(...deformedBounds.map(bound=>(bound[1]-bound[0])/2))*1.2);
@@ -182,7 +187,10 @@ function drawFallback(){
       return `hsl(${225*(1-fraction)} 75% 57%)`;
     });colorDirty=false;
   }
-  for(let node=0;node<nodeCount;node++)projected.set(projection.project(deformed.subarray(node*3,node*3+3)),node*3);
+  for(let node=0;node<nodeCount;node++){
+    const point=isModal?[0,1,2].map(axis=>coordinates[node*3+axis]+factor*modePhase*deformation[node*3+axis]):deformed.subarray(node*3,node*3+3);
+    projected.set(projection.project(point),node*3);
+  }
   for(let face=0;face<faceCount;face++)fallbackDepth[face]=projected[faceIndices[face*3]*3+2]+projected[faceIndices[face*3+1]*3+2]+projected[faceIndices[face*3+2]*3+2];
   fallbackOrder.sort((left,right)=>fallbackDepth[left]-fallbackDepth[right]);
   context.strokeStyle=themeDark?'#b2d2f333':'#31485d66';context.lineWidth=0.5*devicePixelRatio;
@@ -198,12 +206,13 @@ function drawOverlay(){
   context.font=`${12*pixel}px Segoe UI`;context.fillStyle=themeDark?'#bbd2ec':'#3a506b';
   context.fillText(`${simulation.summary.element_type||'Tetrahedra'} · ${faceCount.toLocaleString()} surface triangles · ${gpuRenderer?'WebGL':'Canvas fallback'}`,20*pixel,27*pixel);
   if(viewportMode==='results'){
-    context.fillText(`Deformation display: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
+    context.fillText(isModal?`Mode ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · normalized shape · playback 1 Hz`:`Deformation display: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
     const gradient=context.createLinearGradient(0,75*pixel,0,210*pixel);
     for(let stop=0;stop<=6;stop++)gradient.addColorStop(stop/6,`hsl(${225*stop/6} 75% 57%)`);
     context.fillStyle=gradient;context.fillRect(canvas.width-112*pixel,75*pixel,14*pixel,135*pixel);
-    context.fillStyle=themeDark?'#c6d7ec':'#34485f';context.fillText(resultComponent==='magnitude'?'|U| (mm)':`U${resultComponent} (mm)`,canvas.width-125*pixel,58*pixel);
-    context.fillText((range[1]*1000).toPrecision(4),canvas.width-92*pixel,85*pixel);context.fillText((range[0]*1000).toPrecision(4),canvas.width-92*pixel,210*pixel);
+    const units=isModal?'(norm.)':'(mm)',unitScale=isModal?1:1000;
+    context.fillStyle=themeDark?'#c6d7ec':'#34485f';context.fillText((resultComponent==='magnitude'?'|U|':`U${resultComponent}`)+' '+units,canvas.width-125*pixel,58*pixel);
+    context.fillText((range[1]*unitScale).toPrecision(4),canvas.width-92*pixel,85*pixel);context.fillText((range[0]*unitScale).toPrecision(4),canvas.width-92*pixel,210*pixel);
   }
   const anchor=projection.project([bounds[0][0],center[1],center[2]]);
   context.fillStyle=themeDark?'#41c8d6':'#087f8c';context.beginPath();context.arc(anchor[0],anchor[1],4*pixel,0,2*Math.PI);context.fill();context.fillText('FIXED',anchor[0]-15*pixel,anchor[1]+25*pixel);
@@ -222,12 +231,15 @@ function drawOverlay(){
 }
 function renderFrame(){
   const started=performance.now();
+  modePhase=modeAnimation?Math.cos(started*2*Math.PI/1000):1;
   const width=Math.max(1,Math.round(canvas.clientWidth*devicePixelRatio)),height=Math.max(1,Math.round(canvas.clientHeight*devicePixelRatio));
   if(canvas.width!==width || canvas.height!==height){canvas.width=meshCanvas.width=width;canvas.height=meshCanvas.height=height;fitRequested=true;}
   if(deformationDirty)updateDeformation();
   context.clearRect(0,0,width,height);projection=cameraProjection();
   if(gpuRenderer)gpuRenderer.draw(projection.matrix);else drawFallback();
   drawOverlay();viewportStats.frames++;viewportStats.lastFrameMs=performance.now()-started;
+  viewportStats.modeAnimation=modeAnimation;viewportStats.modePhase=modePhase;
+  if(modeAnimation)draw();
 }
 slider.oninput=()=>{deformationOverride=null;deformationDirty=true;fitRequested=true;document.getElementById('factor').value=slider.value+'×';draw();};
 canvas.oncontextmenu=event=>event.preventDefault();
@@ -248,7 +260,15 @@ canvas.addEventListener('wheel',event=>{
   panX=mouse[0]-origin[0]-(mouse[0]-origin[0]-panX)*ratio;panY=mouse[1]-origin[1]-(mouse[1]-origin[1]-panY)*ratio;draw();
 },{passive:false});
 document.getElementById('reset').onclick=resetViewport;
-document.getElementById('range').textContent=`0 m → ${maximum.toExponential(5)} m`;
+document.getElementById('range').textContent=isModal?'Normalized mode shape: 0 → 1 (dimensionless); amplitude is arbitrary':`0 m → ${maximum.toExponential(5)} m`;
+if(isModal){
+  document.querySelector('main>p').textContent=`Modal analysis · Mode ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · undamped, unprestressed`;
+  slider.parentElement.style.display='none';
+  document.querySelector('main>p:last-child').textContent='Normalized eigenvector; this is not a forced response or physical displacement amplitude. Animation plays at 1 Hz for inspection.';
+  const animationButton=document.createElement('button');animationButton.textContent='Animate mode (1 Hz playback)';
+  animationButton.onclick=()=>{setModeAnimation(!modeAnimation);animationButton.textContent=modeAnimation?'Pause mode':'Animate mode (1 Hz playback)';};
+  document.getElementById('reset').after(animationButton);
+}
 document.getElementById('summary').textContent=JSON.stringify(simulation.summary,null,2);
 new ResizeObserver(()=>{fitRequested=true;draw();}).observe(canvas);
 draw();
