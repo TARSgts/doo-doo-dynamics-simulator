@@ -1,0 +1,25 @@
+{
+  "environment": "Microsoft Edge headless, 1200×800, same 19,448-triangle beam",
+  "before": {
+    "renderer": "canvas2d-original",
+    "triangles": 19448,
+    "frames": 59,
+    "meanFrameIntervalMs": 87.57118644067795,
+    "medianFrameIntervalMs": 83.5,
+    "p95FrameIntervalMs": 104.20000000000005,
+    "meanSubmissionMs": 43.27966102099015,
+    "meanRenderCpuMs": 43.27966102099015,
+    "geometryUploads": null
+  },
+  "after": {
+    "renderer": "webgl",
+    "triangles": 19448,
+    "frames": 59,
+    "meanFrameIntervalMs": 6.942372881355932,
+    "medianFrameIntervalMs": 6.900000000000034,
+    "p95FrameIntervalMs": 7.100000000000023,
+    "meanSubmissionMs": 0.010169491929523015,
+    "meanRenderCpuMs": 0.17118644411281003,
+    "geometryUploads": 1
+  }
+}

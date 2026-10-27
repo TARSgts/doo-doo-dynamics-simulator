@@ -4,105 +4,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Doo Doo Dynamics Simulator | Structural Results</title>
 <style>
-body{margin:0;background:#101923;color:#e6edf3;font:16px system-ui}main{max-width:1100px;margin:auto;padding:32px}h1{font-size:30px;margin-bottom:8px}p{color:#aebdcb;line-height:1.5}canvas{display:block;width:100%;height:540px;background:#152330;border:1px solid #304457;border-radius:12px;touch-action:none}label{display:block;margin:20px 0}input{width:240px;vertical-align:middle}pre{white-space:pre-wrap;color:#9fdccc}button{background:#25475d;color:white;border:1px solid #4b738c;padding:8px 14px;border-radius:6px}.legend{height:12px;max-width:400px;background:linear-gradient(90deg,#3066ed,#38d9bf,#f2bd40,#ed5030)}
-.desktop{background:#edf1f6}.desktop main{padding:0;margin:0;max-width:none}.desktop main>*:not(canvas){display:none}.desktop canvas{height:100vh;width:100vw;border:0;border-radius:0;background:radial-gradient(ellipse at center,#fafcff,#dfe7f0)}
-.desktop.dark{background:#101827}.desktop.dark canvas{background:radial-gradient(ellipse at center,#20324b,#101827)}
+body{margin:0;background:#101923;color:#e6edf3;font:16px system-ui}main{max-width:1100px;margin:auto;padding:32px}h1{font-size:30px;margin-bottom:8px}p{color:#aebdcb;line-height:1.5}
+#viewport{position:relative;width:100%;height:540px;background:#152330;border:1px solid #304457;border-radius:12px;overflow:hidden}
+canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none}#view{background:transparent}
+label{display:block;margin:20px 0}input{width:240px;vertical-align:middle}pre{white-space:pre-wrap;color:#9fdccc}button{background:#25475d;color:white;border:1px solid #4b738c;padding:8px 14px;border-radius:6px}.legend{height:12px;max-width:400px;background:linear-gradient(90deg,#3066ed,#38d9bf,#f2bd40,#ed5030)}
+.desktop{background:#edf1f6}.desktop main{padding:0;margin:0;max-width:none}.desktop main>*:not(#viewport){display:none}.desktop #viewport{height:100vh;width:100vw;border:0;border-radius:0;background:radial-gradient(ellipse at center,#fafcff,#dfe7f0)}
+.desktop.dark{background:#101827}.desktop.dark #viewport{background:radial-gradient(ellipse at center,#20324b,#101827)}
 </style>
 <main><h1>Doo Doo Dynamics Simulator</h1><p>Linear static structural results · SI units · tetrahedral elements</p>
-<canvas id="view" aria-label="Rotatable surface mesh colored by displacement magnitude"></canvas>
+<div id="viewport"><canvas id="mesh" aria-hidden="true"></canvas><canvas id="view" aria-label="Rotatable simulation mesh"></canvas></div>
 <label>Deformation display scale <input id="scale" type="range" min="0" max="2000" value="500"><output id="factor">500×</output></label>
-<button id="reset">Reset view</button><p>Drag to rotate. Color shows displacement magnitude in meters. Display deformation is exaggerated; calculations use the original geometry.</p>
+<button id="reset">Fit view</button><p>Drag to rotate. Shift-drag or middle/right-drag to pan. Scroll to zoom. Color shows displacement; display deformation is exaggerated.</p>
 <div class="legend"></div><p id="range"></p><pre id="summary"></pre>
-<p>Stage 1 research prototype. Stress output is retained in CalculiX FRD format; this viewer shows displacement only.</p></main>
+<p>Research prototype. Stress output is retained in CalculiX FRD format; this viewer shows displacement only.</p></main>
 <script>
 const simulation = __SIMULATION_DATA__;
-if(new URLSearchParams(location.search).has('desktop')) document.body.classList.add('desktop');
-const canvas = document.getElementById('view');
-const context = canvas.getContext('2d');
-const slider = document.getElementById('scale');
-const magnitudes = simulation.displacement.map(vector => Math.hypot(...vector));
-const maximum = Math.max(...magnitudes);
-const bounds = [0,1,2].map(axis => [Math.min(...simulation.points.map(point => point[axis])), Math.max(...simulation.points.map(point => point[axis]))]);
-const center = bounds.map(bound => (bound[0]+bound[1])/2);
-const span = Math.max(...bounds.map(bound => bound[1]-bound[0]));
-let yaw = -0.45, pitch = 0.5, drag = null;
-let viewportMode = simulation.summary.view === 'mesh' ? 'mesh' : 'results';
-let edgeVisibility = true;
-let themeDark = !document.body.classList.contains('desktop');
-let deformationOverride = null;
-let resultComponent = 'magnitude';
-function setTheme(theme){themeDark=theme==='dark';document.body.classList.toggle('dark',themeDark);draw()}
-function setResultComponent(component){resultComponent=component;draw()}
-function setViewportMode(mode){viewportMode=mode;draw()}
-function setEdgeVisibility(value){edgeVisibility=value;draw()}
-function setDeformationScale(value){deformationOverride=value==='auto'?(maximum?span*0.1/maximum:0):Number(value);draw()}
-function resetViewport(){yaw=-0.45;pitch=0.5;draw()}
-function setViewOrientation(orientation){yaw=orientation==='isometric'?-0.45:0;pitch=orientation==='front'?0:orientation==='top'?-Math.PI/2:0.5;draw()}
-function draw(){
-  canvas.width = canvas.clientWidth * devicePixelRatio; canvas.height = canvas.clientHeight * devicePixelRatio;
-  context.clearRect(0,0,canvas.width,canvas.height);
-  const factor = viewportMode==='results'?(deformationOverride??Number(slider.value)):0;
-  function rotatePoint(point){
-    const moved=point.map((value,axis)=>value-center[axis]);
-    const horizontal=moved[0]*Math.cos(yaw)-moved[1]*Math.sin(yaw);
-    const depth=moved[0]*Math.sin(yaw)+moved[1]*Math.cos(yaw);
-    return [horizontal,-(moved[2]*Math.cos(pitch)-depth*Math.sin(pitch)),depth*Math.cos(pitch)+moved[2]*Math.sin(pitch)];
-  }
-  const rotated = simulation.points.map((point,index)=>rotatePoint(point.map((value,axis)=>value+factor*simulation.displacement[index][axis])));
-  const projectedBounds=[0,1].map(axis=>[Math.min(...rotated.map(point=>point[axis])),Math.max(...rotated.map(point=>point[axis]))]);
-  const zoom=Math.min(Math.max(50,canvas.width-240*devicePixelRatio)/Math.max(projectedBounds[0][1]-projectedBounds[0][0],span*0.01),Math.max(50,canvas.height-160*devicePixelRatio)/Math.max(projectedBounds[1][1]-projectedBounds[1][0],span*0.01))*0.88;
-  const offset=[canvas.width/2-55*devicePixelRatio-(projectedBounds[0][0]+projectedBounds[0][1])*zoom/2,canvas.height/2+15*devicePixelRatio-(projectedBounds[1][0]+projectedBounds[1][1])*zoom/2];
-  function projectPoint(point){const rotatedPoint=rotatePoint(point);return [offset[0]+rotatedPoint[0]*zoom,offset[1]+rotatedPoint[1]*zoom,rotatedPoint[2]]}
-  const points=rotated.map(point=>[offset[0]+point[0]*zoom,offset[1]+point[1]*zoom,point[2]]);
-  const scalar = resultComponent==='magnitude'?magnitudes:simulation.displacement.map(vector=>vector['xyz'.indexOf(resultComponent)]);
-  const low=resultComponent==='magnitude'?0:Math.min(...scalar), high=Math.max(...scalar);
-  const faces = simulation.faces.slice().sort((left,right) => left.reduce((sum,index)=>sum+points[index][2],0)-right.reduce((sum,index)=>sum+points[index][2],0));
-  for(const face of faces){
-    const average=face.reduce((sum,index)=>sum+scalar[index],0)/3;
-    const fraction = high>low?(average-low)/(high-low):0;
-    context.beginPath(); face.forEach((index,position)=>position ? context.lineTo(...points[index].slice(0,2)) : context.moveTo(...points[index].slice(0,2))); context.closePath();
-    context.fillStyle = viewportMode==='results' ? `hsl(${225*(1-fraction)} 75% 57%)` : (themeDark?'#718cae':'#aebed0'); context.fill(); context.strokeStyle=themeDark?'#b2d2f333':'#31485d66'; context.lineWidth=0.5*devicePixelRatio; if(edgeVisibility && viewportMode!=='geometry') context.stroke();
-  }
-  const pixel=devicePixelRatio;
-  context.font=`${12*pixel}px Segoe UI`;
-  context.fillStyle=themeDark?'#bbd2ec':'#3a506b';
-  context.fillText(`${simulation.summary.element_type||'Tetrahedra'}  ·  ${simulation.faces.length.toLocaleString()} surface triangles`,20*pixel,27*pixel);
-  if(viewportMode==='results'){
-    context.fillText(`Deformation display: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
-    const gradient=context.createLinearGradient(0,75*pixel,0,210*pixel);
-    for(let stop=0;stop<=6;stop++) gradient.addColorStop(stop/6,`hsl(${225*stop/6} 75% 57%)`);
-    context.fillStyle=gradient; context.fillRect(canvas.width-112*pixel,75*pixel,14*pixel,135*pixel);
-    context.fillStyle=themeDark?'#c6d7ec':'#34485f';
-    context.fillText(resultComponent==='magnitude'?'|U| (mm)':`U${resultComponent} (mm)`,canvas.width-125*pixel,58*pixel);
-    context.fillText((high*1000).toPrecision(4),canvas.width-92*pixel,85*pixel);
-    context.fillText((low*1000).toPrecision(4),canvas.width-92*pixel,210*pixel);
-  }
-  const anchor=projectPoint([bounds[0][0],center[1],center[2]]);
-  context.fillStyle=themeDark?'#41c8d6':'#087f8c';context.beginPath();context.arc(anchor[0],anchor[1],4*pixel,0,2*Math.PI);context.fill();
-  context.fillText('FIXED',anchor[0]-15*pixel,anchor[1]+25*pixel);
-  if(simulation.summary.load_point_m){
-    const original=simulation.summary.load_point_m;
-    const vector=simulation.summary.load_point_displacement_m||[0,0,0];
-    const position=original.map((value,axis)=>value+factor*vector[axis]);
-    const target=projectPoint(position);
-    const direction='xyz'.indexOf(simulation.summary.load_axis||'x');
-    const shifted=position.slice();shifted[direction]+=span*0.1*Math.sign(simulation.summary.load_N);
-    const reference=projectPoint(shifted);
-    const length=Math.hypot(reference[0]-target[0],reference[1]-target[1])||1;
-    const unit=[(reference[0]-target[0])/length,(reference[1]-target[1])/length];
-    const start=[target[0]-unit[0]*55*pixel,target[1]-unit[1]*55*pixel];
-    context.strokeStyle=themeDark?'#f1b956':'#a56608';context.fillStyle=context.strokeStyle;context.lineWidth=2*pixel;
-    context.beginPath();context.moveTo(...start);context.lineTo(target[0],target[1]);context.stroke();
-    context.beginPath();context.moveTo(target[0],target[1]);context.lineTo(target[0]-unit[0]*10*pixel-unit[1]*5*pixel,target[1]-unit[1]*10*pixel+unit[0]*5*pixel);context.lineTo(target[0]-unit[0]*10*pixel+unit[1]*5*pixel,target[1]-unit[1]*10*pixel-unit[0]*5*pixel);context.closePath();context.fill();
-    context.fillText(`${simulation.summary.load_N} N · ${(simulation.summary.load_axis||'x').toUpperCase()}`,start[0]-15*pixel,start[1]-10*pixel);
-  }
-}
-slider.oninput=()=>{deformationOverride=null;document.getElementById('factor').value=slider.value+'×';draw()};
-canvas.onpointerdown=event=>{drag=[event.clientX,event.clientY];canvas.setPointerCapture(event.pointerId)};
-canvas.onpointermove=event=>{if(drag){yaw+=(event.clientX-drag[0])*0.008;pitch+=(event.clientY-drag[1])*0.008;drag=[event.clientX,event.clientY];draw()}};
-canvas.onpointerup=canvas.onpointercancel=()=>drag=null;
-document.getElementById('reset').onclick=()=>{yaw=-0.45;pitch=0.5;draw()};
-document.getElementById('range').textContent=`0 m → ${maximum.toExponential(5)} m`;
-document.getElementById('summary').textContent=JSON.stringify(simulation.summary,null,2);
-window.addEventListener('resize',draw);draw();
+__VIEWPORT_CODE__
 </script></html>

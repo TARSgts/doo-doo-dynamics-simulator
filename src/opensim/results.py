@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import uuid
 
 import numpy as np
 
@@ -23,7 +24,31 @@ def write_vtk(path: Path, mesh: Mesh, displacement: np.ndarray):
 
 
 def write_viewer(path: Path, mesh: Mesh, displacement: np.ndarray, summary: dict):
-    template = Path(__file__).with_name("viewer.html").read_text(encoding="utf-8")
     data = {"points": mesh.points.tolist(), "faces": mesh.boundary_faces(),
             "displacement": displacement.tolist(), "summary": summary}
-    path.write_text(template.replace("__SIMULATION_DATA__", json.dumps(data, allow_nan=False)), encoding="utf-8")
+    write_viewer_data(path, data)
+
+
+def write_viewer_data(path: Path, data: dict):
+    template = Path(__file__).with_name("viewer.html").read_text(encoding="utf-8")
+    script = Path(__file__).with_name("viewport.js").read_text(encoding="utf-8")
+    document = template.replace("__VIEWPORT_CODE__", script).replace("__SIMULATION_DATA__", json.dumps(data, allow_nan=False))
+    path.write_text(document, encoding="utf-8")
+
+
+def refresh_viewer(source: Path, destination: Path):
+    document = source.read_text(encoding="utf-8")
+    marker = "const simulation = "
+    start = document.find(marker)
+    if start < 0:
+        raise ValueError("Saved viewer does not contain simulation data")
+    data, _ = json.JSONDecoder().raw_decode(document[start + len(marker):])
+    if not {"points", "faces", "displacement", "summary"}.issubset(data):
+        raise ValueError("Saved viewer data is incomplete")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        write_viewer_data(temporary, data)
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)

@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -9,11 +10,12 @@ from PySide6.QtGui import QAction, QFont
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QDoubleSpinBox,
                                QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
-                               QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
+                               QLabel, QMainWindow, QMenuBar, QMessageBox, QPlainTextEdit, QPushButton,
                                QScrollArea, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
 from opensim.workspace import CAPABILITIES, Workspace
+from opensim.results import refresh_viewer
 
 
 STYLE = """
@@ -41,9 +43,6 @@ QPlainTextEdit { border: 0; background: #f9fbfd; font-family: Consolas; font-siz
 QStatusBar { background: #172b43; color: #e2edf7; }
 QStatusBar QLabel { color: #e2edf7; padding: 3px 10px; }
 QSplitter::handle { background: #d5dde7; height: 3px; width: 3px; }
-QWidget#BrandPanel { background:#20364f; border-bottom:2px solid #d99530; }
-QLabel#BrandTitle { color:#edf4ff; font-size:15px; font-weight:600; }
-QLabel#BrandMark { background:#d99530; color:#172437; font-size:16px; font-weight:700; padding:8px; border-radius:6px; }
 QWidget#ViewportTools { background:#f8fafc; }
 QLabel#DetailsHeading { background:#dce5ef; padding:9px; font-weight:600; }
 QLabel#ResultCard { background:white; color:#31485f; border:1px solid #d9e2ec; padding:10px 16px; border-radius:5px; }
@@ -51,6 +50,8 @@ QWidget#DetailsPanel, QScrollArea#PropertiesScroll { background:#f2f5fa; }
 QScrollBar:vertical { background:#e0e7f0; width:10px; margin:0; }
 QScrollBar::handle:vertical { background:#9caec5; min-height:24px; border-radius:4px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
+QWidget#ApplicationHeader { background:#172b43; border-bottom:2px solid #d99530; }
+QLabel#ApplicationTitle { color:#edf4ff; font-size:14px; font-weight:600; background:transparent; }
 """
 
 DARK_STYLE = """
@@ -74,14 +75,13 @@ QComboBox QAbstractItemView { background:#1d2e45; color:#e4eefb; selection-backg
 QPlainTextEdit { background:#0e1827; color:#9eb6cf; }
 QSplitter::handle { background:#28384e; }
 QScrollArea { border:0; background:#121b2b; }
-QWidget#BrandPanel { background:#101b2d; }
-QLabel#BrandTitle { background:transparent; }
 QLabel#DetailsHeading { background:#1c2c44; color:#c3d5ec; }
 QWidget#ViewportTools { background:#17263b; }
 QLabel#ResultCard { background:#1b2c43; color:#c5ddf5; border-color:#31475f; }
 QWidget#DetailsPanel, QScrollArea#PropertiesScroll { background:#121b2b; }
 QScrollBar:vertical { background:#19273b; }
 QScrollBar::handle:vertical { background:#425c7e; }
+QWidget#ApplicationHeader { background:#0d1420; }
 """
 
 
@@ -116,7 +116,23 @@ class SimulatorWindow(QMainWindow):
         self.refresh()
 
     def build_menu(self):
-        file_menu = self.menuBar().addMenu("File")
+        header = QWidget()
+        header.setObjectName("ApplicationHeader")
+        header_row = QHBoxLayout(header)
+        header_row.setContentsMargins(8, 4, 10, 4)
+        self.application_menu = QMenuBar()
+        self.application_menu.setNativeMenuBar(False)
+        header_row.addWidget(self.application_menu)
+        self.application_title = QLabel("DOO DOO DYNAMICS  /  SIMULATOR")
+        self.application_title.setObjectName("ApplicationTitle")
+        self.application_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_row.addWidget(self.application_title, 1)
+        self.theme_button = QPushButton("Light mode")
+        self.theme_button.setAccessibleName("Toggle dark mode")
+        self.theme_button.clicked.connect(lambda: self.set_theme("light" if self.theme == "dark" else "dark"))
+        header_row.addWidget(self.theme_button)
+        self.setMenuWidget(header)
+        file_menu = self.application_menu.addMenu("File")
         for title, handler in (("New project", self.new_project), ("Import CAD…", self.import_cad),
                                ("Create test plate", self.create_demo)):
             action = QAction(title, self)
@@ -124,8 +140,8 @@ class SimulatorWindow(QMainWindow):
             file_menu.addAction(action)
         file_menu.addSeparator()
         file_menu.addAction("Exit", self.close)
-        help_menu = self.menuBar().addMenu("Help")
-        view_menu = self.menuBar().addMenu("View")
+        help_menu = self.application_menu.addMenu("Help")
+        view_menu = self.application_menu.addMenu("View")
         self.dark_action = QAction("Dark mode", self)
         self.dark_action.setCheckable(True)
         self.dark_action.toggled.connect(lambda checked: self.set_theme("dark" if checked else "light"))
@@ -156,21 +172,6 @@ class SimulatorWindow(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        banner = QWidget()
-        banner.setObjectName("BrandPanel")
-        brand_row = QHBoxLayout(banner)
-        brand_row.setContentsMargins(14, 10, 14, 10)
-        mark = QLabel("DD")
-        mark.setObjectName("BrandMark")
-        brand_row.addWidget(mark)
-        title = QLabel("DOO DOO DYNAMICS  /  SIMULATOR")
-        title.setObjectName("BrandTitle")
-        brand_row.addWidget(title, 1)
-        self.theme_button = QPushButton("Light mode")
-        self.theme_button.setAccessibleName("Toggle dark mode")
-        self.theme_button.clicked.connect(lambda: self.set_theme("light" if self.theme == "dark" else "dark"))
-        brand_row.addWidget(self.theme_button)
-        layout.addWidget(banner)
         self.ribbon = QTabWidget()
         self.ribbon.setFixedHeight(116)
         groups = {
@@ -477,6 +478,14 @@ class SimulatorWindow(QMainWindow):
         orientation = ["isometric", "front", "top"][self.camera.currentIndex()]
         self.view.page().runJavaScript(f"if(typeof setViewOrientation==='function')setViewOrientation({json.dumps(orientation)});")
 
+    def viewer_for_artifact(self, artifact):
+        sources = [artifact, Path(__file__).with_name("viewer.html"), Path(__file__).with_name("viewport.js")]
+        identity = "|".join(str(path.resolve()) + ":" + str(path.stat().st_mtime_ns) for path in sources)
+        target = self.workspace.root / ".viewer-cache" / (hashlib.sha256(identity.encode()).hexdigest() + ".html")
+        if not target.is_file():
+            refresh_viewer(artifact, target)
+        return target
+
     def set_theme(self, theme):
         self.workspace.set_theme(theme)
         self.apply_theme()
@@ -561,7 +570,7 @@ class SimulatorWindow(QMainWindow):
                 self.loaded_view = view_key
                 self.viewport_title.setText(project["name"].upper() + "  /  " + state["view"].upper())
                 if artifact:
-                    url = QUrl.fromLocalFile(str(artifact))
+                    url = QUrl.fromLocalFile(str(self.viewer_for_artifact(artifact)))
                     url.setQuery("desktop=1")
                     self.view.setUrl(url)
                 else:

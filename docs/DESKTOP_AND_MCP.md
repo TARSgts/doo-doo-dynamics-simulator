@@ -4,6 +4,8 @@ The native Windows desktop application provides an engineering ribbon, model out
 
 Dark mode is on by default. Use the header button or View → Dark mode to switch; the preference persists in the shared workspace. The renderer supports both palettes, automatic deformation scaling, signed displacement components, a color bar, and clamp/load annotations. The properties pane scrolls vertically, input controls disable during active jobs, and top result cards summarize displacement and force balance.
 
+The application title now shares the full-width top bar with the menus and theme control. The viewport uses batched WebGL rendering where available; drag to rotate, Shift/middle/right-drag to pan and scroll to zoom. Existing saved results automatically receive the current renderer when opened in the desktop. See [performance measurements and fallback behavior](VIEWPORT_PERFORMANCE.md).
+
 ![Native desktop workbench](desktop-preview.png)
 
 ## Install and launch
@@ -88,6 +90,6 @@ Typical sequence: create project → set parameters → create/import CAD → wa
 
 ## Verified behavior
 
-The full suite passes 34 tests locally, including a real MCP stdio session, persistent theme toggling, parameter validation, disabled UI controls, C3D10 node mapping and quadratic face integration, point-force deck generation, cross-process jobs, stale-result rejection, malformed-CAD failure and the structural benchmarks. The [cantilever report](cantilever/REPORT.md) documents the bending comparison and mesh refinement. A separate MCP workflow configured the quadratic beam, applied its point load, solved it, selected its desktop results view and enabled dark mode.
+The full suite passes 36 tests locally, including a real MCP stdio session, persistent theme toggling, parameter validation, disabled UI controls, saved-viewer upgrades, top-header placement, C3D10 node mapping and quadratic face integration, point-force deck generation, cross-process jobs, stale-result rejection, malformed-CAD failure and the structural benchmarks. The [cantilever report](cantilever/REPORT.md) documents the bending comparison and mesh refinement. A separate MCP workflow configured the quadratic beam, applied its point load, solved it, selected its desktop results view and enabled dark mode.
 
 The native app was also launched with `pythonw.exe`; invoking its desktop Solve action completed a second real solver job, refreshed the shared job log and displayed the same numerical result. The Codex registration was added and verified on the development machine; an already-running chat must reconnect or restart to discover the new server.

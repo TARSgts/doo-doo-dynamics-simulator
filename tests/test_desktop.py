@@ -22,6 +22,8 @@ def test_desktop_has_real_actions_disabled_roadmap_and_shared_state(tmp_path):
         actions = [button for button in window.findChildren(QToolButton) if button.text().startswith("Solve")]
         assert actions and all(button.isEnabled() for button in actions)
         assert window.project_id == project["id"]
+        assert window.application_title.parentWidget() is window.menuWidget()
+        assert "DOO DOO DYNAMICS" in window.application_title.text()
         workspace.set_parameters(project["id"], {"load_N": 2500})
         window.refresh()
         assert window.fields["load_N"].value() == 2500

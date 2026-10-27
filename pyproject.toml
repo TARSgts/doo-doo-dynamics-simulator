@@ -32,4 +32,4 @@ markers = ["integration: requires Gmsh and a CalculiX executable"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-opensim = ["viewer.html"]
+opensim = ["viewer.html", "viewport.js"]
