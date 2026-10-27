@@ -10,6 +10,41 @@ from opensim.desktop import SimulatorWindow
 from opensim.workspace import Workspace
 
 
+def test_hover_help_covers_controls_and_survives_refresh_and_theme_changes(tmp_path):
+    from opensim.hover_help import FIELD_HELP
+    from PySide6.QtWidgets import QComboBox
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Hover help")
+    workspace.show_project(project["id"])
+    window = SimulatorWindow(workspace)
+    before = workspace.get_project(project["id"])
+    try:
+        for key, control in {**window.fields, **window.selectors}.items():
+            assert control.toolTip() == FIELD_HELP[key]
+        for control in window.findChildren(QPushButton) + window.findChildren(QToolButton) + window.findChildren(QComboBox):
+            # Qt's own dock and combo internals are not user-facing controls.
+            if isinstance(control, (QPushButton, QToolButton)) and not control.text():
+                continue
+            assert control.toolTip(), control
+        assert "not kilograms" in window.fields["load_N"].toolTip()
+        assert "does not turn on gravity" in window.fields["density_kg_m3"].toolTip()
+        assert "viewing only" in window.deformation.toolTip()
+        for language, theme in (("cat", "light"), ("en", "dark")):
+            window.set_language(language)
+            window.set_theme(theme)
+            window.refresh()
+            assert window.fields["load_N"].toolTip() == FIELD_HELP["load_N"]
+            assert window.apply_button.toolTip()
+        assert not window.dirty
+        assert workspace.get_project(project["id"]) == before
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
 def test_number_fields_ignore_wheel_without_changing_inputs_but_keep_keyboard_controls(tmp_path):
     from PySide6.QtCore import QPoint, QPointF, Qt
     from PySide6.QtGui import QWheelEvent

@@ -20,11 +20,13 @@ from opensim.results import refresh_viewer
 from opensim.cat_language import cat_text
 from opensim.app_identity import ICON_PATH, set_process_identity
 from opensim.job_progress import STAGE_LABELS, elapsed_label
+from opensim.hover_help import FIELD_HELP, BUTTON_HELP
 
 
 STYLE = """
 QMainWindow { background: #e8edf3; }
 QWidget { color: #27374a; font-family: 'Segoe UI'; font-size: 12px; }
+QToolTip { color:#27374a; background:#fffbe8; border:1px solid #9aaec7; padding:6px; }
 QMenuBar { background: #172b43; color: #e7eff8; padding: 4px; }
 QMenuBar::item:selected { background: #304961; }
 QMenu { background: white; }
@@ -62,6 +64,7 @@ QLabel#ApplicationTitle { color:#edf4ff; font-size:14px; font-weight:600; backgr
 
 DARK_STYLE = """
 QMainWindow, QWidget { background:#121b2b; color:#d8e4f1; }
+QToolTip { color:#e6eefb; background:#22334a; border:1px solid #6b819c; }
 QMenuBar, QStatusBar { background:#0d1420; color:#dce6f4; }
 QProgressBar { border-color:#405674; background:#17263b; color:#e6eefb; }
 QMenu { background:#1c293d; border:1px solid #35445b; }
@@ -144,6 +147,7 @@ class SimulatorWindow(QMainWindow):
         self.build_outline()
         self.build_toolbox()
         self.build_logs()
+        self.install_hover_help()
         self.status_label = QLabel("Ready")
         self.status_label.setMinimumWidth(0)
         self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -228,6 +232,7 @@ class SimulatorWindow(QMainWindow):
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         button.setMinimumHeight(64)
         if handler:
+            button.setToolTip(BUTTON_HELP[title])
             button.clicked.connect(lambda checked=False: self.safe(handler))
             if handler in (self.mesh, self.solve, self.modal, self.import_cad):
                 self.analysis_buttons.append(button)
@@ -236,6 +241,22 @@ class SimulatorWindow(QMainWindow):
             button.setToolTip("Planned — not implemented")
         layout.addWidget(button)
         return button
+
+    def install_hover_help(self):
+        for button in self.findChildren(QPushButton):
+            if button.text() in BUTTON_HELP:
+                button.setToolTip(BUTTON_HELP[button.text()])
+        for key, control in {**self.fields, **self.selectors}.items():
+            control.setToolTip(FIELD_HELP[key])
+        self.theme_button.setToolTip("Switch between light and dark colors without changing your model or results.")
+        self.deformation.setToolTip("Magnify movement for viewing only. True scale shows actual displacement; Auto targets 10% of model size.")
+        self.camera.setToolTip("View the model from a corner, the front, above, or the flipped front. This does not rotate the model or loads.")
+        self.result_component.setToolTip("Choose total movement, movement along X/Y/Z, or von Mises stress for the color display.")
+        self.modal_selector.setToolTip("Select a natural frequency and its vibration shape. Shape amplitude is normalized, not a predicted displacement.")
+        for action in self.application_menu.findChildren(QAction):
+            title = action.text().rstrip("…")
+            if title in BUTTON_HELP:
+                action.setToolTip(BUTTON_HELP[title])
 
     def build_center(self):
         central = QWidget()
@@ -418,8 +439,9 @@ class SimulatorWindow(QMainWindow):
             selector.currentIndexChanged.connect(self.mark_dirty)
             form.addRow(label, selector)
             self.selectors[key] = selector
-        for control in list(self.fields.values()) + list(self.selectors.values()):
+        for key, control in {**self.fields, **self.selectors}.items():
             label_widget = form.labelForField(control)
+            label_widget.setToolTip(FIELD_HELP[key])
             label_widget.setWordWrap(True)
             label_widget.setMinimumWidth(0)
             label_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
@@ -508,7 +530,15 @@ class SimulatorWindow(QMainWindow):
         return self.project_id
 
     def new_project(self):
-        name, accepted = QInputDialog.getText(self, "New simulation project", "Project name:")
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("New simulation project")
+        dialog.setLabelText("Project name:")
+        for field in dialog.findChildren(QLineEdit):
+            field.setToolTip("Give this simulation a name so you can find it in the project outline.")
+        for button in dialog.findChildren(QPushButton):
+            button.setToolTip("Create the named project." if dialog.findChild(QDialogButtonBox).buttonRole(button) == QDialogButtonBox.ButtonRole.AcceptRole else "Close without creating a project.")
+        accepted = dialog.exec()
+        name = dialog.textValue()
         if accepted and name.strip():
             project = self.workspace.create_project(name)
             self.workspace.show_project(project["id"])
@@ -581,6 +611,7 @@ class SimulatorWindow(QMainWindow):
         view.setHtml(html, QUrl.fromLocalFile(str(directory) + "/"))
         layout.addWidget(view, 1)
         close = QPushButton("Back to model")
+        close.setToolTip(BUTTON_HELP["Back to model"])
         close.clicked.connect(dialog.close)
         layout.addWidget(close)
         self.reference_dialogs[benchmark] = dialog
@@ -651,6 +682,8 @@ class SimulatorWindow(QMainWindow):
             region = project["parameters"][key]
             face_input = QLineEdit(", ".join(str(value) for value in region.get("faces", [])))
             box_input = QLineEdit(", ".join(f"{value * 1000:g}" for value in region.get("box_m", [])))
+            face_input.setToolTip("Enter CAD face IDs separated by commas, for example 8, 15. See the face list below; leave blank to use the default region.")
+            box_input.setToolTip("Optional limits in mm: xmin, ymin, zmin, xmax, ymax, zmax. Selects surface triangles by their centers; leave blank for no box filter.")
             form.addRow(caption + " CAD faces", face_input)
             form.addRow(caption + " box (mm)", box_input)
             entries[key] = face_input, box_input
@@ -671,6 +704,8 @@ class SimulatorWindow(QMainWindow):
             for face in catalogue) if catalogue else "Generate a mesh to list CAD face IDs and centers.")
         layout.addWidget(face_list)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setToolTip("Save these support and load regions for the project.")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setToolTip("Close without saving changes to these regions.")
         layout.addWidget(buttons)
         buttons.rejected.connect(dialog.reject)
         def save():
