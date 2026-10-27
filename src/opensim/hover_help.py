@@ -15,6 +15,11 @@ FIELD_HELP = {
 }
 
 BUTTON_HELP = {
+    "Pick fixed support": "Click CAD faces in the model to choose a fully fixed support. Drag to rotate; click again to deselect. Save picked faces to apply.",
+    "Pick force faces": "Click CAD faces to receive a uniformly distributed force. Set total force and X/Y/Z direction separately, then save and solve.",
+    "Save picked faces": "Save both edited face selections. Load faces use uniform traction; edited selections replace any box filters.",
+    "Clear current faces": "Clear the current draft selection so you can choose different faces. Saved settings remain unchanged until you save.",
+    "Cancel picking": "Discard picked faces and return to normal viewing without changing saved regions.",
     "New project": "Create a separate simulation project in the local workspace.",
     "Import CAD": "Import one closed STEP, IGES or BREP solid into this project and start meshing it.",
     "Test plate": "Create a new project with a built-in perforated plate and generate its mesh.",

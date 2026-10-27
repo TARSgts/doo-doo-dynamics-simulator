@@ -1,4 +1,5 @@
 import os
+import json
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -8,6 +9,60 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication, QPushButton, QToolButton
 from opensim.desktop import SimulatorWindow
 from opensim.workspace import Workspace
+
+
+def test_face_picking_saves_both_regions_cancels_and_rejects_stale_drafts(tmp_path, monkeypatch):
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Picked faces")
+    workspace.show_project(project["id"])
+    window = SimulatorWindow(workspace)
+    scripts = []
+    selection = None
+    def javascript(script, callback=None):
+        scripts.append(script)
+        if callback:
+            callback(json.dumps(selection) if "JSON.stringify(getFaceSelection())" in script else True)
+    monkeypatch.setattr(window.view.page(), "runJavaScript", javascript)
+    try:
+        before = workspace.get_project(project["id"])
+        window.begin_face_picking("support")
+        assert not window.pick_actions.isHidden()
+        session = window.face_pick_session
+        window.begin_face_picking("load")
+        assert window.face_pick_session is session
+        assert "switchFacePicking" in scripts[-1]
+        window.cancel_face_picking()
+        assert workspace.get_project(project["id"]) == before
+        window.begin_face_picking("support")
+        session = window.face_pick_session
+        selection = {"mode": "load", "support": [1], "load": [2, 3], "available": [1, 2, 3],
+                     "touched": {"support": True, "load": True}}
+        window.save_picked_faces()
+        updated = workspace.get_project(project["id"])
+        assert updated["parameters"]["support_region"] == {"faces": [1]}
+        assert updated["parameters"]["load_region"] == {"faces": [2, 3]}
+        assert updated["parameters"]["load_kind"] == "traction"
+        assert updated["parameters"]["load_N"] == before["parameters"]["load_N"]
+        assert updated["revision"] == before["revision"] + 1
+        window.refresh()
+        window.begin_face_picking("load")
+        session = window.face_pick_session
+        workspace.set_parameters(project["id"], {"load_N": 500})
+        with pytest.raises(ValueError, match="project changed"):
+            window.commit_picked_faces(session, selection)
+        assert workspace.get_project(project["id"])["parameters"]["load_N"] == 500
+        assert window.face_pick_session is None
+        window.refresh()
+        window.begin_face_picking("load")
+        with pytest.raises(ValueError, match="at least one face"):
+            window.commit_picked_faces(window.face_pick_session, selection | {"load": []})
+        window.cancel_face_picking()
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
 
 
 def test_hover_help_covers_controls_and_survives_refresh_and_theme_changes(tmp_path):

@@ -46,9 +46,55 @@ let target=center.slice(), deformedBounds=bounds.map(bound=>bound.slice());
 let projection=null, fallbackColors=[], fallbackDepth=new Float64Array(faceCount);
 const fallbackOrder=Array.from({length:faceCount},(_,index)=>index);
 const projected=new Float64Array(nodeCount*3);
+let facePickMode=null, selectedFaces=new Set(), selectionDirty=true;
+const facePickSets={support:new Set(),load:new Set()},facePickTouched={support:false,load:false};
+const cadFaceIds=simulation.face_ids || [];
+const availableFaceIds=[...new Set(cadFaceIds.filter(id=>Number.isInteger(id)&&id>0))];
+function setFacePicking(mode, ids=[]){
+  if(mode!==null && (!['support','load'].includes(mode)||cadFaceIds.length!==faceCount||!availableFaceIds.length))return false;
+  facePickMode=mode;
+  if(mode){facePickSets[mode]=new Set(ids.filter(id=>availableFaceIds.includes(id)));facePickTouched[mode]=false;selectedFaces=facePickSets[mode];}
+  else{selectedFaces=new Set();facePickTouched.support=facePickTouched.load=false;}
+  selectionDirty=true;deformationDirty=true;fitRequested=true;
+  canvas.style.cursor=mode?'crosshair':'';draw();return true;
+}
+function switchFacePicking(mode){
+  if(!facePickMode||!['support','load'].includes(mode))return false;
+  facePickMode=mode;selectedFaces=facePickSets[mode];selectionDirty=true;draw();return true;
+}
+function clearPickedFaces(){if(facePickMode){selectedFaces.clear();facePickTouched[facePickMode]=true;selectionDirty=true;draw();}}
+function getFaceSelection(){return {mode:facePickMode,support:[...facePickSets.support].sort((a,b)=>a-b),load:[...facePickSets.load].sort((a,b)=>a-b),touched:{...facePickTouched},available:availableFaceIds};}
+function highlightedRole(face){
+  if(!facePickMode)return null;
+  const id=cadFaceIds[face];
+  if(facePickSets[facePickMode].has(id))return facePickMode;
+  const other=facePickMode==='support'?'load':'support';
+  return facePickSets[other].has(id)?other:null;
+}
+function pickFaceAt(x,y){
+  if(!facePickMode||!projection)return null;
+  let nearest=-Infinity,hit=null;
+  for(let face=0;face<faceCount;face++){
+    const vertices=simulation.faces[face].map(node=>projection.project(coordinates.subarray(node*3,node*3+3)));
+    const [a,b,c]=vertices,denominator=(b[1]-c[1])*(a[0]-c[0])+(c[0]-b[0])*(a[1]-c[1]);
+    if(Math.abs(denominator)<1e-12)continue;
+    const u=((b[1]-c[1])*(x-c[0])+(c[0]-b[0])*(y-c[1]))/denominator;
+    const v=((c[1]-a[1])*(x-c[0])+(a[0]-c[0])*(y-c[1]))/denominator,w=1-u-v;
+    if(u< -1e-8||v< -1e-8||w< -1e-8)continue;
+    const depth=u*a[2]+v*b[2]+w*c[2];
+    if(depth>nearest){nearest=depth;hit=cadFaceIds[face]||null;}
+  }
+  return hit;
+}
+function toggleFaceAt(x,y){
+  const id=pickFaceAt(x,y);
+  if(id!==null){selectedFaces.has(id)?selectedFaces.delete(id):selectedFaces.add(id);facePickTouched[facePickMode]=true;selectionDirty=true;draw();}
+  return id;
+}
 const viewportStats=window.viewportStats={renderer:'canvas2d',frames:0,drawRequests:0,lastFrameMs:0,geometryUploads:0};
 
 function createGpuRenderer(){
+  selectionDirty=true;
   if(new URLSearchParams(location.search).has('canvas2d')) return null;
   const gpu=meshCanvas.getContext('webgl',{alpha:true,antialias:true,depth:true});
   if(!gpu) return null;
@@ -99,6 +145,7 @@ function createGpuRenderer(){
       lineIndices.set([first,second,second,third,third,first],face*6);
     }
     const lines=indexBuffer(lineIndices);
+    const selections={support:{buffer:indexBuffer([]),count:0},load:{buffer:indexBuffer([]),count:0}};
     const uniforms=Object.fromEntries(['projection','target','deformationScale','component','stressWeight','range','results','edges','edgeColor','solidColor'].map(name=>[name,gpu.getUniformLocation(program,name)]));
     gpu.enable(gpu.DEPTH_TEST);gpu.depthFunc(gpu.LEQUAL);gpu.clearColor(0,0,0,0);
     viewportStats.geometryUploads++;
@@ -109,11 +156,27 @@ function createGpuRenderer(){
       gpu.uniform1f(uniforms.deformationScale,factor*modePhase);
       const component=[0,0,0,0];if(componentIndex()<4)component[componentIndex()]=1;gpu.uniform4fv(uniforms.component,component);
       gpu.uniform1f(uniforms.stressWeight,resultComponent==='stress'?1:0);
-      gpu.uniform2fv(uniforms.range,scalarRanges[componentIndex()]);gpu.uniform1i(uniforms.results,viewportMode==='results');
+      gpu.uniform2fv(uniforms.range,scalarRanges[componentIndex()]);gpu.uniform1i(uniforms.results,viewportMode==='results'&&!facePickMode);
       gpu.uniform3fv(uniforms.solidColor,themeDark?[0.44,0.55,0.68]:[0.68,0.75,0.82]);
       gpu.uniform1i(uniforms.edges,false);gpu.enable(gpu.POLYGON_OFFSET_FILL);gpu.polygonOffset(1,1);
       gpu.bindBuffer(gpu.ELEMENT_ARRAY_BUFFER,triangles);gpu.drawElements(gpu.TRIANGLES,faceCount*3,wideIndices?gpu.UNSIGNED_INT:gpu.UNSIGNED_SHORT,0);
       gpu.disable(gpu.POLYGON_OFFSET_FILL);
+      if(selectionDirty){
+        for(const role of ['support','load']){
+          const indices=[];
+          for(let face=0;face<faceCount;face++)if(highlightedRole(face)===role)indices.push(...simulation.faces[face]);
+          gpu.bindBuffer(gpu.ELEMENT_ARRAY_BUFFER,selections[role].buffer);gpu.bufferData(gpu.ELEMENT_ARRAY_BUFFER,new IndexType(indices),gpu.DYNAMIC_DRAW);
+          selections[role].count=indices.length;
+        }
+        selectionDirty=false;
+      }
+      for(const role of ['support','load'])if(facePickMode && selections[role].count){
+        gpu.uniform1i(uniforms.results,false);gpu.uniform1i(uniforms.edges,false);
+        gpu.uniform3fv(uniforms.solidColor,role==='support'?[0.1,0.85,0.9]:[1,0.65,0.12]);
+        gpu.enable(gpu.POLYGON_OFFSET_FILL);gpu.polygonOffset(-2,-2);
+        gpu.bindBuffer(gpu.ELEMENT_ARRAY_BUFFER,selections[role].buffer);gpu.drawElements(gpu.TRIANGLES,selections[role].count,wideIndices?gpu.UNSIGNED_INT:gpu.UNSIGNED_SHORT,0);
+        gpu.disable(gpu.POLYGON_OFFSET_FILL);
+      }
       if(edgeVisibility && viewportMode!=='geometry'){
         gpu.enable(gpu.BLEND);gpu.blendFuncSeparate(gpu.SRC_ALPHA,gpu.ONE_MINUS_SRC_ALPHA,gpu.ONE,gpu.ONE_MINUS_SRC_ALPHA);
         gpu.uniform1i(uniforms.edges,true);gpu.uniform4fv(uniforms.edgeColor,themeDark?[0.7,0.82,0.95,0.2]:[0.19,0.28,0.36,0.4]);
@@ -146,7 +209,7 @@ function draw(){
   requestAnimationFrame(()=>{framePending=false;renderFrame();});
 }
 function updateDeformation(){
-  factor=viewportMode==='results'?(deformationOverride??Number(slider.value)):0;
+  factor=viewportMode==='results'&&!facePickMode?(deformationOverride??Number(slider.value)):0;
   deformedBounds=[[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];
   for(let node=0;node<nodeCount;node++)for(let axis=0;axis<3;axis++){
     const value=coordinates[node*3+axis]+factor*deformation[node*3+axis];deformed[node*3+axis]=value;
@@ -203,7 +266,8 @@ function drawFallback(){
   for(const face of fallbackOrder){
     const first=faceIndices[face*3]*3,second=faceIndices[face*3+1]*3,third=faceIndices[face*3+2]*3;
     context.beginPath();context.moveTo(projected[first],projected[first+1]);context.lineTo(projected[second],projected[second+1]);context.lineTo(projected[third],projected[third+1]);context.closePath();
-    context.fillStyle=viewportMode==='results'?fallbackColors[face]:(themeDark?'#718cae':'#aebed0');context.fill();
+    const role=highlightedRole(face);
+    context.fillStyle=role?(role==='support'?'#1ad9e6':'#ffa61f'):viewportMode==='results'&&!facePickMode?fallbackColors[face]:(themeDark?'#718cae':'#aebed0');context.fill();
     if(edgeVisibility && viewportMode!=='geometry' && !drag)context.stroke();
   }
 }
@@ -211,6 +275,12 @@ function drawOverlay(){
   const pixel=devicePixelRatio,range=scalarRanges[componentIndex()];
   context.font=`${12*pixel}px Segoe UI`;context.fillStyle=themeDark?'#bbd2ec':'#3a506b';
   context.fillText(`${simulation.summary.element_type||'Tetrahedra'} · ${faceCount.toLocaleString()} ${catMode?'tiny triangle beans':'surface triangles'} · ${gpuRenderer?'WebGL':'Canvas fallback'}`,20*pixel,27*pixel);
+  if(facePickMode){
+    context.fillStyle=facePickMode==='support'?'#1ad9e6':'#ffa61f';
+    context.fillText(`Pick ${facePickMode==='support'?'fixed support (cyan)':'force faces (orange)'} · ${selectedFaces.size} face(s) · click to toggle`,20*pixel,48*pixel);
+    context.fillText(`Draft: ${facePickSets.support.size} support / ${facePickSets.load.size} load faces · drag to rotate · Save picked faces to apply`,20*pixel,68*pixel);
+    return;
+  }
   if(viewportMode==='results'){
     context.fillText(isModal?`${catMode?'Wiggle':'Mode'} ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · ${catMode?'purr shape · dance speed':'normalized shape · playback'} 1 Hz`:`${catMode?'Wiggle exaggeration':'Deformation display'}: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
     const gradient=context.createLinearGradient(0,75*pixel,0,210*pixel);
@@ -252,14 +322,21 @@ function renderFrame(){
 }
 slider.oninput=()=>{deformationOverride=null;deformationDirty=true;fitRequested=true;document.getElementById('factor').value=slider.value+'×';draw();};
 canvas.oncontextmenu=event=>event.preventDefault();
-canvas.onpointerdown=event=>{drag={horizontal:event.clientX,vertical:event.clientY,pan:event.shiftKey||event.button===1||event.button===2};canvas.setPointerCapture(event.pointerId);event.preventDefault();};
+canvas.onpointerdown=event=>{drag={horizontal:event.clientX,vertical:event.clientY,startX:event.clientX,startY:event.clientY,moved:false,button:event.button,pan:event.shiftKey||event.button===1||event.button===2};canvas.setPointerCapture(event.pointerId);event.preventDefault();};
 canvas.onpointermove=event=>{
   if(!drag)return;
   const horizontal=event.clientX-drag.horizontal,vertical=event.clientY-drag.vertical;
+  if(Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)>4)drag.moved=true;
   if(drag.pan){panX+=horizontal*devicePixelRatio;panY+=vertical*devicePixelRatio;}else{yaw+=horizontal*0.008;pitch+=vertical*0.008;}
   drag.horizontal=event.clientX;drag.vertical=event.clientY;draw();
 };
-canvas.onpointerup=canvas.onpointercancel=()=>{drag=null;draw();};
+canvas.onpointerup=event=>{
+  if(facePickMode && drag && !drag.moved && drag.button===0 && !drag.pan){
+    const rectangle=canvas.getBoundingClientRect();toggleFaceAt((event.clientX-rectangle.left)*devicePixelRatio,(event.clientY-rectangle.top)*devicePixelRatio);
+  }
+  drag=null;draw();
+};
+canvas.onpointercancel=()=>{drag=null;draw();};
 canvas.addEventListener('wheel',event=>{
   event.preventDefault();
   const previous=cameraZoom;cameraZoom=Math.min(1e12,Math.max(1e-12,cameraZoom*Math.exp(-event.deltaY*0.001)));

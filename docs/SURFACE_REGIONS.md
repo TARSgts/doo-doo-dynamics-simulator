@@ -2,6 +2,19 @@
 
 The properties panel now includes **Support / load regions…**. Generate a mesh first, then open this dialog to see CAD face IDs with their meshed areas and center coordinates. The dialog accepts comma-separated face IDs for a fully fixed support and for uniform global-vector traction. Empty selections preserve the original X-min support and bounding-plane load behavior.
 
+## Click faces on the model
+
+1. Import your solid and generate a mesh. Old saved viewers need one new mesh to include the CAD-face mapping.
+2. Choose **Pick fixed support** in the left panel or Environment tab. Click surfaces on the model; selected support faces turn cyan. Clicking again deselects the whole CAD face. Drag to rotate, right/Shift-drag to pan, and scroll to zoom.
+3. Choose **Pick force faces** and click the surfaces receiving the force. These turn orange. Both draft selections remain visible when switching roles. Picking temporarily shows the undeformed model.
+4. Click **Save picked faces** above the model. This saves both edited regions together and chooses uniform surface traction for an edited load region. Set **Total force (N)** and **Force direction**, then Solve.
+
+**Clear current faces** clears only the current draft role. Select at least one face in each edited role before saving. **Cancel picking** discards the draft. To restore default regions, clear the fields in the manual regions dialog instead. Clicking faces selects entire CAD surfaces; an edited region replaces any previous box filter. An untouched region keeps its original filter. Use the manual dialog when only part of a face should participate.
+
+Selections use the nearest visible mesh triangle's CAD identity, including subdivisions of quadratic boundary elements. Hidden faces are not selected through the model. Save is rejected if the project, geometry/view, or input revision changed while picking; running jobs lock selection edits. Saving invalidates old solve results. The same geometry preview stays available for further picking in the current window while CAD, mesh size, scale and element order remain unchanged; it is not treated as a current solved result. Reloading an old project without a current preview may require a new mesh.
+
+This is face-based selection for fully fixed supports and constant global-vector surface forces. It does not add vertex/edge constraints, pressure normal to each face, contact, sliding or hinges.
+
 The optional box uses `xmin,ymin,zmin,xmax,ymax,zmax`, entered in **millimeters** in the desktop and stored as `box_m` in **meters**. A triangle is selected when its corner centroid lies in the box. All its nodes participate, so the patch boundary is mesh-based rather than an exact CAD cut and can extend past the box. Multiple face IDs are combined; a box filters their combined triangles. With no face IDs, the box filters all boundary triangles. Empty, unknown-ID, nonfinite or degenerate support selections are rejected.
 
 A selected support fixes all three translations. It is an approximation of a restrained patch, not a bearing/contact model. It does not provide normal-only contact, sliding, friction, hinge motion or automatic physical support interpretation. Load patches apply one constant vector in global X/Y/Z, normalized to the entered total force. Curved CAD faces are represented by straight-sided surface triangles. Pressure/follower loads remain unavailable.
@@ -36,5 +49,7 @@ Region-based solves use an equivalent N–mm–MPa native deck to improve numeri
 The solver's element-error checks remain enabled. Nonpositive Jacobians and timeouts fail the job, retaining logs. Unit conversion does not establish mesh quality or justify accepting a failed solve.
 
 ## Verification
+
+Face-selection additions: the 140-test suite passed, with focused checks repeated after desktop handoff refinements. New tests verify exact CAD tags on every displayed triangle for C3D4/C3D10, selection save/cancel, both regions saved in one revision, traction mode, preserved force and stale-draft rejection. Browser checks exercised WebGL and Canvas at device-pixel ratio 2: real clicks, toggling, nearest surface over an occluded face, role switching, empty space, drag-versus-click, clear and cancel. A visible Windows desktop check verified the JSON handoff and repicking after saving. An axial bar using the picked X-min/X-max faces and zero Poisson ratio matched FL/EA with relative displacement error 1.6e-7, force residual 4e-8 and moment residual 5.1e-11.
 
 Tests cover region validation and empty selection, CAD face cataloguing, matching full-face traction to the bounding-plane method, selected supports, clearing obsolete IDs on CAD replacement, uniaxial solid stress, hydrostatic and pure-shear von Mises invariants, strict FRD parsing, static SI/native-unit equivalence, and modal frequency invariance under equivalent native units. Property-layout checks cover three widths and English/Cat modes. The new region/stress functionality passed the 128-test suite before final export and display refinements; targeted checks were repeated afterward.

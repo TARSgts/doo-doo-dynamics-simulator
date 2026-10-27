@@ -57,6 +57,15 @@ class Mesh:
                                   ((0, 3, 5), (3, 1, 4), (5, 4, 2), (3, 4, 5))])
         return triangles
 
+    def boundary_face_ids(self) -> list[int]:
+        """CAD face tag for each rendered triangle, including quadratic subdivisions."""
+        tags = {tuple(sorted(face[:3])): int(tag)
+                for tag, faces in self.surface_groups.items() for face in faces}
+        result = []
+        for face in self.boundary_elements():
+            result.extend([tags.get(tuple(sorted(face[:3])), 0)] * (4 if len(face) == 6 else 1))
+        return result
+
     def tip_average(self, values: np.ndarray) -> np.ndarray:
         target = self.points[:, 0].max()
         tolerance = np.ptp(self.points[:, 0]) * 1e-7

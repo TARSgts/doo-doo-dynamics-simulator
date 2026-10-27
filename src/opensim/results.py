@@ -29,6 +29,7 @@ def write_vtk(path: Path, mesh: Mesh, displacement: np.ndarray, quantity="displa
 
 def write_viewer(path: Path, mesh: Mesh, displacement: np.ndarray, summary: dict, stress=None):
     data = {"points": mesh.points.tolist(), "faces": mesh.boundary_faces(),
+            "face_ids": mesh.boundary_face_ids(),
             "displacement": displacement.tolist(), "summary": summary}
     if stress is not None:
         data["von_mises_Pa"] = stress.tolist()

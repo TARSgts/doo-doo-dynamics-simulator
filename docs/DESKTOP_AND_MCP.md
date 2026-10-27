@@ -93,6 +93,8 @@ Typical sequence: create project → set parameters → create/import CAD → wa
 
 ## Verified behavior
 
+Use **Pick fixed support** / **Pick force faces** in the left panel or Environment tab to select CAD faces directly in the model. Cyan marks fixed supports, orange marks force surfaces. Switch roles freely, then use **Save picked faces**, **Clear current faces** or **Cancel picking** above the model. A new mesh is needed once for older saved viewers. Face selection saves through the existing workspace/MCP region settings; forces retain their total magnitude and direction. See [face selection and verification](SURFACE_REGIONS.md).
+
 The model tree and properties panel have an 8-pixel vertical resize handle with a hover highlight, resize cursor and drag hint. Both panels retain useful minimum heights and cannot collapse accidentally. The desktop layout check drags the handle and verifies that the two panels resize in opposite directions and can return to their original sizes.
 
 The compact ribbon uses single-line buttons with hover explanations. Sample model creation is confined to the Examples tab; Home and Geometry contain project actions, while Validation contains reference reports. Reduced ribbon, card and toolbar spacing moves the viewport higher. The ribbon measures 80 logical pixels tall with Segoe UI 10 on Windows, down from 116, and scrolls horizontally when commands exceed the available width. Native layout checks covered every tab at 1100 and 1520 window widths in both themes and both languages without clipped command labels. The seven desktop tests also pass.

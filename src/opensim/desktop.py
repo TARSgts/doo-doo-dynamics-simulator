@@ -141,6 +141,8 @@ class SimulatorWindow(QMainWindow):
         self.presentation_text = {}
         self.analysis_buttons = []
         self.reference_dialogs = {}
+        self.face_pick_session = None
+        self.selection_preview = None
         self.setWindowTitle("Doo Doo Dynamics Simulator — Structural Workbench")
         self.setMinimumSize(1100, 720)
         available = QApplication.primaryScreen().availableGeometry()
@@ -238,7 +240,7 @@ class SimulatorWindow(QMainWindow):
         if handler:
             button.setToolTip(BUTTON_HELP[title])
             button.clicked.connect(lambda checked=False: self.safe(handler))
-            if handler in (self.mesh, self.solve, self.modal, self.import_cad):
+            if handler in (self.mesh, self.solve, self.modal, self.import_cad) or title in {"Pick fixed support", "Pick force faces"}:
                 self.analysis_buttons.append(button)
         else:
             button.setEnabled(False)
@@ -279,7 +281,8 @@ class SimulatorWindow(QMainWindow):
             "Mesh": [("Generate mesh", "Linear tetrahedra", self.mesh), ("Show mesh", "Surface edges", lambda: self.change_view("mesh")),
                      ("Adaptive refinement", "Planned", None)],
             "Environment": [("Apply settings", "Material / axial force", self.save_parameters),
-                            ("Face selection", "Planned", None), ("Contact", "Planned", None)],
+                            ("Pick fixed support", "Click model faces", lambda: self.begin_face_picking("support")),
+                            ("Pick force faces", "Click model faces", lambda: self.begin_face_picking("load")), ("Contact", "Planned", None)],
             "Solution": [("Solve", "CalculiX static", self.solve), ("Displacement", "Current result", lambda: self.change_view("results")),
                          ("Stress contours", "Recovered von Mises", self.show_stress), ("Modal", "Natural frequencies", self.modal), ("Thermal", "Planned", None)],
             "Automation": [("MCP status", "16 local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
@@ -349,6 +352,17 @@ class SimulatorWindow(QMainWindow):
         self.result_component.currentIndexChanged.connect(lambda: self.refresh())
         tool_row.addWidget(self.result_component)
         layout.addWidget(tools)
+        self.pick_actions = QWidget()
+        pick_layout = QHBoxLayout(self.pick_actions)
+        pick_layout.setContentsMargins(8, 2, 8, 2)
+        for title, callback in (("Save picked faces", self.save_picked_faces), ("Clear current faces", self.clear_picked_faces), ("Cancel picking", self.cancel_face_picking)):
+            button = QPushButton(title)
+            button.setToolTip(BUTTON_HELP[title])
+            button.clicked.connect(lambda checked=False, action=callback: self.safe(action))
+            pick_layout.addWidget(button)
+        pick_layout.addStretch()
+        layout.addWidget(self.pick_actions)
+        self.pick_actions.hide()
         self.modal_tools = QWidget()
         modal_row = QHBoxLayout(self.modal_tools)
         modal_row.setContentsMargins(12, 4, 12, 4)
@@ -476,6 +490,15 @@ class SimulatorWindow(QMainWindow):
         self.apply_button = QPushButton("Apply settings")
         self.apply_button.clicked.connect(lambda: self.safe(self.save_parameters))
         layout.addWidget(self.apply_button)
+        for title, mode in (("Pick fixed support", "support"), ("Pick force faces", "load")):
+            button = QPushButton(title)
+            button.clicked.connect(lambda checked=False, role=mode: self.safe(lambda: self.begin_face_picking(role)))
+            button.setToolTip(BUTTON_HELP[title])
+            self.analysis_buttons.append(button)
+            layout.addWidget(button)
+        self.pick_note = QLabel("Pick faces on the model, or enter face IDs in Support / load regions.")
+        self.pick_note.setWordWrap(True)
+        layout.addWidget(self.pick_note)
         self.region_button = QPushButton("Support / load regions…")
         self.region_button.setMinimumWidth(100)
         self.region_button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
@@ -694,6 +717,7 @@ class SimulatorWindow(QMainWindow):
         self.refresh()
 
     def edit_regions(self):
+        self.cancel_face_picking()
         self.save_parameters()
         project = self.workspace.get_project(self.require_project())
         dialog = QDialog(self)
@@ -756,6 +780,86 @@ class SimulatorWindow(QMainWindow):
                 error.setText(str(failure))
         buttons.accepted.connect(save)
         dialog.exec()
+
+    def begin_face_picking(self, mode):
+        if mode not in {"support", "load"}:
+            raise ValueError("Choose support or load faces")
+        project = self.workspace.get_project(self.require_project())
+        if self.dirty:
+            raise ValueError("Apply settings and generate a mesh before picking faces")
+        if any(job["status"] in {"queued", "running"} for job in self.workspace.list_jobs(project["id"])):
+            raise ValueError("Wait for the current job before picking faces")
+        if self.face_pick_session:
+            self.view.page().runJavaScript(f"switchFacePicking({json.dumps(mode)})")
+            self.pick_note.setText("Click faces to toggle. Switch between support and force faces, then Save picked faces. Drag to rotate.")
+            return
+        session = {"project_id": project["id"], "revision": project["revision"], "view": self.loaded_view}
+        self.face_pick_session = session
+        parameters = project["parameters"]
+        script = ("typeof setFacePicking==='function' && "
+                  f"setFacePicking('support',{json.dumps(parameters['support_region'].get('faces', []))}) && "
+                  f"setFacePicking('load',{json.dumps(parameters['load_region'].get('faces', []))}) && "
+                  f"switchFacePicking({json.dumps(mode)})")
+        def started(ready):
+            if self.face_pick_session is not session:
+                return
+            if not ready:
+                self.cancel_face_picking()
+                self.pick_note.setText("Generate a new mesh once to enable clickable CAD faces for this model.")
+                return
+            self.pick_actions.show()
+            self.pick_note.setText("Click to toggle whole faces. Cyan = fixed support; orange = force. Switch roles, then Save picked faces. Edited regions replace box filters.")
+        self.view.page().runJavaScript(script, started)
+
+    def clear_picked_faces(self):
+        if self.face_pick_session:
+            self.view.page().runJavaScript("clearPickedFaces()")
+
+    def cancel_face_picking(self):
+        self.face_pick_session = None
+        self.pick_actions.hide()
+        self.view.page().runJavaScript("if(typeof setFacePicking==='function')setFacePicking(null)")
+        self.pick_note.setText("Pick faces on the model, or enter face IDs in Support / load regions.")
+
+    def save_picked_faces(self):
+        session = self.face_pick_session
+        if session is None:
+            return
+        def received(selection):
+            if self.face_pick_session is session:
+                self.safe(lambda: self.commit_picked_faces(session, json.loads(selection) if isinstance(selection, str) else None))
+        self.view.page().runJavaScript("typeof getFaceSelection==='function'?JSON.stringify(getFaceSelection()):null", received)
+
+    def commit_picked_faces(self, session, selection):
+        project = self.workspace.get_project(self.require_project())
+        if (self.face_pick_session is not session or project["id"] != session["project_id"]
+                or project["revision"] != session["revision"] or self.loaded_view != session["view"] or self.dirty):
+            self.cancel_face_picking()
+            raise ValueError("The project changed. Generate a mesh and pick faces again")
+        if not isinstance(selection, dict) or selection.get("mode") not in {"support", "load"}:
+            raise ValueError("No face selection is available")
+        available = selection.get("available", [])
+        updates = {}
+        for role in ("support", "load"):
+            if not selection.get("touched", {}).get(role):
+                continue
+            faces = selection.get(role)
+            if not isinstance(faces, list) or any(type(face) is not int or face <= 0 or face not in available for face in faces):
+                raise ValueError("Choose valid CAD faces from the model")
+            if not faces:
+                raise ValueError("Select at least one face for each edited region. Use the regions dialog to restore defaults")
+            updates[role + "_region"] = {"faces": sorted(set(faces))}
+            if role == "load":
+                updates["load_kind"] = "traction"
+        if updates:
+            self.workspace.set_parameters(project["id"], updates)
+            self.selection_preview = {"project_id": project["id"], "cad": project["cad"],
+                                      "mesh": [project["parameters"][key] for key in ("mesh_size_m", "cad_scale", "element_order")],
+                                      "artifact": session["view"][0]}
+            self.workspace.show_project(project["id"], "geometry")
+        self.cancel_face_picking()
+        self.pick_note.setText("Faces saved. Set total force and direction, then Solve." if updates else "No changes to save.")
+        self.project_revision = None
 
     def select_mode(self, *args):
         if self.modal_selector.currentData() is not None and self.project_id:
@@ -893,6 +997,9 @@ class SimulatorWindow(QMainWindow):
             self.project_revision = None
             self.dirty = False
         project = self.workspace.get_project(selected) if selected else None
+        if self.face_pick_session and (not project or selected != self.face_pick_session["project_id"]
+                or project["revision"] != self.face_pick_session["revision"]):
+            self.cancel_face_picking()
         if project:
             self.region_note.setText("Support region: " + json.dumps(project["parameters"]["support_region"]) + "\nLoad region: " + json.dumps(project["parameters"]["load_region"]))
         if project_changed and project:
@@ -978,7 +1085,16 @@ class SimulatorWindow(QMainWindow):
             self.modal_selector.setCurrentIndex(self.modal_selector.findData(state["modal_mode"]))
             del blocker
             artifact = self.workspace.current_artifact(selected, state["view"], state["modal_mode"])
+            preview = self.selection_preview
+            if (not artifact and state["view"] == "geometry" and preview and preview["project_id"] == selected
+                    and preview["cad"] == project["cad"]
+                    and preview["mesh"] == [project["parameters"][key] for key in ("mesh_size_m", "cad_scale", "element_order")]):
+                candidate = Path(preview["artifact"])
+                if candidate.is_file():
+                    artifact = candidate
             view_key = str(artifact), state["view"]
+            if self.face_pick_session and (view_key != self.face_pick_session["view"] or active):
+                self.cancel_face_picking()
             if view_key != self.loaded_view:
                 self.loaded_view = view_key
                 self.viewport_title.setText(project["name"].upper() + "  /  " + state["view"].upper())
