@@ -2,12 +2,35 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import threading
 
 import numpy as np
 
 from opensim.geometry import Mesh
 from opensim.loads import assemble_load
 from opensim.regions import support_nodes
+
+
+class SolverCancelled(RuntimeError):
+    pass
+
+
+_process_lock = threading.Lock()
+_active_processes = set()
+_cancelled = threading.Event()
+
+
+def cancel_active_solvers():
+    """End every solver started by this process and refuse to start new ones."""
+    with _process_lock:
+        _cancelled.set()
+        processes = list(_active_processes)
+    for process in processes:
+        try:
+            process.kill()
+        except OSError:
+            pass
+    return len(processes)
 
 
 def deck_number(value):
@@ -70,17 +93,29 @@ def run_solver(executable: Path, directory: Path, timeout: float = 120):
     environment = os.environ.copy()
     environment["OMP_NUM_THREADS"] = "1"
     environment["NUMBER_OF_CPUS"] = "1"
-    try:
-        completed = subprocess.run([str(executable), "-i", "model"], cwd=directory,
-                                   capture_output=True, text=True, errors="replace",
-                                   timeout=timeout, env=environment, shell=False,
+    with _process_lock:
+        if _cancelled.is_set():
+            raise SolverCancelled("Solve stopped by user")
+        process = subprocess.Popen([str(executable), "-i", "model"], cwd=directory,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                                   text=True, errors="replace", env=environment, shell=False,
                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        _active_processes.add(process)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as error:
+        process.kill()
+        process.communicate()
         (directory / "solver.log").write_text(str(error), encoding="utf-8")
         raise RuntimeError(f"CalculiX exceeded {timeout} seconds") from error
-    log = completed.stdout + completed.stderr
+    finally:
+        with _process_lock:
+            _active_processes.discard(process)
+    log = stdout + stderr
     (directory / "solver.log").write_text(log, encoding="utf-8")
-    if completed.returncode != 0 or "*ERROR" in log.upper() or "JOB FINISHED" not in log.upper():
+    if _cancelled.is_set():
+        raise SolverCancelled("Solve stopped by user")
+    if process.returncode != 0 or "*ERROR" in log.upper() or "JOB FINISHED" not in log.upper():
         raise RuntimeError(f"CalculiX did not finish successfully; inspect {directory / 'solver.log'}")
 
 

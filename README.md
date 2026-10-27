@@ -28,12 +28,13 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 ## Working now
 
-- Import one closed STEP, IGES or BREP solid using Gmsh's OpenCASCADE kernel.
+- Import one closed STEP, IGES or BREP solid using Gmsh's OpenCASCADE kernel, or a watertight STL, OBJ or 3MF mesh (rebuilt into a solid with pickable face patches).
 - Generate linear C3D4 or quadratic C3D10 tetrahedra, check corner-element orientation and export a mesh.
 - Clamp the X-minimum face and apply an X/Y/Z force at a tip-center node, through the legacy equal-node X-max load, or as uniform traction integrated over a selected X/Y/Z min/max boundary surface.
 - Solve isotropic linear elasticity through CalculiX; verify completion, displacement completeness, force balance and moment balance.
 - Export an offline, rotatable HTML displacement viewer, VTK displacement data and native CalculiX stress/displacement FRD files.
 - Record CAD, input-deck and solver hashes, material properties, mesh settings and dependency versions per run.
+- Run a mesh convergence study: repeat the static solve on finer meshes with per-quantity change, verdict, Richardson extrapolation and GCI, stopping early when converged.
 - Extract undamped, unprestressed natural frequencies with the X-min face fixed, export every mode as HTML/VTK and retain raw eigenvectors. Animate normalized shapes with arbitrary display amplitude and 1 Hz playback.
 
 This is a research prototype. It supports one material, one solid and the fixed-support/load conditions above. The legacy equal-node load and consistent uniform traction are separate choices. Point loading requires an end face containing the bounding-section center. The desktop supports [clicking CAD faces](docs/SURFACE_REGIONS.md) for fully fixed supports and uniformly distributed forces. Assemblies, contact, nonlinear behavior and more general support types need later stages. Prefer C3D10 for bending and perform mesh-convergence checks. A point load has a local stress singularity; the cantilever studies validate global displacement and equilibrium, not arbitrary peak stresses. No Ansys compatibility or accuracy equivalence is claimed.

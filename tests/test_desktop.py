@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -387,6 +388,141 @@ def test_cat_translation_toggle_refresh_and_return_to_english_preserve_inputs(tm
         assert workspace.get_project(project["id"]) == before
         assert [button.isEnabled() for button in window.findChildren(QPushButton)] == disabled_before
     finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
+def test_stop_computing_button_only_works_while_a_job_is_active(tmp_path):
+    import time
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Stop button")
+    workspace.show_project(project["id"])
+    window = SimulatorWindow(workspace)
+    try:
+        buttons = [button for button in window.findChildren(QPushButton) if button.text() == "Stop computing"]
+        assert len(buttons) == 2 and buttons == window.stop_buttons
+        assert all(not button.isEnabled() and button.toolTip() for button in buttons)
+        with pytest.raises(ValueError, match="Nothing is computing"):
+            window.stop_computing(confirm=False)
+        now = time.time()
+        with workspace.connect() as connection:
+            connection.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?)", ("long-solve", project["id"], "solve", "running", 0,
+                               "{}", None, None, now - 600, now))
+        window.refresh()
+        assert all(button.isEnabled() for button in buttons)
+        assert not window.stop_button.isHidden()
+        assert not any(button.isEnabled() for button in window.analysis_buttons)
+        window.stop_computing(confirm=False)
+        window.refresh()
+        assert workspace.get_job("long-solve")["status"] == "cancelled"
+        assert not any(button.isEnabled() for button in buttons)
+        assert window.stop_button.isHidden()
+        assert "Stopped by user" in window.progress_label.text()
+        assert window.job_progress.format() == "Stopped"
+        assert all(button.isEnabled() for button in window.analysis_buttons)
+        assert "[CANCELLED]" in window.messages.toPlainText()
+        window.set_language("cat")
+        assert window.stop_buttons[1].text() == "Stop da science"
+        window.set_language("en")
+        assert window.stop_buttons[1].text() == "Stop computing"
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
+def test_importing_a_mesh_file_assumes_millimeters_once(tmp_path, monkeypatch):
+    import struct
+    from PySide6.QtWidgets import QFileDialog
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path / "workspace")
+    project = workspace.create_project("STL import")
+    workspace.show_project(project["id"])
+    stl = tmp_path / "part.stl"
+    with stl.open("wb") as handle:
+        handle.write(b"x".ljust(80, b" ") + struct.pack("<I", 0))
+    started = []
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args, **kwargs: (str(stl), ""))
+    monkeypatch.setattr(workspace, "start_job", lambda project_id, kind, **kwargs: started.append(kind))
+    window = SimulatorWindow(workspace)
+    try:
+        window.import_cad()
+        assert workspace.get_project(project["id"])["parameters"]["cad_scale"] == 0.001
+        assert "millimeters" in window.details_note.text()
+        assert started == ["mesh"]
+        workspace.set_parameters(project["id"], {"cad_scale": 2.0})
+        window.import_cad()
+        assert workspace.get_project(project["id"])["parameters"]["cad_scale"] == 2.0  # a chosen scale is kept
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
+def test_convergence_controls_save_settings_and_report_opens_once_after_finishing(tmp_path, monkeypatch):
+    import time
+    from opensim.convergence import analyse, write_report
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path / "workspace")
+    project = workspace.create_project("Convergence UI")
+    workspace.show_project(project["id"])
+    window = SimulatorWindow(workspace)
+    started = []
+    monkeypatch.setattr(workspace, "start_job", lambda project_id, kind, **kwargs: started.append(kind))
+    try:
+        assert window.fields["convergence_levels"].value() == 4
+        assert window.fields["convergence_ratio"].value() == pytest.approx(1.4)
+        window.fields["convergence_levels"].setValue(5)
+        window.fields["convergence_tolerance_percent"].setValue(1.0)
+        window.selectors["convergence_target"].setCurrentIndex(window.selectors["convergence_target"].findData("response"))
+        window.convergence()
+        saved = workspace.get_project(project["id"])["parameters"]
+        assert (saved["convergence_levels"], saved["convergence_tolerance_percent"], saved["convergence_target"]) == (5, 1.0, "response")
+        assert started == ["convergence"]
+        buttons = [button for button in window.findChildren(QToolButton) + window.findChildren(QPushButton)
+                   if button.text() in {"Convergence", "Convergence study"}]
+        assert len(buttons) == 2 and all(button in window.analysis_buttons and button.toolTip() for button in buttons)
+        # A study that finishes while the app is open shows its report automatically, once.
+        revision = workspace.get_project(project["id"])["revision"]
+        study = tmp_path / "workspace" / project["id"] / "jobs" / "study" / "convergence"
+        study.mkdir(parents=True)
+        levels = [{"level": n, "mesh_size_m": 0.01 / 1.4 ** (n - 1), "nodes": 10 * n, "tetrahedra": 100 * 3 ** n,
+                   "viewer": f"mesh-{n}/results.html", "values": {"displacement": 1 + 0.1 / n ** 2, "response": 1.0, "stress": 2.0}}
+                  for n in (1, 2, 3)]
+        result = {"analysis": "convergence", "target": "displacement", "tolerance_percent": 2, "refinement_ratio": 1.4,
+                  "requested_levels": 5, "element_type": "C3D10", "levels": levels, "quantities": analyse(levels, 0.02),
+                  "stop_reason": "test", "verdict": "converged", "nodes": 30, "tetrahedra": 2700}
+        write_report(study / "report.html", result)
+        now = time.time() + 1
+        with workspace.connect() as connection:
+            connection.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?)", ("study", project["id"], "convergence", "completed",
+                               revision, "{}", __import__("json").dumps(result), None, now, now))
+        window.refresh()
+        dialog = window.reference_dialogs[("convergence", "study")]
+        assert dialog.isVisible() and dialog.windowTitle() == "Mesh convergence study"
+        dialog.close()
+        window.refresh()
+        assert not dialog.isVisible()  # not reopened on later refreshes
+        assert "Convergence study (displacement)" in window.messages.toPlainText()
+        assert window.show_convergence_report() is dialog
+        from PySide6.QtCore import QUrl
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        view = dialog.findChild(QWebEngineView, "ConvergenceReport")
+        view.setUrl(QUrl.fromLocalFile(str(study / "mesh-1" / "results.html")))
+        window.set_theme("light")
+        assert window.show_convergence_report() is dialog
+        assert Path(view.url().toLocalFile()) == study / "report.html"
+        assert view.url().query() == "theme=light"
+    finally:
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        for dialog in window.reference_dialogs.values():
+            dialog.findChild(QWebEngineView).setPage(None)
+            dialog.close()
         window.close()
         window.view.setPage(None)
         window.deleteLater()

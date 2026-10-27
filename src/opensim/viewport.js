@@ -36,7 +36,7 @@ const scalarBuffer = new Float32Array(nodeCount*4);
 for(let node=0;node<nodeCount;node++){
   scalarBuffer.set([magnitudes[node],...simulation.displacement[node]],node*4);
 }
-let yaw=-0.45, pitch=0.5, drag=null;
+let yaw=-0.45, pitch=-0.5, drag=null;
 let viewportMode=simulation.summary.view==='mesh'?'mesh':'results';
 let edgeVisibility=true, themeDark=!document.body.classList.contains('desktop');
 let deformationOverride=isModal && maximum ? span*0.1/maximum : null, resultComponent='magnitude';
@@ -201,7 +201,7 @@ function setModeAnimation(value){modeAnimation=isModal && Boolean(value);if(!mod
 function setEdgeVisibility(value){edgeVisibility=Boolean(value);draw();}
 function setDeformationScale(value){deformationOverride=value==='auto'?(maximum?span*0.1/maximum:0):Number(value);deformationDirty=true;fitRequested=true;draw();}
 function resetViewport(){panX=panY=0;fitRequested=true;draw();}
-function setViewOrientation(orientation){yaw=orientation==='flipped-front'?Math.PI:orientation==='isometric'?-0.45:0;pitch=orientation==='flipped-front'?Math.PI:orientation==='front'?0:orientation==='top'?-Math.PI/2:0.5;panX=panY=0;fitRequested=true;draw();}
+function setViewOrientation(orientation){yaw=orientation==='flipped-front'?Math.PI:orientation==='isometric'?-0.45:0;pitch=orientation==='flipped-front'?Math.PI:orientation==='front'?0:orientation==='top'?-Math.PI/2:-0.5;panX=panY=0;fitRequested=true;draw();}
 function draw(){
   viewportStats.drawRequests++;
   if(framePending)return;
@@ -226,7 +226,9 @@ function cameraProjection(){
   function rotate(first,second,third){
     const relative=[first-target[0],second-target[1],third-target[2]];
     const depth=relative[0]*sineYaw+relative[1]*cosineYaw;
-    return [relative[0]*cosineYaw-relative[1]*sineYaw,depth*sinePitch-relative[2]*cosinePitch,depth*cosinePitch+relative[2]*sinePitch];
+    // Screen right, screen down, toward the viewer. This must be a proper rotation (right-handed); an earlier
+    // version used the opposite toward-viewer sign, which showed a mirror image seen from the far side.
+    return [relative[0]*cosineYaw-relative[1]*sineYaw,depth*sinePitch-relative[2]*cosinePitch,-(depth*cosinePitch+relative[2]*sinePitch)];
   }
   if(fitRequested){
     let minHorizontal=Infinity,maxHorizontal=-Infinity,minVertical=Infinity,maxVertical=-Infinity;
@@ -240,9 +242,9 @@ function cameraProjection(){
   const offset=[canvas.width/2-55*devicePixelRatio+panX,canvas.height/2+15*devicePixelRatio+panY];
   const horizontalScale=2*cameraZoom/canvas.width,verticalScale=2*cameraZoom/canvas.height;
   const matrix=new Float32Array([
-    horizontalScale*cosineYaw,-verticalScale*sinePitch*sineYaw,-cosinePitch*sineYaw/depthScale,0,
-    -horizontalScale*sineYaw,-verticalScale*sinePitch*cosineYaw,-cosinePitch*cosineYaw/depthScale,0,
-    0,verticalScale*cosinePitch,-sinePitch/depthScale,0,
+    horizontalScale*cosineYaw,-verticalScale*sinePitch*sineYaw,cosinePitch*sineYaw/depthScale,0,
+    -horizontalScale*sineYaw,-verticalScale*sinePitch*cosineYaw,cosinePitch*cosineYaw/depthScale,0,
+    0,verticalScale*cosinePitch,sinePitch/depthScale,0,
     2*offset[0]/canvas.width-1,1-2*offset[1]/canvas.height,0,1
   ]);
   return {matrix,project(point){const rotated=rotate(point[0],point[1],point[2]);return [offset[0]+rotated[0]*cameraZoom,offset[1]+rotated[1]*cameraZoom,rotated[2]];}};
@@ -271,7 +273,53 @@ function drawFallback(){
     if(edgeVisibility && viewportMode!=='geometry' && !drag)context.stroke();
   }
 }
+const AXIS_COLORS={light:['#d6262f','#1c8a3c','#1f5fd6'],dark:['#ff5c62','#4fd17a','#5c9dff']};
+function axisTriad(){
+  // Derived from the model's own projection so the triad always matches what is drawn.
+  // screen = [right, down] per unit length; toward > 0 points at the viewer.
+  const origin=projection.project(target);
+  return [0,1,2].map(index=>{
+    const point=projection.project(target.map((value,axis)=>value+(axis===index?1:0)));
+    return {axis:'XYZ'[index],screen:[(point[0]-origin[0])/cameraZoom,(point[1]-origin[1])/cameraZoom],toward:point[2]-origin[2]};
+  });
+}
+function drawAxisTriad(){
+  const pixel=devicePixelRatio,length=34*pixel,radius=48*pixel;
+  const origin=[18*pixel+radius,canvas.height-18*pixel-radius];
+  const colors=AXIS_COLORS[themeDark?'dark':'light'];
+  context.save();
+  context.beginPath();context.arc(origin[0],origin[1],radius,0,2*Math.PI);
+  context.fillStyle=themeDark?'rgba(16,24,39,0.55)':'rgba(255,255,255,0.6)';context.fill();
+  context.strokeStyle=themeDark?'rgba(178,210,243,0.25)':'rgba(49,72,93,0.25)';context.lineWidth=pixel;context.stroke();
+  const axes=axisTriad();
+  viewportStats.axisTriad=Object.fromEntries(axes.map(entry=>[entry.axis,{screen:entry.screen,toward:entry.toward}]));
+  context.lineCap='round';context.textAlign='center';context.textBaseline='middle';
+  context.font=`bold ${12*pixel}px Segoe UI`;
+  // Far axes first so the one pointing at the viewer is drawn on top.
+  for(const entry of axes.slice().sort((left,right)=>left.toward-right.toward)){
+    const color=colors['XYZ'.indexOf(entry.axis)],[dx,dy]=entry.screen,projectedLength=Math.hypot(dx,dy);
+    const tip=[origin[0]+dx*length,origin[1]+dy*length];
+    context.globalAlpha=entry.toward< -0.2?0.55:1;
+    context.strokeStyle=color;context.fillStyle=color;context.lineWidth=3*pixel;
+    context.beginPath();context.moveTo(...origin);context.lineTo(...tip);context.stroke();
+    if(projectedLength>0.15){
+      const unit=[dx/projectedLength,dy/projectedLength],head=8*pixel,wing=4.5*pixel;
+      context.beginPath();context.moveTo(tip[0]+unit[0]*head*0.6,tip[1]+unit[1]*head*0.6);
+      context.lineTo(tip[0]-unit[0]*head*0.4-unit[1]*wing,tip[1]-unit[1]*head*0.4+unit[0]*wing);
+      context.lineTo(tip[0]-unit[0]*head*0.4+unit[1]*wing,tip[1]-unit[1]*head*0.4-unit[0]*wing);context.closePath();context.fill();
+    }else{
+      // Axis points straight at or away from the viewer: dot for toward, ring for away.
+      context.beginPath();context.arc(...origin,5*pixel,0,2*Math.PI);entry.toward>0?context.fill():context.stroke();
+    }
+    const label=projectedLength>0.15?[tip[0]+dx/projectedLength*13*pixel,tip[1]+dy/projectedLength*13*pixel]:[origin[0]+13*pixel,origin[1]-13*pixel];
+    context.fillText(entry.axis,...label);
+  }
+  context.globalAlpha=1;context.fillStyle=themeDark?'#c6d7ec':'#34485f';
+  context.beginPath();context.arc(...origin,2.5*pixel,0,2*Math.PI);context.fill();
+  context.restore();
+}
 function drawOverlay(){
+  drawAxisTriad();
   const pixel=devicePixelRatio,range=scalarRanges[componentIndex()];
   context.font=`${12*pixel}px Segoe UI`;context.fillStyle=themeDark?'#bbd2ec':'#3a506b';
   context.fillText(`${simulation.summary.element_type||'Tetrahedra'} · ${faceCount.toLocaleString()} ${catMode?'tiny triangle beans':'surface triangles'} · ${gpuRenderer?'WebGL':'Canvas fallback'}`,20*pixel,27*pixel);
@@ -328,7 +376,7 @@ canvas.onpointermove=event=>{
   if(!drag)return;
   const horizontal=event.clientX-drag.horizontal,vertical=event.clientY-drag.vertical;
   if(Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)>4)drag.moved=true;
-  if(drag.pan){panX+=horizontal*devicePixelRatio;panY+=vertical*devicePixelRatio;}else{yaw+=horizontal*0.008;pitch+=vertical*0.008;}
+  if(drag.pan){panX+=horizontal*devicePixelRatio;panY+=vertical*devicePixelRatio;}else{yaw+=horizontal*0.008;pitch-=vertical*0.008;}
   drag.horizontal=event.clientX;drag.vertical=event.clientY;draw();
 };
 canvas.onpointerup=event=>{

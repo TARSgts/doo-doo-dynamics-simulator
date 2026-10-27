@@ -13,7 +13,7 @@ def create_server(workspace: Workspace) -> FastMCP:
         "All quantities are SI. Static structural supports X-min clamped and X/Y/Z point, legacy equal-node face, or uniform vector traction loads, using C3D4 or C3D10. Traction takes total force in N, not pressure, and load_surface selects an X/Y/Z min/max bounding-plane patch. "
         "Optional support_region/load_region dictionaries select CAD face IDs and box_m centroid filters. A selected support is fully fixed, not contact. Static results include recovered nodal von Mises stress. "
         "Undamped unprestressed modal analysis is available with positive density and default or selected fixed support. "
-        "Inspect get_capabilities before requesting other physics. The desktop reflects shared workspace changes."))
+        "run_convergence_study checks whether results depend on mesh size. Use cancel_job to stop a job that is taking too long. Inspect get_capabilities before requesting other physics. The desktop reflects shared workspace changes."))
 
     @server.tool()
     def set_modal_parameters(project_id: str, density_kg_m3: float = 7850.0, mode_count: int = 6) -> dict[str, Any]:
@@ -60,7 +60,7 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def import_cad(project_id: str, path: str) -> dict[str, Any]:
-        """Copy a user-selected local STEP, IGES or BREP solid into the project."""
+        """Copy a user-selected local solid into the project: STEP, IGES, BREP, or a closed STL, OBJ or 3MF surface mesh. Mesh files are usually millimeters (cad_scale 0.001); tip point loads need exact CAD."""
         return workspace.import_cad(project_id, path)
 
     @server.tool()
@@ -97,6 +97,24 @@ def create_server(workspace: Workspace) -> FastMCP:
     def get_job(job_id: str) -> dict[str, Any]:
         """Read a background job's status, numerical summary or failure."""
         return workspace.get_job(job_id)
+
+    @server.tool()
+    def run_convergence_study(project_id: str, levels: int = 4, refinement_ratio: float = 1.4,
+                              tolerance_percent: float = 2.0, target: str = "displacement") -> dict[str, Any]:
+        """Start a mesh convergence study: the static solve runs at mesh_size_m, then mesh_size_m/ratio, /ratio², … for up to 3–6 meshes, stopping early once the target (displacement = max |U|, response = loaded-area mean displacement along the force, stress = max von Mises) changes less than tolerance_percent. Uses the project's current static settings. Poll get_job, then get_convergence_results."""
+        workspace.set_parameters(project_id, {"convergence_levels": levels, "convergence_ratio": refinement_ratio,
+                                              "convergence_tolerance_percent": tolerance_percent, "convergence_target": target})
+        return workspace.start_job(project_id, "convergence")
+
+    @server.tool()
+    def get_convergence_results(project_id: str) -> dict[str, Any]:
+        """Return per-mesh values, change between meshes, verdict, Richardson extrapolation/GCI and the HTML report path for the current inputs."""
+        return workspace.get_convergence_results(project_id)
+
+    @server.tool()
+    def cancel_job(job_id: str) -> dict[str, Any]:
+        """Stop a queued or running mesh, static or modal job. Its CalculiX process is ended and the job is marked cancelled; partial files stay in the job folder."""
+        return workspace.cancel_job(job_id)
 
     @server.tool()
     def get_results(project_id: str) -> dict[str, Any]:

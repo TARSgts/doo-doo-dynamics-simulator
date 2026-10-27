@@ -1,5 +1,7 @@
 import argparse
+import os
 from pathlib import Path
+import threading
 import time
 import traceback
 
@@ -9,7 +11,29 @@ import numpy as np
 from opensim.cli import solve
 from opensim.geometry import gmsh_session, import_and_mesh, make_box
 from opensim.results import write_viewer
+from opensim.solver import cancel_active_solvers
 from opensim.workspace import Workspace
+
+CANCEL_POLL_SECONDS = 0.3
+CANCELLED_EXIT_CODE = 3
+
+
+def watch_for_cancel(workspace: Workspace, job_id: str, stop: threading.Event, exit_process=os._exit):
+    """Poll the shared workspace; when the job is stopped, end CalculiX and this worker.
+
+    Meshing runs inside Gmsh's native code and cannot be interrupted politely,
+    so the worker process exits immediately instead of waiting for it.
+    """
+    while not stop.wait(CANCEL_POLL_SECONDS):
+        try:
+            status = workspace.get_job(job_id)["status"]
+        except Exception:
+            continue  # A briefly locked database must not kill a healthy job.
+        if status == "cancelled":
+            killed = cancel_active_solvers()
+            print(f"Stop requested; ended {killed} solver process(es) and exiting worker.", flush=True)
+            exit_process(CANCELLED_EXIT_CODE)
+            return
 
 
 def execute(workspace: Workspace, job_id: str):
@@ -17,7 +41,13 @@ def execute(workspace: Workspace, job_id: str):
     directory = workspace.job_directory(job_id)
     parameters = job["payload"]["parameters"]
     with workspace.connect() as connection:
-        connection.execute("UPDATE jobs SET status='running',updated=? WHERE id=?", (time.time(), job_id))
+        started = connection.execute("UPDATE jobs SET status='running',updated=? WHERE id=? AND status='queued'",
+                                     (time.time(), job_id)).rowcount
+    if not started:
+        print("Job was stopped before the worker started.", flush=True)
+        return
+    stop_watching = threading.Event()
+    threading.Thread(target=watch_for_cancel, args=(workspace, job_id, stop_watching), daemon=True).start()
     try:
         def progress(stage):
             workspace.set_job_progress(job_id, stage)
@@ -39,13 +69,27 @@ def execute(workspace: Workspace, job_id: str):
                     gmsh.model.occ.synchronize()
                     gmsh.write(str(cad))
             with workspace.connect() as connection:
-                connection.execute("UPDATE projects SET cad=? WHERE id=?", (str(cad), job["project_id"]))
+                updated = connection.execute(
+                    "UPDATE projects SET cad=? WHERE id=? AND revision=? AND EXISTS (SELECT 1 FROM jobs WHERE id=? AND status='running')",
+                    (str(cad), job["project_id"], job["revision"], job_id)).rowcount
+            if not updated:
+                return  # A stopped example must not overwrite a newly imported model.
         if job["kind"] == "modal":
             from opensim.modal import solve_modal
             result = solve_modal(cad, directory / "modal", size=parameters["mesh_size_m"],
                                  scale=parameters["cad_scale"], young=parameters["young_Pa"],
                                  poisson=parameters["poisson"], density=parameters["density_kg_m3"],
                                  mode_count=parameters["mode_count"], order=parameters["element_order"], support_region=parameters["support_region"], progress=progress)
+        elif job["kind"] == "convergence":
+            from opensim.convergence import run_convergence
+            result = run_convergence(cad, directory / "convergence", size=parameters["mesh_size_m"],
+                                     scale=parameters["cad_scale"], young=parameters["young_Pa"], poisson=parameters["poisson"],
+                                     load=parameters["load_N"], order=parameters["element_order"], load_axis=parameters["load_axis"],
+                                     load_kind=parameters["load_kind"], load_surface=parameters["load_surface"],
+                                     support_region=parameters["support_region"], load_region=parameters["load_region"],
+                                     levels=int(parameters["convergence_levels"]), ratio=parameters["convergence_ratio"],
+                                     tolerance_percent=parameters["convergence_tolerance_percent"],
+                                     target=parameters["convergence_target"], progress=progress)
         elif job["kind"] == "solve":
             result = solve(cad, directory / "solve", size=parameters["mesh_size_m"],
                            scale=parameters["cad_scale"], young=parameters["young_Pa"],
@@ -66,6 +110,8 @@ def execute(workspace: Workspace, job_id: str):
     except Exception as error:
         traceback.print_exc()
         workspace.finish_job(job_id, error=str(error))
+    finally:
+        stop_watching.set()
 
 
 def main():

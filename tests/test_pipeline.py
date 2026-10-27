@@ -73,22 +73,30 @@ def test_rejects_unsupported_or_missing_cad(tmp_path):
 
 def test_solver_failure_and_timeout_keep_log(tmp_path, monkeypatch):
     import subprocess
-    from types import SimpleNamespace
 
-    def failure(*args, **kwargs):
-        return SimpleNamespace(returncode=0, stdout="*ERROR invalid material", stderr="")
+    class FakeProcess:
+        def __init__(self, stdout="", hang=False):
+            self.stdout_text, self.hang, self.returncode, self.killed = stdout, hang, None, False
 
-    monkeypatch.setattr(subprocess, "run", failure)
+        def communicate(self, timeout=None):
+            if self.hang and not self.killed:
+                raise subprocess.TimeoutExpired("ccx", timeout)
+            self.returncode = -9 if self.killed else 0
+            return self.stdout_text, ""
+
+        def kill(self):
+            self.killed = True
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeProcess("*ERROR invalid material"))
     with pytest.raises(RuntimeError, match="successfully"):
         run_solver(Path("ccx"), tmp_path)
     assert "*ERROR" in (tmp_path / "solver.log").read_text()
 
-    def timeout(*args, **kwargs):
-        raise subprocess.TimeoutExpired("ccx", 1)
-
-    monkeypatch.setattr(subprocess, "run", timeout)
+    hung = FakeProcess(hang=True)
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: hung)
     with pytest.raises(RuntimeError, match="exceeded"):
         run_solver(Path("ccx"), tmp_path, timeout=1)
+    assert hung.killed
 
 
 @pytest.mark.integration

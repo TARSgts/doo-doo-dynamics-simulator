@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from opensim.geometry import import_and_mesh, make_box
+from opensim.geometry import MeshElementLimitExceeded, import_and_mesh, make_box
 from opensim.results import write_viewer, write_vtk
 from opensim.solver import find_solver, parse_dat, run_solver, write_deck
 from opensim.regions import support_nodes
@@ -20,7 +20,7 @@ def digest(path: Path) -> str:
 
 def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
           poisson=0.0, load=1000.0, ccx=None, order=1, load_axis="x", load_kind="face", load_surface="x-max",
-          support_region=None, load_region=None, progress=None) -> dict:
+          support_region=None, load_region=None, progress=None, solver_timeout=120, max_elements=None) -> dict:
     executable = find_solver(ccx)
     if not cad.is_file():
         raise FileNotFoundError(cad)
@@ -28,6 +28,8 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
     if progress:
         progress("meshing")
     mesh = import_and_mesh(cad, size, scale, output / "mesh.msh", order=order, tip_point=load_kind == "point")
+    if max_elements is not None and len(mesh.tetrahedra) > max_elements:
+        raise MeshElementLimitExceeded(f"Actual mesh has {len(mesh.tetrahedra):,} elements, exceeding the {max_elements:,} element limit; solver was not started")
     if progress:
         progress("preparing")
     solver_length_scale = 1000.0 if support_region or load_region else 1.0
@@ -35,7 +37,7 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
                          support_region, load_region, solver_length_scale)
     if progress:
         progress("solving")
-    run_solver(executable, output)
+    run_solver(executable, output, timeout=solver_timeout)
     if progress:
         progress("reading")
     displacement, reactions = parse_dat(output / "model.dat", len(mesh.points))
@@ -137,21 +139,29 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     example = commands.add_parser("example", help="Generate an independently defined STEP bar")
     example.add_argument("path", type=Path)
-    run = commands.add_parser("solve", help="Mesh and solve one closed STEP/IGES/BREP solid")
-    run.add_argument("cad", type=Path)
-    run.add_argument("--out", type=Path, required=True)
-    run.add_argument("--mesh-size", type=float, default=0.05)
-    run.add_argument("--cad-scale", type=float, default=1.0, help="Coordinate multiplier to meters; mm: 0.001")
-    run.add_argument("--young", type=float, default=210e9)
-    run.add_argument("--poisson", type=float, default=0.0)
-    run.add_argument("--load", type=float, default=1000.0, help="Total axial force in newtons")
-    run.add_argument("--ccx")
-    run.add_argument("--order", type=int, choices=[1, 2], default=1)
-    run.add_argument("--load-axis", choices=LOAD_AXES, default="x", help="X/Y/Z or normal-in/normal-out (requires --load-kind traction)")
-    run.add_argument("--load-kind", choices=["face", "point", "traction"], default="face")
-    from opensim.load_settings import LOAD_SURFACES
-    run.add_argument("--load-surface", choices=LOAD_SURFACES, default="x-max", help="Bounding-plane patch for uniform traction; --load is total signed force in N")
-    run.add_argument("--regions", type=Path, help="JSON file containing support_region and/or load_region")
+    def add_static_arguments(command):
+        command.add_argument("cad", type=Path)
+        command.add_argument("--out", type=Path, required=True)
+        command.add_argument("--mesh-size", type=float, default=0.05)
+        command.add_argument("--cad-scale", type=float, default=1.0, help="Coordinate multiplier to meters; mm: 0.001")
+        command.add_argument("--young", type=float, default=210e9)
+        command.add_argument("--poisson", type=float, default=0.0)
+        command.add_argument("--load", type=float, default=1000.0, help="Total axial force in newtons")
+        command.add_argument("--ccx")
+        command.add_argument("--order", type=int, choices=[1, 2], default=1)
+        command.add_argument("--load-axis", choices=LOAD_AXES, default="x", help="X/Y/Z or normal-in/normal-out (requires --load-kind traction)")
+        command.add_argument("--load-kind", choices=["face", "point", "traction"], default="face")
+        from opensim.load_settings import LOAD_SURFACES
+        command.add_argument("--load-surface", choices=LOAD_SURFACES, default="x-max", help="Bounding-plane patch for uniform traction; --load is total signed force in N")
+        command.add_argument("--regions", type=Path, help="JSON file containing support_region and/or load_region")
+
+    add_static_arguments(commands.add_parser("solve", help="Mesh and solve one closed STEP/IGES/BREP solid or STL/OBJ/3MF mesh"))
+    study = commands.add_parser("convergence", help="Mesh convergence study: repeat the static solve on successively finer meshes")
+    add_static_arguments(study)
+    study.add_argument("--levels", type=int, default=4, help="Number of meshes, 3–6; starts at --mesh-size and divides it by --ratio each time")
+    study.add_argument("--ratio", type=float, default=1.4, help="Mesh size divisor between meshes")
+    study.add_argument("--tolerance", type=float, default=2.0, help="Stop when the target changes less than this percent")
+    study.add_argument("--target", choices=["displacement", "response", "stress"], default="displacement")
     commands.add_parser("doctor", help="Show installed mesher and solver paths")
     validation = commands.add_parser("validate-cantilever", help="Run point-tip beam validation and a mesh study")
     validation.add_argument("--out", type=Path, required=True)
@@ -221,6 +231,16 @@ def main():
             region_options = json.loads(arguments.regions.read_text(encoding="utf-8")) if arguments.regions else {}
             if not isinstance(region_options, dict) or set(region_options) - {"support_region", "load_region"}:
                 raise ValueError("Region JSON accepts only support_region and load_region")
+            if arguments.command == "convergence":
+                from opensim.convergence import run_convergence
+                report = run_convergence(arguments.cad, arguments.out, arguments.mesh_size, arguments.cad_scale, arguments.young,
+                                         arguments.poisson, arguments.load, arguments.order, arguments.load_axis, arguments.load_kind,
+                                         arguments.load_surface, levels=arguments.levels, ratio=arguments.ratio,
+                                         tolerance_percent=arguments.tolerance, target=arguments.target, ccx=arguments.ccx,
+                                         progress=lambda stage: print(stage, flush=True), **region_options)
+                print(json.dumps({key: report[key] for key in ("verdict", "stop_reason", "quantities")}, indent=2))
+                print(f"Report: {arguments.out / 'report.html'}")
+                return
             summary = solve(arguments.cad, arguments.out, arguments.mesh_size, arguments.cad_scale,
                             arguments.young, arguments.poisson, arguments.load, arguments.ccx,
                             arguments.order, arguments.load_axis, arguments.load_kind, arguments.load_surface, **region_options)

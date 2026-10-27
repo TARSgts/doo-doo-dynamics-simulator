@@ -2,8 +2,20 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import math
+import tempfile
+
 import gmsh
 import numpy as np
+
+from opensim.mesh_import import MESH_SUFFIXES, clean_surface, read_triangles, write_binary_stl
+from opensim.file_formats import CAD_SUFFIXES, SUPPORTED_SUFFIXES
+
+FACE_PATCH_ANGLE_DEG = 40
+
+
+class MeshElementLimitExceeded(ValueError):
+    pass
 
 
 @dataclass
@@ -118,16 +130,25 @@ def make_box(path: Path, dimensions=(1.0, 0.1, 0.1)):
 
 
 def import_and_mesh(path: Path, size: float, scale: float, output: Path, order=1, tip_point=False) -> Mesh:
-    if path.suffix.lower() not in {".step", ".stp", ".iges", ".igs", ".brep"}:
-        raise ValueError("Supported CAD formats: STEP, IGES, BREP")
+    if path.suffix.lower() not in SUPPORTED_SUFFIXES:
+        raise ValueError("Supported CAD formats: STEP, IGES, BREP, STL, OBJ, 3MF")
     if not path.is_file():
         raise FileNotFoundError(path)
     if not np.isfinite(size) or not np.isfinite(scale) or size <= 0 or scale <= 0:
         raise ValueError("Mesh size and CAD scale must be positive and finite")
     if order not in {1, 2}:
         raise ValueError("Element order must be 1 or 2")
-    with gmsh_session():
+    surface_mesh = path.suffix.lower() in MESH_SUFFIXES
+    if surface_mesh and tip_point:
+        raise ValueError("A tip-center point load needs exact CAD (STEP, IGES or BREP). For STL/OBJ/3MF parts, "
+                         "use uniform surface traction on picked faces or the end-face load")
+    if surface_mesh:
+        points, faces = clean_surface(read_triangles(path) * scale, path.name)
+    with gmsh_session(), tempfile.TemporaryDirectory() as scratch:
         gmsh.model.add("solid")
+        if surface_mesh:
+            _rebuild_solid_from_surface(points, faces, Path(scratch) / "surface.stl", size)
+            return _mesh_volume(size, order, output)
         gmsh.model.occ.importShapes(str(path.resolve()))
         gmsh.model.occ.synchronize()
         volumes = gmsh.model.getEntities(3)
@@ -154,37 +175,71 @@ def import_and_mesh(path: Path, size: float, scale: float, output: Path, order=1
             point = gmsh.model.occ.addPoint(*location)
             gmsh.model.occ.synchronize()
             gmsh.model.mesh.embed(0, [point], 2, face)
-        gmsh.option.setNumber("Mesh.MeshSizeMin", size)
-        gmsh.option.setNumber("Mesh.MeshSizeMax", size)
-        gmsh.option.setNumber("Mesh.ElementOrder", order)
-        gmsh.option.setNumber("Mesh.SecondOrderLinear", 1)
-        gmsh.option.setNumber("General.NumThreads", 1)
-        gmsh.model.mesh.generate(3)
-        tags, coordinates, _ = gmsh.model.mesh.getNodes()
-        node_map = {int(tag): index for index, tag in enumerate(tags)}
-        element_types, _, connectivity = gmsh.model.mesh.getElements(3)
-        if list(element_types) != [4 if order == 1 else 11]:
-            raise ValueError("Expected a homogeneous tetrahedral mesh")
-        tetrahedra = np.array([
-            [node_map[int(tag)] for tag in group]
-            for group in connectivity[0].reshape(-1, 4 if order == 1 else 10)
-        ], dtype=int)
-        if order == 2:
-            tetrahedra[:, [8, 9]] = tetrahedra[:, [9, 8]]
-        points = np.asarray(coordinates).reshape(-1, 3)
-        corners = points[tetrahedra[:, :4]]
-        determinants = np.linalg.det(corners[:, 1:] - corners[:, :1])
-        if len(tetrahedra) == 0 or np.any(determinants <= 0):
-            raise ValueError("Mesh contains empty, inverted or degenerate tetrahedra")
-        gmsh.write(str(output.resolve()))
-        surface_groups = {}
-        for _, tag in gmsh.model.getEntities(2):
-            surface_types, _, surface_connectivity = gmsh.model.mesh.getElements(2, tag)
-            faces = []
-            for element_type, records in zip(surface_types, surface_connectivity):
-                width = {2: 3, 9: 6}.get(int(element_type))
-                if width is None:
-                    raise ValueError("Unsupported surface mesh element")
-                faces.extend([[node_map[int(node)] for node in row] for row in records.reshape(-1, width)])
-            surface_groups[str(tag)] = faces
-        return Mesh(points, tetrahedra, surface_groups)
+        return _mesh_volume(size, order, output)
+
+
+def _rebuild_solid_from_surface(points, faces, stl_path: Path, size: float):
+    """Split a closed triangle surface into smooth face patches and close them into one volume.
+
+    Each patch becomes a pickable "face" (edges sharper than FACE_PATCH_ANGLE_DEG separate patches),
+    and the patches are remeshed at the requested size so element quality does not depend on the
+    triangles the exporter happened to write.
+    """
+    write_binary_stl(stl_path, points, faces)
+    gmsh.merge(str(stl_path))
+    try:
+        gmsh.model.mesh.classifySurfaces(math.radians(FACE_PATCH_ANGLE_DEG), True, True, math.pi)
+        gmsh.model.mesh.createGeometry()
+        surfaces = [tag for _, tag in gmsh.model.getEntities(2)]
+        loop = gmsh.model.geo.addSurfaceLoop(surfaces)
+        gmsh.model.geo.addVolume([loop])
+        gmsh.model.geo.synchronize()
+    except Exception as error:
+        raise ValueError(f"Could not rebuild a solid from this surface mesh ({error}). Try repairing or re-exporting it") from error
+    if len(gmsh.model.getEntities(3)) != 1:
+        raise ValueError("The surface mesh did not form exactly one closed solid")
+
+
+def _mesh_volume(size, order, output: Path) -> "Mesh":
+    gmsh.option.setNumber("Mesh.MeshSizeMin", size)
+    gmsh.option.setNumber("Mesh.MeshSizeMax", size)
+    gmsh.option.setNumber("Mesh.ElementOrder", order)
+    gmsh.option.setNumber("Mesh.SecondOrderLinear", 1)
+    gmsh.option.setNumber("General.NumThreads", 1)
+    gmsh.model.mesh.generate(3)
+    tags, coordinates, _ = gmsh.model.mesh.getNodes()
+    node_map = {int(tag): index for index, tag in enumerate(tags)}
+    element_types, _, connectivity = gmsh.model.mesh.getElements(3)
+    if list(element_types) != [4 if order == 1 else 11]:
+        raise ValueError("Expected a homogeneous tetrahedral mesh")
+    tetrahedra = np.array([
+        [node_map[int(tag)] for tag in group]
+        for group in connectivity[0].reshape(-1, 4 if order == 1 else 10)
+    ], dtype=int)
+    if order == 2:
+        tetrahedra[:, [8, 9]] = tetrahedra[:, [9, 8]]
+    points = np.asarray(coordinates).reshape(-1, 3)
+    used = np.unique(tetrahedra)
+    if len(used) != len(points):
+        # Surface-mesh imports can leave nodes from the original triangles that no element uses;
+        # unconnected nodes would make the stiffness matrix singular, so renumber to used nodes only.
+        renumber = np.full(len(points), -1)
+        renumber[used] = np.arange(len(used))
+        points, tetrahedra = points[used], renumber[tetrahedra]
+        node_map = {tag: int(renumber[index]) for tag, index in node_map.items() if renumber[index] >= 0}
+    corners = points[tetrahedra[:, :4]]
+    determinants = np.linalg.det(corners[:, 1:] - corners[:, :1])
+    if len(tetrahedra) == 0 or np.any(determinants <= 0):
+        raise ValueError("Mesh contains empty, inverted or degenerate tetrahedra")
+    gmsh.write(str(output.resolve()))
+    surface_groups = {}
+    for _, tag in gmsh.model.getEntities(2):
+        surface_types, _, surface_connectivity = gmsh.model.mesh.getElements(2, tag)
+        faces = []
+        for element_type, records in zip(surface_types, surface_connectivity):
+            width = {2: 3, 9: 6}.get(int(element_type))
+            if width is None:
+                raise ValueError("Unsupported surface mesh element")
+            faces.extend([[node_map[int(node)] for node in row] for row in records.reshape(-1, width)])
+        surface_groups[str(tag)] = faces
+    return Mesh(points, tetrahedra, surface_groups)

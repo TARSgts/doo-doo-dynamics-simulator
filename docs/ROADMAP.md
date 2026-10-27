@@ -30,7 +30,7 @@ Add a versioned project schema; persistent named face groups; pressure-in-Pa inp
 
 ## Stage 3 — accuracy and usability
 
-Quadratic tetrahedra, element-quality reports, local refinement and convergence automation. Desktop workspace with geometry, mesh, boundary conditions, solve status and result selection. Job cancellation and resource limits. Portable CI on supported solver builds and validated Windows/Linux installation paths. Add schema migration tests and reproducible reference cases.
+Quadratic tetrahedra and convergence automation are implemented (global-refinement convergence study with Richardson extrapolation/GCI); element-quality reports and local refinement remain. Desktop workspace with geometry, mesh, boundary conditions, solve status and result selection. Job cancellation is implemented (desktop Stop computing and MCP `cancel_job`); resource limits remain. Portable CI on supported solver builds and validated Windows/Linux installation paths. Add schema migration tests and reproducible reference cases.
 
 ## Stage 4 — more physics
 

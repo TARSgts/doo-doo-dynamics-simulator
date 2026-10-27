@@ -14,18 +14,25 @@ from opensim.region_settings import validate_region
 from opensim.job_progress import STAGE_LABELS
 
 
+ACTIVE_STATUSES = ("queued", "running")
+TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+CANCEL_MESSAGE = "Stopped by user before it finished; partial files are kept in the job folder"
 DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
                       "poisson": 0.3, "load_N": 1000.0, "element_order": 1,
                       "load_axis": "x", "load_kind": "face", "load_surface": "x-max", "density_kg_m3": 7850.0, "mode_count": 6,
-                      "support_region": {}, "load_region": {}}
+                      "support_region": {}, "load_region": {},
+                      "convergence_levels": 4, "convergence_ratio": 1.4, "convergence_tolerance_percent": 2.0,
+                      "convergence_target": "displacement"}
+TEXT_PARAMETERS = {"load_axis", "load_kind", "load_surface", "support_region", "load_region", "convergence_target"}
 CAPABILITIES = [
-    {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP"},
+    {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP; closed STL, OBJ or 3MF surface meshes"},
     {"name": "Tetrahedral meshing", "enabled": True, "detail": "Gmsh C3D4 or quadratic C3D10"},
     {"name": "Static structural", "enabled": True, "detail": "X-min clamp; point, legacy equal-node end load, or uniform vector traction on a bounding-plane patch"},
     {"name": "Displacement results", "enabled": True, "detail": "Rotatable displacement contour"},
     {"name": "Stress results", "enabled": True, "detail": "Recovered nodal von Mises, MPa display; support-edge peaks may be singular"},
     {"name": "Surface regions", "enabled": True, "detail": "CAD face IDs and optional centroid-box filtering; fully fixed support or global vector traction"},
     {"name": "MCP automation", "enabled": True, "detail": "Local stdio tools and shared workspace"},
+    {"name": "Convergence study", "enabled": True, "detail": "Static solve on 3–6 successively finer meshes; change, verdict, Richardson extrapolation and GCI per quantity"},
     {"name": "Modal analysis", "enabled": True, "detail": "Undamped unprestressed modes; X-min face fixed; positive density"},
     *[{"name": name, "enabled": False, "detail": "Planned — not implemented"} for name in
       ("Thermal analysis", "Transient dynamics", "Fluid dynamics",
@@ -105,8 +112,9 @@ class Workspace:
     def import_cad(self, project_id: str, source: str) -> dict:
         self.get_project(project_id)
         path = Path(source).expanduser().resolve()
-        if path.suffix.lower() not in {".step", ".stp", ".iges", ".igs", ".brep"}:
-            raise ValueError("Choose STEP, IGES or BREP CAD")
+        from opensim.file_formats import SUPPORTED_SUFFIXES
+        if path.suffix.lower() not in SUPPORTED_SUFFIXES:
+            raise ValueError("Choose a STEP, IGES, BREP, STL, OBJ or 3MF file")
         if not path.is_file():
             raise FileNotFoundError(path)
         with self.connect() as connection:
@@ -127,7 +135,7 @@ class Workspace:
         if set(parameters) - set(DEFAULT_PARAMETERS):
             raise ValueError("Unsupported analysis parameter")
         merged = project["parameters"] | parameters
-        numeric = [value for key, value in merged.items() if key not in {"load_axis", "load_kind", "load_surface", "support_region", "load_region"}]
+        numeric = [value for key, value in merged.items() if key not in TEXT_PARAMETERS]
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
                for value in numeric):
             raise ValueError("All parameters must be finite numbers")
@@ -140,6 +148,13 @@ class Workspace:
             raise ValueError("Mesh size, CAD scale and Young's modulus must be positive")
         from opensim.modal_parameters import validate_modal_parameters
         validate_modal_parameters(merged["density_kg_m3"], merged["mode_count"])
+        from opensim.convergence import validate_convergence_parameters
+        if isinstance(merged["convergence_levels"], float) and merged["convergence_levels"].is_integer():
+            merged["convergence_levels"] = int(merged["convergence_levels"])
+            if "convergence_levels" in parameters:
+                parameters["convergence_levels"] = merged["convergence_levels"]
+        validate_convergence_parameters(merged["convergence_levels"], merged["convergence_ratio"],
+                                        merged["convergence_tolerance_percent"], merged["convergence_target"])
         validate_region(merged["support_region"])
         validate_region(merged["load_region"])
         if merged["load_region"] and merged["load_kind"] != "traction":
@@ -158,7 +173,7 @@ class Workspace:
         return self.get_project(project_id)
 
     def start_job(self, project_id: str, kind: str, example="perforated_plate") -> dict:
-        if kind not in {"example", "mesh", "solve", "modal"}:
+        if kind not in {"example", "mesh", "solve", "modal", "convergence"}:
             raise ValueError("Unsupported job kind")
         if example not in {"perforated_plate", "axial_bar", "cantilever_beam"}:
             raise ValueError("Unsupported test object")
@@ -209,7 +224,7 @@ class Workspace:
         if row is None:
             raise ValueError("Unknown job")
         job = dict(row)
-        if job["status"] in {"completed", "failed"}:
+        if job["status"] in TERMINAL_STATUSES:
             job["progress_stage"] = job["status"]
         elif not job["progress_stage"]:
             job["progress_stage"] = "queued" if job["status"] == "queued" else "starting"
@@ -228,15 +243,34 @@ class Workspace:
 
     def finish_job(self, job_id: str, result: dict | None = None, error: str | None = None):
         with self.connect() as connection:
-            connection.execute("UPDATE jobs SET status=?,result=?,error=?,updated=? WHERE id=?",
-                               ("failed" if error else "completed", json.dumps(result) if result else None,
-                                error, time.time(), job_id))
+            # A stopped job stays stopped even if its worker reports late.
+            updated = connection.execute("UPDATE jobs SET status=?,result=?,error=?,updated=? WHERE id=? AND status IN ('queued','running')",
+                                         ("failed" if error else "completed", json.dumps(result) if result else None,
+                                          error, time.time(), job_id)).rowcount
+            if not updated:
+                return
             connection.execute("INSERT INTO job_progress VALUES(?,?,?) ON CONFLICT(job_id) DO UPDATE SET stage=excluded.stage,updated=excluded.updated",
                                (job_id, "failed" if error else "completed", time.time()))
 
+    def cancel_job(self, job_id: str) -> dict:
+        """Stop a queued or running job. Its worker notices within a second and ends any solver process."""
+        self.get_job(job_id)
+        with self.connect() as connection:
+            now = time.time()
+            updated = connection.execute("UPDATE jobs SET status='cancelled',error=?,updated=? WHERE id=? AND status IN ('queued','running')",
+                                         (CANCEL_MESSAGE, now, job_id)).rowcount
+            if not updated:
+                raise ValueError("This job has already finished; only queued or running jobs can be stopped")
+            connection.execute("INSERT INTO job_progress VALUES(?,?,?) ON CONFLICT(job_id) DO UPDATE SET stage=excluded.stage,updated=excluded.updated",
+                               (job_id, "cancelled", now))
+        return self.get_job(job_id)
+
+    def active_job(self, project_id: str) -> dict | None:
+        return next((job for job in self.list_jobs(project_id) if job["status"] in ACTIVE_STATUSES), None)
+
     def set_job_progress(self, job_id: str, stage: str):
-        if stage not in STAGE_LABELS or stage in {"completed", "failed"}:
-            raise ValueError("Choose a running job stage; completion is recorded by finish_job")
+        if stage not in STAGE_LABELS or stage in TERMINAL_STATUSES:
+            raise ValueError("Choose a running job stage; completion is recorded by finish_job or cancel_job")
         self.get_job(job_id)
         with self.connect() as connection:
             now = time.time()
@@ -271,6 +305,17 @@ class Workspace:
                         "artifacts": {name: str(self.job_directory(job["id"]) / "solve" / name)
                                       for name in ("results.html", "results.vtk", "model.frd", "manifest.json")}}
         raise ValueError("No completed solve for the current project inputs")
+
+    def get_convergence_results(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        for job in self.list_jobs(project_id):
+            if job["revision"] == project["revision"] and job["kind"] == "convergence" and job["status"] == "completed":
+                directory = self.job_directory(job["id"]) / "convergence"
+                return {"job_id": job["id"], "summary": job["result"],
+                        "artifacts": {name: str(directory / name) for name in ("report.html", "convergence.json", "convergence.csv")},
+                        "meshes": [{"mesh": level["level"], "tetrahedra": level["tetrahedra"], "viewer": str(directory / level["viewer"])}
+                                   for level in job["result"]["levels"]]}
+        raise ValueError("No completed convergence study for the current project inputs")
 
     def get_modal_results(self, project_id: str) -> dict:
         project = self.get_project(project_id)

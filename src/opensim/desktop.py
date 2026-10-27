@@ -141,6 +141,9 @@ class SimulatorWindow(QMainWindow):
         self.language = None
         self.presentation_text = {}
         self.analysis_buttons = []
+        self.stop_buttons = []
+        self.opened_at = time.time()
+        self.shown_convergence = set()
         self.reference_dialogs = {}
         self.face_pick_session = None
         self.selection_preview = None
@@ -176,8 +179,11 @@ class SimulatorWindow(QMainWindow):
         self.job_progress.setValue(0)
         self.job_progress.setTextVisible(False)
         progress_row.addWidget(self.job_progress)
-        self.progress_panel.setMinimumWidth(290)
-        self.progress_panel.setMaximumWidth(430)
+        self.stop_button = self.make_stop_button()
+        self.stop_button.setObjectName("StopComputing")
+        progress_row.addWidget(self.stop_button)
+        self.progress_panel.setMinimumWidth(400)
+        self.progress_panel.setMaximumWidth(560)
         self.statusBar().addPermanentWidget(self.progress_panel, 1)
         self.units_label = QLabel("SI units  ·  CalculiX 2.23  ·  Local MCP workspace")
         self.statusBar().addPermanentWidget(self.units_label)
@@ -232,6 +238,15 @@ class SimulatorWindow(QMainWindow):
             "Single-solid linear static and modal prototype. Grey controls are planned and unavailable.\n"
             "Built with Gmsh, CalculiX and Qt for Python. Independent of Ansys."))
 
+    def make_stop_button(self):
+        button = QPushButton("Stop computing")
+        button.setAccessibleName("Stop the running simulation job")
+        button.setToolTip(BUTTON_HELP["Stop computing"])
+        button.setEnabled(False)
+        button.clicked.connect(lambda checked=False: self.safe(self.stop_computing))
+        self.stop_buttons.append(button)
+        return button
+
     def ribbon_button(self, layout, title, description, handler=None):
         button = QToolButton()
         button.setText(title)
@@ -241,7 +256,7 @@ class SimulatorWindow(QMainWindow):
         if handler:
             button.setToolTip(BUTTON_HELP[title])
             button.clicked.connect(lambda checked=False: self.safe(handler))
-            if handler in (self.mesh, self.solve, self.modal, self.import_cad) or title in {"Pick fixed support", "Pick force faces"}:
+            if handler in (self.mesh, self.solve, self.modal, self.convergence, self.import_cad) or title in {"Pick fixed support", "Pick force faces"}:
                 self.analysis_buttons.append(button)
         else:
             button.setEnabled(False)
@@ -274,7 +289,7 @@ class SimulatorWindow(QMainWindow):
         self.ribbon.setObjectName("CommandRibbon")
         self.ribbon.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         groups = {
-            "Home": [("New project", "Workspace", self.new_project), ("Import CAD", "STEP / IGES / BREP", self.import_cad),
+            "Home": [("New project", "Workspace", self.new_project), ("Import CAD", "STEP / STL / OBJ / 3MF", self.import_cad),
                      ("Generate mesh", "Gmsh tetrahedra", self.mesh),
                      ("Solve", "Static structural", self.solve), ("Results", "Displacement", lambda: self.change_view("results"))],
             "Geometry": [("Import CAD", "One closed solid", self.import_cad),
@@ -285,8 +300,10 @@ class SimulatorWindow(QMainWindow):
                             ("Pick fixed support", "Click model faces", lambda: self.begin_face_picking("support")),
                             ("Pick force faces", "Click model faces", lambda: self.begin_face_picking("load")), ("Contact", "Planned", None)],
             "Solution": [("Solve", "CalculiX static", self.solve), ("Displacement", "Current result", lambda: self.change_view("results")),
-                         ("Stress contours", "Recovered von Mises", self.show_stress), ("Modal", "Natural frequencies", self.modal), ("Thermal", "Planned", None)],
-            "Automation": [("MCP status", "16 local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
+                         ("Stress contours", "Recovered von Mises", self.show_stress), ("Convergence", "Mesh refinement study", self.convergence),
+                         ("Convergence report", "Latest study", self.show_convergence_report),
+                         ("Modal", "Natural frequencies", self.modal), ("Thermal", "Planned", None)],
+            "Automation": [("MCP status", "19 local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
                            ("Remote access", "Planned", None)],
             "Examples": [("Test plate", "100 × 40 × 5 mm", self.create_demo),
                          ("Cantilever", "1 m tip-loaded beam", self.create_beam)],
@@ -462,13 +479,34 @@ class SimulatorWindow(QMainWindow):
         mode_count.valueChanged.connect(self.mark_dirty)
         self.fields["mode_count"] = mode_count
         form.addRow("Requested modes", mode_count)
+        levels = ScrollSafeSpinBox()
+        levels.setRange(3, 6)
+        levels.setValue(4)
+        levels.setAccessibleName("Convergence meshes")
+        for key, label, control in (("convergence_levels", "Convergence meshes", levels),
+                                    ("convergence_ratio", "Refinement ratio", ScrollSafeDoubleSpinBox()),
+                                    ("convergence_tolerance_percent", "Converged below (%)", ScrollSafeDoubleSpinBox())):
+            if isinstance(control, QDoubleSpinBox):
+                control.setRange(*((1.15, 2.5) if key == "convergence_ratio" else (0.01, 50)))
+                control.setDecimals(2)
+                control.setSingleStep(0.05 if key == "convergence_ratio" else 0.5)
+                control.setValue(1.4 if key == "convergence_ratio" else 2.0)
+                control.setKeyboardTracking(False)
+                control.setAccessibleName(label)
+            control.setMinimumWidth(100)
+            control.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            control.valueChanged.connect(self.mark_dirty)
+            self.fields[key] = control
+            form.addRow(label, control)
         self.selectors = {}
         for key, label, options in (
             ("element_order", "Elements", [("Linear · C3D4", 1), ("Quadratic · C3D10", 2)]),
             ("load_axis", "Force direction", [("X · axial", "x"), ("Y · transverse", "y"), ("Z · transverse", "z"),
                                                ("Perpendicular · inward", "normal-in"), ("Perpendicular · outward", "normal-out")]),
             ("load_kind", "Force application", [("End face · equal nodes", "face"), ("Tip center · point", "point"), ("Uniform surface traction", "traction")]),
-            ("load_surface", "Traction surface", [(f"{axis.upper()}-{side}", f"{axis}-{side}") for axis in "xyz" for side in ("min", "max")])):
+            ("load_surface", "Traction surface", [(f"{axis.upper()}-{side}", f"{axis}-{side}") for axis in "xyz" for side in ("min", "max")]),
+            ("convergence_target", "Convergence target", [("Max displacement", "displacement"), ("Loaded-area displacement", "response"),
+                                                           ("Max von Mises stress", "stress")])):
             selector = QComboBox()
             selector.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             selector.setMinimumContentsLength(10)
@@ -540,12 +578,14 @@ class SimulatorWindow(QMainWindow):
         contents = QWidget()
         layout = QVBoxLayout(contents)
         layout.addWidget(QLabel("AVAILABLE NOW"))
-        for label, callback in (("Static Structural", self.solve), ("Modal analysis", self.modal), ("Generate Mesh", self.mesh), ("MCP Controls", self.show_mcp)):
+        for label, callback in (("Static Structural", self.solve), ("Convergence study", self.convergence), ("Modal analysis", self.modal),
+                                ("Generate Mesh", self.mesh), ("MCP Controls", self.show_mcp)):
             button = QPushButton(label)
             button.clicked.connect(lambda checked=False, handler=callback: self.safe(handler))
             layout.addWidget(button)
-            if callback in (self.solve, self.modal, self.mesh):
+            if callback in (self.solve, self.modal, self.mesh, self.convergence):
                 self.analysis_buttons.append(button)
+        layout.addWidget(self.make_stop_button())
         heading = QLabel("PLANNED FEATURES")
         heading.setStyleSheet("margin-top:18px;color:#8390a2")
         layout.addWidget(heading)
@@ -677,9 +717,18 @@ class SimulatorWindow(QMainWindow):
 
     def import_cad(self):
         project_id = self.require_project()
-        path, _ = QFileDialog.getOpenFileName(self, "Import a single CAD solid", "", "CAD (*.step *.stp *.iges *.igs *.brep)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import a single solid", "",
+            "All supported (*.step *.stp *.iges *.igs *.brep *.stl *.obj *.3mf);;"
+            "Exact CAD (*.step *.stp *.iges *.igs *.brep);;Mesh files (*.stl *.obj *.3mf)")
         if path:
-            self.workspace.import_cad(project_id, path)
+            project = self.workspace.import_cad(project_id, path)
+            if Path(path).suffix.lower() in {".stl", ".obj", ".3mf"} and project["parameters"]["cad_scale"] == 1:
+                # STL/OBJ default to mm; 3MF's declared units are normalized to mm by the reader.
+                self.workspace.set_parameters(project_id, {"cad_scale": 0.001})
+                self.project_revision = None
+                self.details_note.setText("Mesh file imported: CAD scale set to 0.001 (millimeters). "
+                                          "Change it to 1 if the file is in meters, then mesh again.")
             self.workspace.show_project(project_id, "geometry")
             self.workspace.start_job(project_id, "mesh")
             self.dirty = False
@@ -728,6 +777,61 @@ class SimulatorWindow(QMainWindow):
         self.save_parameters()
         self.workspace.start_job(self.require_project(), "modal")
         self.workspace.show_project(self.project_id, "modal")
+
+    def stop_computing(self, confirm=True):
+        job = self.workspace.active_job(self.require_project())
+        if job is None:
+            raise ValueError("Nothing is computing for this project")
+        if confirm:
+            answer = QMessageBox.question(
+                self, "Stop computing",
+                f"Stop this {job['kind']} job?\n\nThe solver is ended right away and this run produces no results. "
+                "Your settings stay as they are, so you can change them and start again.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self.workspace.cancel_job(job["id"])
+        self.status_label.setText(f"Stopped {job['kind']} job {job['id'][:8]}")
+
+    def convergence(self):
+        self.save_parameters()
+        self.workspace.start_job(self.require_project(), "convergence")
+        self.status_label.setText("Convergence study started: each mesh is finer than the last. Stop computing ends it early.")
+
+    def show_convergence_report(self, results=None):
+        results = results or self.workspace.get_convergence_results(self.require_project())
+        key = ("convergence", results["job_id"])
+        url = QUrl.fromLocalFile(results["artifacts"]["report.html"])
+        url.setQuery("theme=" + (self.theme or "dark"))
+        if key in self.reference_dialogs:
+            dialog = self.reference_dialogs[key]
+            dialog.findChild(QWebEngineView, "ConvergenceReport").setUrl(url)
+            dialog.show()
+            dialog.raise_()
+            return dialog
+        summary = results["summary"]
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Mesh convergence study")
+        dialog.setMinimumSize(640, 420)
+        dialog.resize(min(1250, self.width()), min(900, self.height()))
+        layout = QVBoxLayout(dialog)
+        note = QLabel(f"{len(summary['levels'])} meshes · {summary['levels'][0]['tetrahedra']:,} → {summary['levels'][-1]['tetrahedra']:,} elements · "
+                      "Click “open” in the table to inspect any mesh's result.")
+        note.setObjectName("ReferenceNotice")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        view = QWebEngineView(dialog)
+        view.setObjectName("ConvergenceReport")
+        view.setAccessibleName("Convergence study report")
+        view.setUrl(url)
+        layout.addWidget(view, 1)
+        close = QPushButton("Back to model")
+        close.setToolTip(BUTTON_HELP["Back to model"])
+        close.clicked.connect(dialog.close)
+        layout.addWidget(close)
+        self.reference_dialogs[key] = dialog
+        dialog.show()
+        return dialog
 
     def show_stress(self):
         result = self.workspace.get_results(self.require_project())
@@ -1066,6 +1170,14 @@ class SimulatorWindow(QMainWindow):
                 del blocker
             self.project_revision = project["revision"]
         active = next((job for job in jobs if job["status"] in {"queued", "running"}), None)
+        for job in jobs:
+            if (job["kind"] == "convergence" and job["status"] == "completed" and job["id"] not in self.shown_convergence
+                    and job["updated"] >= self.opened_at and project and job["revision"] == project["revision"]):
+                self.shown_convergence.add(job["id"])  # open each finished study once, only if it finished while the app was open
+                try:
+                    self.show_convergence_report()
+                except ValueError:
+                    pass
         self.sync_force_direction()
         matching = next((job for job in jobs if project and job["revision"] == project["revision"]), None)
         self.update_job_progress(active or matching)
@@ -1083,6 +1195,8 @@ class SimulatorWindow(QMainWindow):
             self.selectors["load_surface"].setEnabled(False)
         for button in self.analysis_buttons:
             button.setEnabled(bool(project) and not active)
+        for button in self.stop_buttons:
+            button.setEnabled(bool(active))
         if project:
             self.status_label.setText(f"{project['name']}  |  " + (f"{active['kind'].title()} {active['status']}…" if active else "Ready"))
             modal_result = None
@@ -1141,6 +1255,10 @@ class SimulatorWindow(QMainWindow):
                         output.append(f"  Maximum displacement: {result['maximum_displacement_m'] * 1000:.6g} mm  |  "
                                       f"{reaction}  |  "
                                       f"Force imbalance: {result['relative_force_imbalance']:.2e}")
+                    elif result.get("analysis") == "convergence":
+                        target = result["quantities"][result["target"]]
+                        output.append(f"  Convergence study ({result['target']}): {target['verdict']} · {len(result['levels'])} meshes · "
+                                      f"last change {target['last_change'] * 100:.3g}% · open Solution → Convergence report")
                     elif result.get("analysis") == "modal":
                         output.append("  Frequencies (Hz): " + ", ".join(f"{frequency:.6g}" for frequency in result["frequencies_Hz"]))
             text = "\n".join(output) or "No jobs yet. Import CAD or create a test plate."
@@ -1203,6 +1321,7 @@ class SimulatorWindow(QMainWindow):
         self.progress_label.setText(f"{label} · {elapsed}")
         self.progress_label.setToolTip(f"{job['kind'].title()} · {job['id']}\n{label} · elapsed {elapsed}")
         self.units_label.setVisible(not active)
+        self.stop_button.setVisible(active)
         self.job_progress.setTextVisible(not active)
         if active:
             self.job_progress.setRange(0, 0)
@@ -1210,7 +1329,7 @@ class SimulatorWindow(QMainWindow):
         else:
             self.job_progress.setRange(0, 100)
             self.job_progress.setValue(100 if job["status"] == "completed" else 0)
-            self.job_progress.setFormat("Complete" if job["status"] == "completed" else "Failed")
+            self.job_progress.setFormat({"completed": "Complete", "cancelled": "Stopped"}.get(job["status"], "Failed"))
             self.job_progress.setToolTip(label)
 
 

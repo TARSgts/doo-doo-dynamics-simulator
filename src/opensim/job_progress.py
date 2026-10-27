@@ -9,7 +9,14 @@ STAGE_LABELS = {
     "exporting": "Saving results",
     "completed": "Completed",
     "failed": "Failed — see job log",
+    "cancelled": "Stopped by user",
 }
+
+CONVERGENCE_STEPS = ("meshing", "preparing", "solving", "reading", "exporting")
+for _total in range(2, 9):
+    for _number in range(1, _total + 1):
+        for _step in CONVERGENCE_STEPS:
+            STAGE_LABELS[f"convergence-{_number}-{_total}-{_step}"] = f"Mesh {_number} of {_total} · {STAGE_LABELS[_step]}"
 
 
 def elapsed_label(seconds):

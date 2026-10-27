@@ -11,6 +11,10 @@ FIELD_HELP = {
     "element_order": "Choose simple 4-node or curved 10-node solid elements. Quadratic elements usually capture bending better at extra cost.",
     "load_axis": "Choose X/Y/Z, or Perpendicular inward/outward to follow each selected surface's local normal. Positive force follows the chosen direction; negative reverses it. Perpendicular uses distributed surface loading.",
     "load_kind": "Choose a concentrated tip force, equal forces at end-face nodes, or a force spread uniformly over a surface.",
+    "convergence_levels": "Most meshes the convergence study solves. Each one is finer than the last, so later meshes take much longer.",
+    "convergence_ratio": "How much smaller the elements get each step. 1.4 roughly triples the element count per mesh; 2 makes it about 8 times.",
+    "convergence_tolerance_percent": "The study stops early once the target value changes less than this percent between the last two meshes.",
+    "convergence_target": "The value that decides when the mesh is fine enough. Displacement converges reliably; peak stress may not near sharp corners or fixed edges.",
     "load_surface": "For uniform traction, choose a bounding plane such as X-max. A custom load region overrides this choice.",
 }
 
@@ -21,7 +25,7 @@ BUTTON_HELP = {
     "Clear current faces": "Clear the current draft selection so you can choose different faces. Saved settings remain unchanged until you save.",
     "Cancel picking": "Discard picked faces and return to normal viewing without changing saved regions.",
     "New project": "Create a separate simulation project in the local workspace.",
-    "Import CAD": "Import one closed STEP, IGES or BREP solid into this project and start meshing it.",
+    "Import CAD": "Import one solid: exact CAD (STEP, IGES, BREP) or a closed mesh (STL, OBJ, 3MF). STL/OBJ default to mm; 3MF units are converted to mm. Use CAD scale 0.001 for mesh imports unless overriding the unitless file scale.",
     "Test plate": "Create a new project with a built-in perforated plate and generate its mesh.",
     "Generate mesh": "Save the settings and divide the solid into small elements for the solver.",
     "Solve": "Save the settings and calculate deformation and stress under the applied force and fixed supports.",
@@ -48,5 +52,9 @@ BUTTON_HELP = {
     "Modal analysis": "Calculate natural vibration frequencies and shapes. Requires density and supports; applied forces are ignored.",
     "Generate Mesh": "Save the settings and divide the solid into solver elements.",
     "MCP Controls": "Show how to connect an AI assistant to this local simulator.",
+    "Stop computing": "Stop the mesh or solve that is running now. CalculiX is ended right away, nothing is saved as a result, and your settings stay unchanged.",
+    "Convergence": "Solve the static model on finer and finer meshes to check that the answer no longer depends on mesh size. Starts at your mesh size.",
+    "Convergence study": "Solve the static model on finer and finer meshes to check that the answer no longer depends on mesh size. Starts at your mesh size.",
+    "Convergence report": "Show the latest convergence study for the current settings: values per mesh, charts, verdicts and an extrapolated estimate.",
     "Back to model": "Close this reference report and return to your model.",
 }
