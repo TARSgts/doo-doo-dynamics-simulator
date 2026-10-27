@@ -94,6 +94,8 @@ Typical sequence: create project → set parameters → create/import CAD → wa
 
 ## Verified behavior
 
+**Result plots.** Each study has a Result plots entry, plus a settings-panel button and Solution ribbon command. Static plots show nodal displacement/stress versus position and histograms; modal plots show frequencies and normalized shapes; convergence plots show saved values against element count. Charts support pan/zoom, dark/light backgrounds, PNG/SVG export and full-data CSV with run/unit metadata. See [plot usage, interpretation and checks](RESULT_PLOTS.md).
+
 **Study-specific settings.** Open projects contain Static Structural, Modal Analysis and Convergence Study branches. Clicking a study changes the lower settings panel and its Run button. Modal shows density/modes and support-only selection; static shows force controls; convergence adds refinement controls. Hidden values persist. Shared geometry/material/support scope and tests are documented in [study panels](STUDY_PANELS.md).
 
 **Project navigation.** The outline contains only open projects. **Open project…** (Ctrl+O) searches the saved library; closing a project (Ctrl+W) retains all files and jobs. File and right-click menus provide Rename (F2), Close other projects, File locations, and folder shortcuts. The file-locations dialog shows the model copy, recorded import source, run folders and library database, with copy/open buttons. Open projects persist, including an empty session. See [project navigation and checks](PROJECT_NAVIGATION.md).

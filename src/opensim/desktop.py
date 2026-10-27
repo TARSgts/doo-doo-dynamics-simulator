@@ -154,6 +154,8 @@ class SimulatorWindow(QMainWindow):
         self.shown_convergence = set()
         self.reference_dialogs = {}
         self.file_dialogs = []
+        self.plot_dialogs = {}
+        self.result_plot_buttons = []
         self.face_pick_session = None
         self.panel_context = None
         self.selection_preview = None
@@ -286,6 +288,8 @@ class SimulatorWindow(QMainWindow):
         layout.addWidget(button)
         if title == "Pick force faces":
             self.force_pick_buttons.append(button)
+        if title == "Result plots":
+            self.result_plot_buttons.append(button)
         return button
 
     def install_hover_help(self):
@@ -325,6 +329,7 @@ class SimulatorWindow(QMainWindow):
                             ("Pick fixed support", "Click model faces", lambda: self.begin_face_picking("support")),
                             ("Pick force faces", "Click model faces", lambda: self.begin_face_picking("load")), ("Contact", "Planned", None)],
             "Solution": [("Solve", "CalculiX static", self.solve), ("Displacement", "Current result", lambda: self.change_view("results")),
+                         ("Result plots", "Charts and CSV export", self.show_plots),
                          ("Stress contours", "Recovered von Mises", self.show_stress), ("Convergence", "Mesh refinement study", self.convergence),
                          ("Convergence report", "Latest study", self.show_convergence_report),
                          ("Modal", "Natural frequencies", self.modal), ("Thermal", "Planned", None)],
@@ -493,6 +498,11 @@ class SimulatorWindow(QMainWindow):
         self.run_study_button.clicked.connect(lambda checked=False: self.safe(self.run_selected_study))
         self.analysis_buttons.append(self.run_study_button)
         layout.addWidget(self.run_study_button)
+        self.plots_button = QPushButton("Result plots…")
+        self.plots_button.setToolTip(BUTTON_HELP["Result plots"])
+        self.plots_button.clicked.connect(lambda checked=False: self.safe(self.show_plots))
+        self.result_plot_buttons.append(self.plots_button)
+        layout.addWidget(self.plots_button)
         form = QFormLayout()
         self.properties_form = form
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
@@ -922,6 +932,25 @@ class SimulatorWindow(QMainWindow):
     def run_selected_study(self):
         {"static": self.solve, "modal": self.modal, "convergence": self.convergence}[self.workspace.ui_state()["study"]]()
 
+    def show_plots(self):
+        if self.dirty:
+            raise ValueError("Apply settings and solve this study before plotting edited inputs")
+        from opensim.plots import load_plot_source
+        try:
+            from opensim.plot_dialog import PlotDialog
+        except ImportError as error:
+            raise ValueError("Install the desktop plotting dependencies to use result plots") from error
+        source = load_plot_source(self.workspace, self.require_project())
+        dialog = self.plot_dialogs.get(source.job_id)
+        if dialog is None:
+            dialog = PlotDialog(self.workspace, source, self.theme == "dark", self)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            self.plot_dialogs[source.job_id] = dialog
+            dialog.finished.connect(lambda code, key=source.job_id: self.plot_dialogs.pop(key, None))
+        dialog.show()
+        dialog.raise_()
+        return dialog
+
     def save_parameters(self):
         parameters = {key: field.value() for key, field in self.fields.items()}
         parameters["mesh_size_m"] /= 1000
@@ -1199,6 +1228,7 @@ class SimulatorWindow(QMainWindow):
                 node(branch, "Static force / " + force, study=study)
                 node(branch, "Mesh refinement settings", study=study)
                 solution = node(branch, "Convergence report", study=study, action="convergence-report")
+            node(branch, "Result plots", study=study, action="plots")
             active = project_id == state["project_id"] and study == state["study"]
             branch.setExpanded(active)
             if active:
@@ -1217,9 +1247,12 @@ class SimulatorWindow(QMainWindow):
             if study:
                 self.workspace.select_study(data[0], study)
             self.workspace.show_project(*data)
-            if item.data(0, Qt.ItemDataRole.UserRole + 2) == "convergence-report":
-                self.safe(self.show_convergence_report)
+            action = item.data(0, Qt.ItemDataRole.UserRole + 2)
             self.refresh()
+            if action == "convergence-report":
+                self.safe(self.show_convergence_report)
+            elif action == "plots":
+                self.safe(self.show_plots)
 
     def show_mcp(self):
         QMessageBox.information(self, "Local MCP automation",
@@ -1392,6 +1425,10 @@ class SimulatorWindow(QMainWindow):
         matching = next((job for job in jobs if project and job["revision"] == project["revision"]), None)
         self.update_job_progress(active or matching)
         self.apply_button.setEnabled(bool(project) and not active)
+        plot_kind = {"static": "solve", "modal": "modal", "convergence": "convergence"}[state["study"]]
+        can_plot = bool(project) and not self.dirty and any(job["kind"] == plot_kind and job["status"] == "completed" and job["revision"] == project["revision"] for job in jobs)
+        for button in self.result_plot_buttons:
+            button.setEnabled(can_plot)
         self.close_project_button.setEnabled(bool(project))
         for action in self.project_actions:
             action.setEnabled(bool(project))

@@ -28,6 +28,7 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 ## Working now
 
+- Plot static displacement/stress, modal frequencies/shapes and mesh-convergence results, with PNG/SVG figures and CSV export. See [result plots](docs/RESULT_PLOTS.md).
 - Study branches for static, modal and convergence analysis, with a lower settings panel that follows the selected study. See [study panels](docs/STUDY_PANELS.md).
 - Open only the projects you need, search the saved library, rename projects and locate their model/run files from the desktop. See [project navigation](docs/PROJECT_NAVIGATION.md).
 - Import one closed STEP, IGES or BREP solid using Gmsh's OpenCASCADE kernel, or a watertight STL, OBJ or 3MF mesh (rebuilt into a solid with pickable face patches).

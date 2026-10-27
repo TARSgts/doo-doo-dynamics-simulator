@@ -2,6 +2,7 @@ import re
 
 
 PHRASES = {
+    "Result plots": "Science squiggles",
     "Run static study": "Do sit-still science", "Run modal study": "Find da wiggles", "Run convergence study": "Do triangle taste test",
     "DETAILS OF CONVERGENCE STUDY": "DETAILS OF TRIANGLE TASTE TEST",
     "Open project": "Open cardboard box", "Close project": "Put box away", "Rename project": "Rename da box",

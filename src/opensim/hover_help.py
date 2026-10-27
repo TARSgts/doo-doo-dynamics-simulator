@@ -19,6 +19,8 @@ FIELD_HELP = {
 }
 
 BUTTON_HELP = {
+    "Result plots": "Plot saved results for the selected study: displacement/stress, natural frequencies/mode shapes, or mesh convergence. Save PNG/SVG figures and CSV data.",
+    "Result plots…": "Plot saved results for the selected study, with figure and CSV export.",
     "Open project": "Search saved projects and open only the ones you want in the outline.",
     "Rename project": "Change the project's name without moving or deleting its model and results.",
     "Close project": "Save unapplied settings and remove this project from the outline. Reopen it from Open project; its files and running jobs are kept.",
