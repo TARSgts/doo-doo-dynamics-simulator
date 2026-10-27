@@ -23,7 +23,7 @@ from opensim.job_progress import STAGE_LABELS, elapsed_label
 from opensim.hover_help import FIELD_HELP, BUTTON_HELP
 from opensim.load_settings import NORMAL_AXES
 from opensim.project_dialogs import FileLocationsDialog, ProjectLibraryDialog, ask_project_name, open_folder
-from opensim.discord_presence import DEFAULT_APPLICATION_ID, DiscordPresence, activity_for, presence_settings
+from opensim.discord_presence import DiscordPresence, activity_for, load_presence_preferences
 
 
 STYLE = """
@@ -153,10 +153,8 @@ class SimulatorWindow(QMainWindow):
         self.stop_buttons = []
         self.opened_at = time.time()
         self.discord = DiscordPresence(self)
-        settings = presence_settings()
         try:
-            self.discord.configure(settings.value("discord/enabled", False, type=bool),
-                                   settings.value("discord/application_id", DEFAULT_APPLICATION_ID, type=str))
+            self.discord.configure(*load_presence_preferences())
         except ValueError:
             self.discord._status("Invalid Application ID — open Discord Rich Presence settings")
         QApplication.instance().aboutToQuit.connect(self.discord.stop)

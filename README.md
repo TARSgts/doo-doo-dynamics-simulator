@@ -28,7 +28,7 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 ## Working now
 
-- Optional [Discord Rich Presence](docs/DISCORD_PRESENCE.md) for basic simulator activity, with an on/off switch and no project names or file paths.
+- Automatic [Discord Rich Presence](docs/DISCORD_PRESENCE.md) on fresh installs using the shared simulator identity, with an on/off switch and no project names or file paths.
 - Plot static displacement/stress, modal frequencies/shapes and mesh-convergence results, with PNG/SVG figures and CSV export. See [result plots](docs/RESULT_PLOTS.md).
 - Study branches for static, modal and convergence analysis, with a lower settings panel that follows the selected study. See [study panels](docs/STUDY_PANELS.md).
 - Open only the projects you need, search the saved library, rename projects and locate their model/run files from the desktop. See [project navigation](docs/PROJECT_NAVIGATION.md).

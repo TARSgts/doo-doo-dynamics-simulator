@@ -28,7 +28,7 @@ The desktop/MCP extension uses the official `PySide6==6.10.2` and `mcp==1.26.0` 
 
 ## Use the desktop
 
-**Integrations → Discord Rich Presence…** configures optional Discord activity sharing. The simulator's public Application ID is prefilled; enable it and click Apply with Discord's desktop client running. Only generic activity and session time are shared. See [setup, privacy, troubleshooting and checks](DISCORD_PRESENCE.md).
+Discord Rich Presence starts automatically on fresh installs using the simulator's shared public Application ID. **Integrations → Discord Rich Presence…** shows connection status and lets users turn sharing off; saved off choices survive updates. No developer setup is needed. Only generic activity and session time are shared. See [setup, privacy, troubleshooting and checks](DISCORD_PRESENCE.md).
 
 1. Click **Test plate** to create a 100 × 40 × 5 mm solid with a 12 mm through hole, or create a project and import STEP/IGES/BREP.
 2. Set mesh size, coordinate scale, Young's modulus, Poisson ratio and total axial load in the details panel; click **Apply settings**.

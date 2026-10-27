@@ -12,7 +12,7 @@ from PySide6.QtCore import QSettings
 from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QApplication, QMessageBox
 from opensim.discord_presence import (DEFAULT_APPLICATION_ID, DiscordPresence, FrameReader,
-                                      activity_for, application_id, encode_frame)
+                                      activity_for, application_id, encode_frame, load_presence_preferences)
 
 
 @pytest.fixture
@@ -107,6 +107,40 @@ def test_activity_has_no_project_paths_names_or_results():
     assert "library" in activity_for(state, started=100, has_project=False)["details"]
 
 
+def test_fresh_download_uses_shared_id_and_starts_enabled(tmp_path):
+    settings = QSettings(str(tmp_path / "fresh.ini"), QSettings.Format.IniFormat)
+    assert load_presence_preferences(settings) == (True, DEFAULT_APPLICATION_ID)
+    assert settings.allKeys() == []  # Merely reading defaults does not write preferences.
+
+
+def test_desktop_starts_presence_for_fresh_user_and_clears_on_close(app, tmp_path):
+    from opensim.desktop import SimulatorWindow
+    from opensim.workspace import Workspace
+    window = SimulatorWindow(Workspace(tmp_path / "workspace"))
+    try:
+        assert window.discord.enabled
+        assert window.discord.client_id == DEFAULT_APPLICATION_ID
+        assert window.discord.activity["details"] == "In the project library"
+    finally:
+        window.close()
+        assert not window.discord.enabled
+        window.view.setPage(None)
+        window.deleteLater()
+        app.processEvents()
+
+
+def test_saved_opt_out_and_custom_id_survive_updates(tmp_path):
+    path = str(tmp_path / "existing.ini")
+    settings = QSettings(path, QSettings.Format.IniFormat)
+    settings.setValue("discord/enabled", False)
+    settings.setValue("discord/application_id", "123456789012345678")
+    settings.sync()
+    reopened = QSettings(path, QSettings.Format.IniFormat)
+    assert load_presence_preferences(reopened) == (False, "123456789012345678")
+    reopened.setValue("discord/application_id", "")
+    assert load_presence_preferences(reopened) == (False, DEFAULT_APPLICATION_ID)
+
+
 def test_local_ipc_handshake_activity_ack_ping_throttle_and_clear(app, ipc):
     presence, peer, reader = ipc
     message = ready(app, presence, peer, reader)
@@ -165,6 +199,7 @@ def test_settings_apply_persist_and_reject_bad_ids(app, tmp_path, monkeypatch):
     monkeypatch.setattr(module, "presence_settings", lambda: settings)
     presence = DiscordPresence(endpoints=[])
     dialog = module.DiscordPresenceDialog(presence)
+    assert dialog.advanced.isHidden()
     errors = []
     monkeypatch.setattr(QMessageBox, "warning", lambda *args: errors.append(args[-1]))
     try:

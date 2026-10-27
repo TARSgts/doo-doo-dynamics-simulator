@@ -26,6 +26,14 @@ def presence_settings():
     return QSettings("TARSgts", "DooDooDynamicsSimulator")
 
 
+def load_presence_preferences(settings=None):
+    """Fresh installs share the shipped app identity; preserve explicit opt-outs."""
+    if settings is None:
+        settings = presence_settings()
+    return (settings.value("discord/enabled", True, type=bool),
+            settings.value("discord/application_id", DEFAULT_APPLICATION_ID, type=str).strip() or DEFAULT_APPLICATION_ID)
+
+
 def ipc_endpoints():
     if os.name == "nt":
         return [f"discord-ipc-{index}" for index in range(10)]
