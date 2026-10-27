@@ -12,6 +12,8 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 **Hole stress verification:** the [thin-plate circular-hole study](docs/hole/REPORT.md) gives a gross stress concentration factor of **3.002**, versus Kirsch's **3** (0.067% error). Three quadratic plane-stress meshes and a doubled-domain check separate mesh and finite-plate effects. This is a dedicated benchmark; general desktop stress contours remain planned.
 
+**Timoshenko verification:** the [thin-beam and shear-control study](docs/timoshenko/REPORT.md) compares nine independent 3D solves with bending-plus-shear theory. The thin beam differs by 0.1701%; a shorter zero-Poisson control differs by 0.0329% and recovers 98.59% of the theoretical shear increment. A retained short ν=0.3 study documents clamp effects. Open the Timoshenko and circular-hole reports from the desktop Validation ribbon.
+
 ![Displacement viewer](docs/viewer-preview.png)
 
 ## Working now
@@ -37,6 +39,7 @@ Start-Process .\runs\my-bar\results.html
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\open-sim.exe validate-cantilever --out runs\beam-validation
 .\.venv\Scripts\open-sim.exe validate-hole --out runs\hole-validation
+.\.venv\Scripts\open-sim.exe validate-timoshenko --out runs\timoshenko-validation
 ```
 
 The supplied `examples/axial-bar.step` is a generated 1 × 0.1 × 0.1 bar. Use a new output folder for each run; existing run folders are deliberately preserved. Failed runs retain their input/log files and should be inspected before retrying into a new folder.

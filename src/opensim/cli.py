@@ -89,9 +89,17 @@ def main():
     validation.add_argument("--out", type=Path, required=True)
     hole = commands.add_parser("validate-hole", help="Validate thin-plate hole stress concentration against Kirsch")
     hole.add_argument("--out", type=Path, required=True)
+    timoshenko = commands.add_parser("validate-timoshenko", help="Validate thin and shear-sensitive solid beams against Timoshenko theory")
+    timoshenko.add_argument("--out", type=Path, required=True)
     arguments = parser.parse_args()
     try:
-        if arguments.command == "validate-hole":
+        if arguments.command == "validate-timoshenko":
+            from opensim.timoshenko_validation import run_timoshenko_validation
+            report = run_timoshenko_validation(arguments.out)
+            print(json.dumps(report, indent=2))
+            if report["result"] != "PASS":
+                parser.exit(1, "Timoshenko beam validation did not meet acceptance criteria\n")
+        elif arguments.command == "validate-hole":
             from opensim.hole_validation import run_hole_validation
             report = run_hole_validation(arguments.out)
             print(json.dumps(report, indent=2))

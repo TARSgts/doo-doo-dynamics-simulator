@@ -18,6 +18,8 @@ Additional implemented work: C3D10 meshing and export, planar tip-center point l
 
 The dedicated circular-hole benchmark now includes CPS8R plane-stress meshing, consistent edge traction, FRD tensor parsing, recovered hoop stress and Kirsch mesh/domain verification. See [results](hole/REPORT.md). General desktop stress selection and arbitrary plate modeling remain planned.
 
+The [Timoshenko benchmark](timoshenko/REPORT.md) adds thin-beam total-deflection verification, a shorter zero-Poisson shear control and a retained short-beam Poisson/clamp diagnostic, with three C3D10 meshes each. The desktop Validation ribbon opens these reference reports without changing the selected model.
+
 Add a versioned project schema; CAD face selection and persistent named groups; consistent pressure/traction integration in the general solid workflow; arbitrary vector loads and displacement constraints; multiple materials and load cases; automatic rigid-body checks; general stress parsing, von Mises contours and reaction summaries. Add patch tests, manufactured solutions and distorted-element tests before expanding supported analyses.
 
 ## Stage 3 — accuracy and usability

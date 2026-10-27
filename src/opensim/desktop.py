@@ -6,9 +6,9 @@ from pathlib import Path
 import sys
 
 from PySide6.QtCore import Qt, QSignalBlocker, QTimer, QUrl
-from PySide6.QtGui import QAction, QFont
+from PySide6.QtGui import QAction, QFont, QTextDocument
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QDoubleSpinBox,
+from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QDoubleSpinBox,
                                QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
                                QLabel, QMainWindow, QMenuBar, QMessageBox, QPlainTextEdit, QPushButton,
                                QScrollArea, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
@@ -96,6 +96,7 @@ class SimulatorWindow(QMainWindow):
         self.dirty = False
         self.theme = None
         self.analysis_buttons = []
+        self.reference_dialogs = {}
         self.setWindowTitle("Doo Doo Dynamics Simulator — Structural Workbench")
         self.setMinimumSize(1100, 720)
         available = QApplication.primaryScreen().availableGeometry()
@@ -190,7 +191,9 @@ class SimulatorWindow(QMainWindow):
             "Automation": [("MCP status", "13 local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
                            ("Remote access", "Planned", None)],
             "Validation": [("Cantilever", "Create beam preset", self.create_beam),
-                           ("Reference report", "Euler–Bernoulli study", self.show_validation)],
+                           ("Reference report", "Euler–Bernoulli study", self.show_validation),
+                           ("Timoshenko", "Bending + shear study", lambda: self.show_reference_report("timoshenko")),
+                           ("Circular hole", "Kirsch stress study", lambda: self.show_reference_report("hole"))],
         }
         for name, buttons in groups.items():
             page = QWidget()
@@ -413,6 +416,46 @@ class SimulatorWindow(QMainWindow):
                                 f"Final mesh change: {report['last_mesh_change_fraction'] * 100:.4f}%\n\n"
                                 "This reference study is independent of the currently selected project.\n"
                                 "See docs/cantilever/REPORT.md for assumptions, criteria and plots.")
+
+    def show_reference_report(self, benchmark):
+        titles = {"timoshenko": "Timoshenko beam validation", "hole": "Circular-hole stress validation"}
+        if benchmark not in titles:
+            raise ValueError("Unknown reference benchmark")
+        if benchmark in self.reference_dialogs:
+            dialog = self.reference_dialogs[benchmark]
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+            return dialog
+        directory = Path(__file__).resolve().parents[2] / "docs" / benchmark
+        report = directory / "REPORT.md"
+        if not report.is_file():
+            raise ValueError("This checkout does not include the reference report")
+        document = QTextDocument()
+        document.setMarkdown(report.read_text(encoding="utf-8"))
+        dark = self.theme == "dark"
+        background, foreground = ("#121b2b", "#d8e4f1") if dark else ("#ffffff", "#27374a")
+        style = ("<style>body{background:" + background + ";color:" + foreground + ";font:14px 'Segoe UI';margin:24px;line-height:1.55}"
+                 "img{max-width:100%;height:auto}table{border-collapse:collapse;width:100%;font-size:13px}"
+                 "td,th{border:1px solid #50627a;padding:7px}a{color:#65b5ff}pre{white-space:pre-wrap}</style>")
+        html = document.toHtml().replace("</head>", style + "</head>")
+        dialog = QDialog(self)
+        dialog.setWindowTitle(titles[benchmark] + " — Published reference study")
+        dialog.resize(min(1250, self.width()), min(850, self.height()))
+        layout = QVBoxLayout(dialog)
+        note = QLabel("Published reference benchmark — independent of the currently selected project's settings.")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        view = QWebEngineView(dialog)
+        view.setAccessibleName(titles[benchmark] + " report")
+        view.setHtml(html, QUrl.fromLocalFile(str(directory) + "/"))
+        layout.addWidget(view)
+        close = QPushButton("Back to model")
+        close.clicked.connect(dialog.close)
+        layout.addWidget(close)
+        self.reference_dialogs[benchmark] = dialog
+        dialog.show()
+        return dialog
 
     def import_cad(self):
         project_id = self.require_project()

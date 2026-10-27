@@ -23,6 +23,18 @@ Kirsch's infinite-plate reference is 3. The fine model differs by 0.0667%, the l
 
 Reproduce with `open-sim validate-hole --out <new-folder>` after installing the validation extra. Tests include signed fixed-width FRD parsing, malformed stress rejection, tensor transformation, exact traction resultants and the real four-case solver study.
 
+## Timoshenko bending and shear
+
+Executed October 27, 2026. The [Timoshenko study](timoshenko/REPORT.md) uses three independent C3D10 mesh densities for each of three solid cantilevers. All have 20 × 20 mm sections, E=210 GPa and a −10 N tip-center Z force. Comparison uses area-averaged tip displacement against `FL³/(3EI)+FL/(κGA)`, with κ=5/6.
+
+- Thin beam: L=1 m, ν=0.3; FEM −1.188822551 mm versus −1.190847619 mm, **0.1701% error**, **0.0135% last-mesh change**.
+- Shear control: L=0.1 m, ν=0; FEM −0.001218646 mm versus −0.001219048 mm, **0.0329% error**. The excess over Euler–Bernoulli recovers **98.594%** of theoretical shear.
+- Clamp diagnostic: L=0.1 m, ν=0.3; **1.4630% total error** is retained and documented. Poisson constraint and warping at a full 3D clamp differ from 1D beam conditions.
+
+Every solve passes force/moment residuals below 1e−5. The thin beam's shear term is only 0.0312% of bending; its total-deflection match alone does not establish shear accuracy. The zero-Poisson control is a verification material, not assumed steel behavior. The report records separate criteria and limitations. Reproduce with `open-sim validate-timoshenko --out <new-folder>`.
+
+After this addition, the complete suite passed **54 tests in 40.96 seconds**, including all nine Timoshenko solver cases, with no skips.
+
 ## Axial bar
 
 Independent rectangular solid: length 1 m, width and height 0.1 m, Young's modulus 210 GPa, Poisson ratio 0, applied axial total force 1000 N. The X-minimum face is clamped. Equal nodal loads are used at X maximum, so end traction is not exactly uniform and a small difference from the ideal bar is expected.
