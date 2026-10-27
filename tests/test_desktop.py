@@ -11,6 +11,40 @@ from opensim.desktop import SimulatorWindow
 from opensim.workspace import Workspace
 
 
+def test_perpendicular_direction_selects_surface_loading_and_saves_without_unit_changes(tmp_path):
+    from opensim.hover_help import FIELD_HELP
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Perpendicular force")
+    workspace.show_project(project["id"])
+    window = SimulatorWindow(workspace)
+    try:
+        axis, kind = window.selectors["load_axis"], window.selectors["load_kind"]
+        original = window.fields["load_N"].value()
+        for direction in ("normal-in", "normal-out"):
+            axis.setCurrentIndex(axis.findData(direction))
+            assert kind.currentData() == "traction"
+            assert not kind.model().item(kind.findData("point")).isEnabled()
+            assert not kind.model().item(kind.findData("face")).isEnabled()
+            assert not window.normal_load_note.isHidden()
+            assert "net force" in window.fields["load_N"].toolTip()
+            window.save_parameters()
+            saved = workspace.get_project(project["id"])["parameters"]
+            assert saved["load_axis"] == direction
+            assert saved["load_kind"] == "traction"
+            assert saved["load_N"] == original
+            window.refresh()
+        axis.setCurrentIndex(axis.findData("x"))
+        assert kind.model().item(kind.findData("point")).isEnabled()
+        assert window.normal_load_note.isHidden()
+        assert window.fields["load_N"].toolTip() == FIELD_HELP["load_N"]
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
 def test_face_picking_saves_both_regions_cancels_and_rejects_stale_drafts(tmp_path, monkeypatch):
     application = QApplication.instance() or QApplication([])
     workspace = Workspace(tmp_path)

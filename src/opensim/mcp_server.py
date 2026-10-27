@@ -68,7 +68,7 @@ def create_server(workspace: Workspace) -> FastMCP:
                                 young_Pa: float = 210e9, poisson: float = 0.3, load_N: float = 1000,
                                 element_order: int = 1, load_axis: str = "x", load_kind: str = "face", load_surface: str = "x-max",
                                 support_region: dict[str, Any] | None = None, load_region: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Set SI static inputs. traction spreads load_N uniformly over load_surface; face retains legacy equal-node end loading. Changed inputs invalidate prior results."""
+        """Set SI static inputs. With traction, load_axis x/y/z gives global-vector traction; normal-in/normal-out gives local inward/outward normals. Positive load_N follows that choice, negative reverses it. Normal load_N is the surface integral of traction magnitude, not net force on curved/multiple faces. face retains legacy equal-node end loading. Changed inputs invalidate prior results."""
         parameters = {"mesh_size_m": mesh_size_m, "cad_scale": cad_scale,
                                                     "young_Pa": young_Pa, "poisson": poisson, "load_N": load_N,
                                                     "element_order": element_order, "load_axis": load_axis, "load_kind": load_kind, "load_surface": load_surface}

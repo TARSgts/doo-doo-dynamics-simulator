@@ -11,6 +11,7 @@ from opensim.results import write_viewer, write_vtk
 from opensim.solver import find_solver, parse_dat, run_solver, write_deck
 from opensim.regions import support_nodes
 from opensim.stress import read_stress, von_mises
+from opensim.load_settings import LOAD_AXES, NORMAL_AXES
 
 
 def digest(path: Path) -> str:
@@ -85,25 +86,35 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
         for index in np.linspace(0, len(loading.faces) - 1, min(9, len(loading.faces)), dtype=int):
             face = loading.faces[index]
             vector = displacement[face].mean(axis=0) if len(face) == 3 else (-displacement[face[:3]].sum(axis=0) + 4 * displacement[face[3:]].sum(axis=0)) / 9
-            markers.append({"point_m": mesh.points[face[:3]].mean(axis=0).tolist(), "displacement_m": vector.tolist()})
+            markers.append({"point_m": mesh.points[face[:3]].mean(axis=0).tolist(), "displacement_m": vector.tolist(),
+                            "direction": loading.face_directions[index].tolist()})
         summary.update({"load_surface": load_surface, "loaded_area_m2": loading.area,
                         "uniform_traction_Pa": load / loading.area, "load_markers": markers,
                         "applied_force_N": applied.tolist(),
                         "reported_support_forces_N": np.sum(list(reported_reactions.values()), axis=0).tolist(),
                         "applied_force_at_support_N": loading.forces[fixed].sum(axis=0).tolist(),
                         "boundary_condition": f"X minimum clamped; uniform {load_axis.upper()} traction on {load_surface}; total force {load} N"})
-        patch_average = np.zeros(3)
-        for face in loading.faces:
+        patch_average, normal_average = np.zeros(3), 0.0
+        for face, direction in zip(loading.faces, loading.face_directions):
             corners = mesh.points[face[:3]]
             area = np.linalg.norm(np.cross(corners[1] - corners[0], corners[2] - corners[0])) / 2
-            patch_average += area * displacement[face[3:] if len(face) == 6 else face].mean(axis=0)
+            face_mean = displacement[face[3:] if len(face) == 6 else face].mean(axis=0)
+            patch_average += area * face_mean
+            normal_average += area * np.dot(face_mean, direction)
         summary["loaded_surface_mean_displacement_m"] = (patch_average / loading.area).tolist()
+        if load_axis in NORMAL_AXES:
+            summary.update({"normal_pressure_Pa": load / loading.area * (1 if load_axis == "normal-in" else -1),
+                            "traction_magnitude_Pa": abs(load) / loading.area,
+                            "loaded_surface_mean_normal_displacement_m": normal_average / loading.area,
+                            "load_force_meaning": "Integral of local traction magnitudes; net force can be smaller or zero on curved/multiple faces"})
     summary.update({"support_region": support_region or {}, "load_region": load_region or {},
                     "cad_faces": mesh.surface_catalog(),
                     "support_point_m": reference.tolist(), "support_node_count": len(fixed),
                     "maximum_von_mises_Pa": float(equivalent.max()), "stress_measure": "Recovered nodal stress; ideal support edges may be singular"})
     if support_region or load_region:
         summary["boundary_condition"] = "Selected surface region fully fixed; selected load region carries constant global vector traction. No contact/sliding model."
+    if load_axis in NORMAL_AXES:
+        summary["boundary_condition"] = "Fully fixed support; uniform-magnitude surface-normal traction on initial mesh geometry. No follower loading or contact."
     if progress:
         progress("exporting")
     manifest = {"schema_version": 1, "cad_path": str(cad.resolve()), "cad_sha256": digest(cad),
@@ -136,7 +147,7 @@ def main():
     run.add_argument("--load", type=float, default=1000.0, help="Total axial force in newtons")
     run.add_argument("--ccx")
     run.add_argument("--order", type=int, choices=[1, 2], default=1)
-    run.add_argument("--load-axis", choices=["x", "y", "z"], default="x")
+    run.add_argument("--load-axis", choices=LOAD_AXES, default="x", help="X/Y/Z or normal-in/normal-out (requires --load-kind traction)")
     run.add_argument("--load-kind", choices=["face", "point", "traction"], default="face")
     from opensim.load_settings import LOAD_SURFACES
     run.add_argument("--load-surface", choices=LOAD_SURFACES, default="x-max", help="Bounding-plane patch for uniform traction; --load is total signed force in N")

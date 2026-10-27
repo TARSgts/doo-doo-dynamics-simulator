@@ -10,6 +10,12 @@ from opensim.loads import assemble_load
 from opensim.regions import support_nodes
 
 
+def deck_number(value):
+    """CalculiX reads real input fields through a 20-character window."""
+    text = f"{value:.15g}"
+    return text if len(text) <= 20 else f"{value:.12g}"
+
+
 def find_solver(explicit: str | None = None) -> Path:
     selected = explicit or os.environ.get("CCX_EXECUTABLE") or shutil.which("ccx")
     if selected:
@@ -42,18 +48,18 @@ def write_deck(mesh: Mesh, path: Path, young: float, poisson: float, load: float
     if not np.isfinite(length_scale) or length_scale <= 0:
         raise ValueError("Solver length scale must be positive and finite")
     lines = ["*HEADING", "Independent open-simulation static structural", "*NODE, NSET=NALL"]
-    lines.extend(f"{index + 1}, " + ", ".join(f"{value:.15g}" for value in point)
+    lines.extend(f"{index + 1}, " + ", ".join(deck_number(value) for value in point)
                  for index, point in enumerate(mesh.points * length_scale))
     lines.append(f"*ELEMENT, TYPE={mesh.element_type}, ELSET=SOLID")
     lines.extend(f"{index + 1}, " + ", ".join(str(int(node) + 1) for node in element)
                  for index, element in enumerate(mesh.tetrahedra))
     lines.append("*NSET, NSET=FIX")
     lines.extend(str(int(node) + 1) for node in fixed)
-    lines.extend(["*MATERIAL, NAME=ELASTIC", "*ELASTIC", f"{young / length_scale ** 2:.15g}, {poisson:.15g}",
+    lines.extend(["*MATERIAL, NAME=ELASTIC", "*ELASTIC", f"{deck_number(young / length_scale ** 2)}, {deck_number(poisson)}",
                   "*SOLID SECTION, ELSET=SOLID, MATERIAL=ELASTIC", "*BOUNDARY", "FIX, 1, 3, 0",
                   "*STEP", "*STATIC, SOLVER=SPOOLES", "*CLOAD"])
-    direction = "xyz".index(load_axis) + 1
-    lines.extend(f"{node + 1}, {direction}, {force:.15g}" for node, force in enumerate(applied.forces[:, direction - 1]) if force != 0)
+    lines.extend(f"{node + 1}, {direction + 1}, {deck_number(force)}"
+                 for node, vector in enumerate(applied.forces) for direction, force in enumerate(vector) if force != 0)
     lines.extend(["*NODE PRINT, NSET=NALL", "U", "*NODE PRINT, NSET=FIX", "RF",
                   "*NODE FILE", "U", "*EL FILE", "S", "*END STEP"])
     path.write_text("\n".join(lines) + "\n", encoding="ascii")

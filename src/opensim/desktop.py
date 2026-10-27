@@ -21,6 +21,7 @@ from opensim.cat_language import cat_text
 from opensim.app_identity import ICON_PATH, set_process_identity
 from opensim.job_progress import STAGE_LABELS, elapsed_label
 from opensim.hover_help import FIELD_HELP, BUTTON_HELP
+from opensim.load_settings import NORMAL_AXES
 
 
 STYLE = """
@@ -464,7 +465,8 @@ class SimulatorWindow(QMainWindow):
         self.selectors = {}
         for key, label, options in (
             ("element_order", "Elements", [("Linear · C3D4", 1), ("Quadratic · C3D10", 2)]),
-            ("load_axis", "Force direction", [("X · axial", "x"), ("Y · transverse", "y"), ("Z · transverse", "z")]),
+            ("load_axis", "Force direction", [("X · axial", "x"), ("Y · transverse", "y"), ("Z · transverse", "z"),
+                                               ("Perpendicular · inward", "normal-in"), ("Perpendicular · outward", "normal-out")]),
             ("load_kind", "Force application", [("End face · equal nodes", "face"), ("Tip center · point", "point"), ("Uniform surface traction", "traction")]),
             ("load_surface", "Traction surface", [(f"{axis.upper()}-{side}", f"{axis}-{side}") for axis in "xyz" for side in ("min", "max")])):
             selector = QComboBox()
@@ -488,6 +490,10 @@ class SimulatorWindow(QMainWindow):
         note.setStyleSheet("color:#6f8094;padding:6px")
         layout.addWidget(note)
         self.apply_button = QPushButton("Apply settings")
+        self.normal_load_note = QLabel("Perpendicular loading follows each surface's local normal. Positive force follows inward/outward; negative reverses it. On curved or multiple faces, the entered force is the sum of local magnitudes, not the net force.")
+        self.normal_load_note.setWordWrap(True)
+        layout.addWidget(self.normal_load_note)
+        self.normal_load_note.hide()
         self.apply_button.clicked.connect(lambda: self.safe(self.save_parameters))
         layout.addWidget(self.apply_button)
         for title, mode in (("Pick fixed support", "support"), ("Pick force faces", "load")):
@@ -679,10 +685,25 @@ class SimulatorWindow(QMainWindow):
             self.dirty = False
 
     def mark_dirty(self):
+        self.sync_force_direction()
         self.dirty = True
         self.details_note.setText("Settings changed. Apply settings or Solve to use them.")
         if "load_surface" in self.selectors:
             self.selectors["load_surface"].setEnabled(self.selectors["load_kind"].currentData() == "traction")
+
+    def sync_force_direction(self):
+        normal = self.selectors["load_axis"].currentData() in NORMAL_AXES
+        kind = self.selectors["load_kind"]
+        for index in range(kind.count()):
+            kind.model().item(index).setEnabled(not normal or kind.itemData(index) == "traction")
+        if normal and kind.currentData() != "traction":
+            blocker = QSignalBlocker(kind)
+            kind.setCurrentIndex(kind.findData("traction"))
+            del blocker
+        self.normal_load_note.setVisible(normal)
+        self.fields["load_N"].setToolTip(
+            "Force magnitude summed over the selected surface in newtons. Positive follows inward/outward; negative reverses it. On curved faces the net force can be smaller or zero."
+            if normal else FIELD_HELP["load_N"])
 
     def save_parameters(self):
         parameters = {key: field.value() for key, field in self.fields.items()}
@@ -1045,6 +1066,7 @@ class SimulatorWindow(QMainWindow):
                 del blocker
             self.project_revision = project["revision"]
         active = next((job for job in jobs if job["status"] in {"queued", "running"}), None)
+        self.sync_force_direction()
         matching = next((job for job in jobs if project and job["revision"] == project["revision"]), None)
         self.update_job_progress(active or matching)
         self.apply_button.setEnabled(bool(project) and not active)
@@ -1114,8 +1136,10 @@ class SimulatorWindow(QMainWindow):
                     output.append(f"  {result['nodes']:,} nodes · {result['tetrahedra']:,} tetrahedra")
                     if "maximum_displacement_m" in result:
                         direction = result.get("load_axis", "x")
+                        reaction = ("Reaction XYZ: " + ", ".join(f"{value:.4f}" for value in result["reaction_N"]) + " N"
+                                    if direction in NORMAL_AXES else f"Reaction {direction.upper()}: {result['reaction_N']['xyz'.index(direction)]:.4f} N")
                         output.append(f"  Maximum displacement: {result['maximum_displacement_m'] * 1000:.6g} mm  |  "
-                                      f"Reaction {direction.upper()}: {result['reaction_N']['xyz'.index(direction)]:.4f} N  |  "
+                                      f"{reaction}  |  "
                                       f"Force imbalance: {result['relative_force_imbalance']:.2e}")
                     elif result.get("analysis") == "modal":
                         output.append("  Frequencies (Hz): " + ", ".join(f"{frequency:.6g}" for frequency in result["frequencies_Hz"]))
@@ -1143,7 +1167,10 @@ class SimulatorWindow(QMainWindow):
                 tip = summary.get("loaded_surface_mean_displacement_m", [0, 0, 0]) if selected_load else summary.get("tip_mean_displacement_m") or summary.get("loaded_surface_mean_displacement_m", [0, 0, 0])
                 axis = summary.get("load_axis", "x")
                 location_label = "Tip mean" if summary.get("tip_mean_displacement_m") and not selected_load else "Loaded surface mean"
-                self.result_cards[1].setText(f"{location_label} U{axis}\n{tip['xyz'.index(axis)] * 1000:.6g} mm")
+                if axis in NORMAL_AXES:
+                    self.result_cards[1].setText(f"Loaded mean · along normal force\n{summary['loaded_surface_mean_normal_displacement_m'] * 1000:.6g} mm")
+                else:
+                    self.result_cards[1].setText(f"{location_label} U{axis}\n{tip['xyz'.index(axis)] * 1000:.6g} mm")
                 self.result_cards[2].setText(f"Force balance residual\n{summary['relative_force_imbalance']:.2e}")
                 self.legend.setText(f"  Displacement |U|: 0 → {summary['maximum_displacement_m'] * 1000:.6g} mm   ·   "
                                     f"{summary['tetrahedra']:,} elements   ·   Display deformation is exaggerated   ·   Drag to rotate")

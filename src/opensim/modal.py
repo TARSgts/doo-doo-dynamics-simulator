@@ -9,7 +9,7 @@ from opensim.cli import digest
 from opensim.geometry import import_and_mesh
 from opensim.modal_parameters import validate_modal_parameters
 from opensim.results import write_viewer, write_vtk
-from opensim.solver import find_solver, run_solver
+from opensim.solver import deck_number, find_solver, run_solver
 from opensim.regions import support_nodes
 
 
@@ -19,14 +19,14 @@ def write_modal_deck(mesh, path, young, poisson, density, mode_count, support_re
         raise ValueError("Use positive finite Young's modulus and Poisson ratio strictly between -1 and 0.5")
     fixed = support_nodes(mesh, support_region)
     lines = ["*HEADING", "Independent undamped unprestressed modal analysis", "*NODE, NSET=NALL"]
-    lines.extend(f"{index + 1}, " + ", ".join(f"{value:.15g}" for value in point) for index, point in enumerate(mesh.points * length_scale))
+    lines.extend(f"{index + 1}, " + ", ".join(deck_number(value) for value in point) for index, point in enumerate(mesh.points * length_scale))
     lines.append(f"*ELEMENT, TYPE={mesh.element_type}, ELSET=SOLID")
     lines.extend(f"{index + 1}, " + ", ".join(str(int(node) + 1) for node in element)
                  for index, element in enumerate(mesh.tetrahedra))
     lines.append("*NSET, NSET=FIX")
     lines.extend(str(int(node) + 1) for node in fixed)
-    lines.extend(["*MATERIAL, NAME=ELASTIC", "*ELASTIC", f"{young / length_scale ** 2:.15g}, {poisson:.15g}",
-                  "*DENSITY", f"{density / length_scale ** 4:.15g}", "*SOLID SECTION, ELSET=SOLID, MATERIAL=ELASTIC", "*BOUNDARY", "FIX, 1, 3, 0",
+    lines.extend(["*MATERIAL, NAME=ELASTIC", "*ELASTIC", f"{deck_number(young / length_scale ** 2)}, {deck_number(poisson)}",
+                  "*DENSITY", deck_number(density / length_scale ** 4), "*SOLID SECTION, ELSET=SOLID, MATERIAL=ELASTIC", "*BOUNDARY", "FIX, 1, 3, 0",
                   "*STEP", "*FREQUENCY, SOLVER=SPOOLES", str(mode_count), "*NODE PRINT, NSET=NALL", "U", "*NODE FILE", "U", "*END STEP"])
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
 

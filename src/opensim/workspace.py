@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 import uuid
-from opensim.load_settings import LOAD_KINDS, LOAD_SURFACES
+from opensim.load_settings import LOAD_AXES, LOAD_KINDS, LOAD_SURFACES, NORMAL_AXES
 from opensim.region_settings import validate_region
 from opensim.job_progress import STAGE_LABELS
 
@@ -131,9 +131,11 @@ class Workspace:
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
                for value in numeric):
             raise ValueError("All parameters must be finite numbers")
-        if (merged["element_order"] not in {1, 2} or merged["load_axis"] not in {"x", "y", "z"}
+        if (merged["element_order"] not in {1, 2} or merged["load_axis"] not in LOAD_AXES
                 or merged["load_kind"] not in LOAD_KINDS or merged["load_surface"] not in LOAD_SURFACES):
-            raise ValueError("Choose element order 1/2, X/Y/Z, face/point/traction and a bounding-plane surface")
+            raise ValueError("Choose element order 1/2, X/Y/Z or surface normal, face/point/traction and a bounding-plane surface")
+        if merged["load_axis"] in NORMAL_AXES and merged["load_kind"] != "traction":
+            raise ValueError("Perpendicular surface loading requires uniform surface traction")
         if any(merged[key] <= 0 for key in ("mesh_size_m", "cad_scale", "young_Pa")):
             raise ValueError("Mesh size, CAD scale and Young's modulus must be positive")
         from opensim.modal_parameters import validate_modal_parameters

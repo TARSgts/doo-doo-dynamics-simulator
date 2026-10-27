@@ -22,7 +22,7 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 **Distributed loads:** choose **Uniform surface traction**, a bounding-plane surface and X/Y/Z direction, then enter the **total force in N**. The solver integrates that force consistently over the selected surface. The [uniformly loaded beam study](docs/distributed/REPORT.md) gives 0.1784% tip-deflection error and 0.0202% last-mesh change. See [load setup and scope](docs/DISTRIBUTED_LOADS.md).
 
-**Selected regions and stress:** **Support / load regions…** accepts CAD face IDs and an optional coordinate box. Selected supports are fully fixed; loads remain uniform global vector traction. New static solves offer recovered **von Mises stress** in MPa alongside displacement. See [setup, unit conversion and limitations](docs/SURFACE_REGIONS.md). The properties panel wraps its text and keeps input controls inside narrow docks in both languages.
+**Selected regions and stress:** **Support / load regions…** accepts CAD face IDs and an optional coordinate box. Selected supports are fully fixed; loads can use global X/Y/Z traction or [perpendicular inward/outward forces](docs/NORMAL_LOADS.md). New static solves offer recovered **von Mises stress** in MPa alongside displacement. See [setup, unit conversion and limitations](docs/SURFACE_REGIONS.md). The properties panel wraps its text and keeps input controls inside narrow docks in both languages.
 
 ![Displacement viewer](docs/viewer-preview.png)
 

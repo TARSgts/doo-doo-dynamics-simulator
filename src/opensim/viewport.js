@@ -297,14 +297,15 @@ function drawOverlay(){
     for(let markerIndex=0;markerIndex<markers.length;markerIndex++){
     const vector=markers[markerIndex].displacement_m;
     const position=markers[markerIndex].point_m.map((value,axis)=>value+factor*vector[axis]);
-    const point=projection.project(position),direction='xyz'.indexOf(simulation.summary.load_axis||'x');
-    const shifted=position.slice();shifted[direction]+=span*0.1*Math.sign(simulation.summary.load_N);
+    const point=projection.project(position),axis=simulation.summary.load_axis||'x';
+    const direction=markers[markerIndex].direction || [0,1,2].map(index=>index==='xyz'.indexOf(axis)?Math.sign(simulation.summary.load_N):0);
+    const shifted=position.map((value,index)=>value+span*0.1*direction[index]);
     const reference=projection.project(shifted),length=Math.hypot(reference[0]-point[0],reference[1]-point[1])||1;
     const unit=[(reference[0]-point[0])/length,(reference[1]-point[1])/length],start=[point[0]-unit[0]*55*pixel,point[1]-unit[1]*55*pixel];
     context.strokeStyle=themeDark?'#f1b956':'#a56608';context.fillStyle=context.strokeStyle;context.lineWidth=2*pixel;
     context.beginPath();context.moveTo(...start);context.lineTo(point[0],point[1]);context.stroke();context.beginPath();context.moveTo(point[0],point[1]);
     context.lineTo(point[0]-unit[0]*10*pixel-unit[1]*5*pixel,point[1]-unit[1]*10*pixel+unit[0]*5*pixel);context.lineTo(point[0]-unit[0]*10*pixel+unit[1]*5*pixel,point[1]-unit[1]*10*pixel-unit[0]*5*pixel);context.closePath();context.fill();
-    if(markerIndex===0)context.fillText(`${simulation.summary.load_kind==='traction'?'Total ':''}${simulation.summary.load_N} N · ${(simulation.summary.load_axis||'x').toUpperCase()}`,start[0]-15*pixel,start[1]-10*pixel);
+    if(markerIndex===0)context.fillText(`${simulation.summary.load_kind==='traction'?'Total ':''}${simulation.summary.load_N} N · ${axis.startsWith('normal-')?'surface normal':axis.toUpperCase()}`,start[0]-15*pixel,start[1]-10*pixel);
     }
   }
 }

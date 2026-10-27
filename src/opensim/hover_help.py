@@ -9,7 +9,7 @@ FIELD_HELP = {
     "load_N": "Total applied force in newtons, not kilograms. A negative value reverses the chosen direction. Static analysis only.",
     "mode_count": "How many natural vibration modes to calculate. More modes can take longer to solve.",
     "element_order": "Choose simple 4-node or curved 10-node solid elements. Quadratic elements usually capture bending better at extra cost.",
-    "load_axis": "Choose the model's X, Y or Z axis for the force. The sign of Total force sets the direction along that axis.",
+    "load_axis": "Choose X/Y/Z, or Perpendicular inward/outward to follow each selected surface's local normal. Positive force follows the chosen direction; negative reverses it. Perpendicular uses distributed surface loading.",
     "load_kind": "Choose a concentrated tip force, equal forces at end-face nodes, or a force spread uniformly over a surface.",
     "load_surface": "For uniform traction, choose a bounding plane such as X-max. A custom load region overrides this choice.",
 }

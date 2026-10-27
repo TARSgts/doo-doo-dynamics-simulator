@@ -93,6 +93,8 @@ Typical sequence: create project → set parameters → create/import CAD → wa
 
 ## Verified behavior
 
+**Force direction** now includes **Perpendicular · inward/outward**, which automatically selects distributed surface loading. The force input remains in N; positive follows the selected inward/outward direction and negative reverses it. On curved/multiple surfaces its magnitude is the sum of local force magnitudes, which can differ from the net vector. Tooltips and an explanatory note describe this. Results show local load arrows, mean movement along the force normals and vector reactions. See [implementation, limits and tests](NORMAL_LOADS.md).
+
 Use **Pick fixed support** / **Pick force faces** in the left panel or Environment tab to select CAD faces directly in the model. Cyan marks fixed supports, orange marks force surfaces. Switch roles freely, then use **Save picked faces**, **Clear current faces** or **Cancel picking** above the model. A new mesh is needed once for older saved viewers. Face selection saves through the existing workspace/MCP region settings; forces retain their total magnitude and direction. See [face selection and verification](SURFACE_REGIONS.md).
 
 The model tree and properties panel have an 8-pixel vertical resize handle with a hover highlight, resize cursor and drag hint. Both panels retain useful minimum heights and cannot collapse accidentally. The desktop layout check drags the handle and verifies that the two panels resize in opposite directions and can return to their original sizes.
