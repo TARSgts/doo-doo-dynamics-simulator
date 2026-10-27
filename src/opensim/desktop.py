@@ -304,10 +304,12 @@ class SimulatorWindow(QMainWindow):
         splitter.addWidget(self.tree)
         details = QWidget()
         details.setObjectName("DetailsPanel")
+        details.setMinimumWidth(0)
         layout = QVBoxLayout(details)
         heading = QLabel("DETAILS OF STATIC STRUCTURAL")
         self.details_heading = heading
         heading.setObjectName("DetailsHeading")
+        heading.setWordWrap(True)
         layout.addWidget(heading)
         form = QFormLayout()
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
@@ -325,6 +327,8 @@ class SimulatorWindow(QMainWindow):
             field.setDecimals(decimals)
             field.setValue(value)
             field.setKeyboardTracking(False)
+            field.setMinimumWidth(100)
+            field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             field.setAccessibleName(label)
             field.valueChanged.connect(self.mark_dirty)
             self.fields[key] = field
@@ -334,6 +338,8 @@ class SimulatorWindow(QMainWindow):
         mode_count.setRange(1, 30)
         mode_count.setValue(6)
         mode_count.setAccessibleName("Requested modes")
+        mode_count.setMinimumWidth(100)
+        mode_count.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         mode_count.valueChanged.connect(self.mark_dirty)
         self.fields["mode_count"] = mode_count
         form.addRow("Requested modes", mode_count)
@@ -346,12 +352,15 @@ class SimulatorWindow(QMainWindow):
             selector = QComboBox()
             selector.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             selector.setMinimumContentsLength(10)
+            selector.setMinimumWidth(100)
+            selector.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             for text, value in options:
                 selector.addItem(text, value)
             selector.currentIndexChanged.connect(self.mark_dirty)
             form.addRow(label, selector)
             self.selectors[key] = selector
         note = QLabel("Fixed support: X-min face\nTraction: total force (N) spread uniformly over the selected bounding-plane surface.\nSurface selector applies only to traction.\nModal: no loads or prestress.")
+        note.setWordWrap(True)
         note.setStyleSheet("color:#6f8094;padding:6px")
         layout.addWidget(note)
         self.apply_button = QPushButton("Apply settings")

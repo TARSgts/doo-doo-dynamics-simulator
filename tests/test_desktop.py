@@ -10,6 +10,36 @@ from opensim.desktop import SimulatorWindow
 from opensim.workspace import Workspace
 
 
+def test_property_fields_stay_inside_narrow_and_wide_dock_in_both_languages(tmp_path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QDockWidget, QScrollArea
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Properties sizing")
+    workspace.show_project(project["id"])
+    window = SimulatorWindow(workspace)
+    window.show()
+    try:
+        dock = window.findChild(QDockWidget, "outline")
+        scroll = window.findChild(QScrollArea, "PropertiesScroll")
+        for language in ("en", "cat"):
+            window.set_language(language)
+            for width in (330, 420, 550):
+                window.resizeDocks([dock], [width], Qt.Orientation.Horizontal)
+                for _ in range(3):
+                    application.processEvents()
+                assert scroll.widget().width() <= scroll.viewport().width()
+                for control in list(window.fields.values()) + list(window.selectors.values()):
+                    location = control.mapTo(scroll.widget(), control.rect().topLeft())
+                    assert location.x() >= 0
+                    assert location.x() + control.width() <= scroll.widget().width()
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
 def test_reference_report_starts_at_top_and_expands_without_changing_model(tmp_path):
     from PySide6.QtWidgets import QLabel
     from PySide6.QtWebEngineWidgets import QWebEngineView
