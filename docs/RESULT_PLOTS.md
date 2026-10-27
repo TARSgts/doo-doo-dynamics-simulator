@@ -6,11 +6,15 @@ Run a study, then click **Result plots…** below its settings heading, **Soluti
 
 | Study | Charts |
 | --- | --- |
-| Static Structural | Displacement against X/Y/Z position, recovered von Mises stress against position, displacement histogram, stress histogram |
+| Static Structural | Displacement, axial/normal stress, shear stress and von Mises stress against X/Y/Z position, plus histograms of each quantity |
 | Modal Analysis | Natural frequency by mode number, selected normalized mode shape against X/Y/Z position |
 | Convergence Study | Maximum displacement, loaded-area response, or maximum stress against actual element count |
 
 Displacement plots support total magnitude and signed X/Y/Z components. Coordinates and static displacement use **mm**, stress uses **MPa**, frequencies use **Hz**, and normalized mode amplitudes are **dimensionless**. Coordinates are undeformed; the viewport's deformation exaggeration is not applied to the data.
+
+For **axial / normal stress**, select **Sxx**, **Syy** or **Szz**. Positive means tension; negative means compression. For **shear stress**, select **Sxy**, **Syz** or **Szx**; these retain their tensor sign. All six components refer to the model's **global axes**, not an automatically detected beam axis or the surface normal. Choose the normal component along the member's length to examine axial stress in an axis-aligned member. Von Mises is a nonnegative equivalent stress combining all six components. Changing the horizontal position axis does not change the stress component.
+
+These are recovered nodal stresses; peaks near idealized fixed edges or point loads can be singular and depend on mesh refinement. Older runs without a saved stress tensor still offer their saved von Mises plots; solve again to obtain the component plots. Tensor component selections are included in chart labels, CSV metadata and default export filenames.
 
 Position plots show a scatter of **all mesh nodes across the whole model**. They are not line probes or centerline interpolation. Several nodes may share one X/Y/Z position. Histogram counts are mesh-node counts, not volume-weighted material distributions. Adjust the bin count as needed. Modal amplitudes are arbitrary normalized eigenvectors, and modal frequencies are undamped/unprestressed eigenfrequencies. Convergence plots join the actual completed mesh results against element count on a logarithmic horizontal scale; they do not invent additional simulation points.
 

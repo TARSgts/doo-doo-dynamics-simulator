@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QHBox
                                QLabel, QMessageBox, QPushButton, QSpinBox, QVBoxLayout)
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 
-from opensim.plots import (COMPONENTS, PLOT_NAMES, available_plots, make_figure, make_plot_data,
+from opensim.plots import (COMPONENTS, STRESS_COMPONENTS, PLOT_NAMES, available_plots, make_figure, make_plot_data,
                            plot_provenance, write_plot_csv)
 from opensim.project_dialogs import open_folder
 
@@ -37,6 +37,9 @@ class PlotDialog(QDialog):
             self.component.addItem(title, key)
         self.component.setToolTip("Choose total magnitude or a signed X/Y/Z component.")
         row.addWidget(self.component)
+        self.stress_component = QComboBox()
+        self.stress_component.setToolTip("Signed recovered stress in global model axes, in MPa. Normal stress is positive in tension and negative in compression; shear keeps its tensor sign.")
+        row.addWidget(self.stress_component)
         self.mode = QComboBox()
         self.mode.setToolTip("Choose the saved, normalized vibration mode to plot.")
         if source.study == "modal":
@@ -78,7 +81,7 @@ class PlotDialog(QDialog):
             button.clicked.connect(lambda checked=False, action=callback: self.safe(action))
             actions.addWidget(button)
         layout.addLayout(actions)
-        for control in (self.plot_type, self.axis, self.component, self.mode):
+        for control in (self.plot_type, self.axis, self.component, self.stress_component, self.mode):
             control.currentIndexChanged.connect(self.redraw)
         self.bins.valueChanged.connect(self.redraw)
         self.dark_plot.toggled.connect(self.redraw)
@@ -97,10 +100,20 @@ class PlotDialog(QDialog):
         key = self.plot_type.currentData()
         self.axis.setVisible(key.endswith("position"))
         self.component.setVisible(key.startswith("displacement") or key == "mode-position")
+        tensor = key.startswith(("normal-", "shear-"))
+        self.stress_component.setVisible(tensor)
+        if tensor:
+            choices = ("xx", "yy", "zz") if key.startswith("normal-") else ("xy", "yz", "zx")
+            if self.stress_component.itemData(0) != choices[0]:
+                self.stress_component.blockSignals(True)
+                self.stress_component.clear()
+                for choice in choices:
+                    self.stress_component.addItem(STRESS_COMPONENTS[choice], choice)
+                self.stress_component.blockSignals(False)
         self.mode.setVisible(key == "mode-position")
         self.bins.setVisible(key.endswith("distribution"))
         self.data = make_plot_data(self.source, key, "xyz"[self.axis.currentIndex()], self.component.currentData(),
-                                   self.mode.currentData() or 1, self.bins.value())
+                                   self.mode.currentData() or 1, self.bins.value(), self.stress_component.currentData())
         make_figure(self.source, self.data, self.dark_plot.isChecked(), figure=self.figure)
         self.toolbar.update()
         self.canvas.draw_idle()
@@ -119,6 +132,8 @@ class PlotDialog(QDialog):
             key += "-" + "xyz"[self.axis.currentIndex()]
         if key.startswith("displacement") or key.startswith("mode-"):
             key += "-" + self.component.currentData()
+        if key.startswith(("normal-", "shear-")):
+            key += "-" + self.stress_component.currentData()
         if key.startswith("mode-"):
             key += f"-mode{self.mode.currentData()}"
         if "distribution" in key:

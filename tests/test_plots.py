@@ -25,7 +25,8 @@ def saved_source(tmp_path, study="static", arrays=None):
     points = np.array([[0, 0, 0], [0.1, 0.02, 0], [0.2, 0.02, 0.01]])
     if study == "static":
         values = {"points": points, "displacement": np.array([[0, 0, 0], [1e-3, -2e-3, 0], [0, 0, 3e-3]]),
-                  "von_mises_Pa": np.array([0, 1e6, 2e6])}
+                  "von_mises_Pa": np.array([0, 1e6, 2e6]),
+                  "stress": np.array([[1, -2, 3, -4, 5, -6], [-7, 8, -9, 10, -11, 12], [13, -14, 15, -16, 17, -18]]) * 1e6}
         if arrays is not None:
             values.update(arrays)
         np.savez(directory / "fields.npz", **values)
@@ -111,6 +112,47 @@ def test_nonfinite_and_mismatched_archives_are_rejected(tmp_path):
         saved_source(tmp_path / "nan", arrays={"von_mises_Pa": np.array([0, np.nan, 2])})
     with pytest.raises(ValueError, match="does not match"):
         saved_source(tmp_path / "shape", arrays={"displacement": np.zeros((2, 3))})
+    with pytest.raises(ValueError, match="six components"):
+        saved_source(tmp_path / "tensor", arrays={"stress": np.zeros((3, 5))})
+    with pytest.raises(ValueError, match="nonfinite"):
+        saved_source(tmp_path / "tensor-nan", arrays={"stress": np.full((3, 6), np.nan)})
+
+
+@pytest.mark.parametrize("component,index", [("xx", 0), ("yy", 1), ("zz", 2), ("xy", 3), ("yz", 4), ("zx", 5)])
+def test_stress_tensor_components_keep_sign_order_units_and_export(tmp_path, component, index):
+    _, _, source = saved_source(tmp_path)
+    prefix = "normal" if index < 3 else "shear"
+    data = make_plot_data(source, prefix + "-position", axis="z", stress_component=component)
+    expected = np.array([[1, -2, 3, -4, 5, -6], [-7, 8, -9, 10, -11, 12], [13, -14, 15, -16, 17, -18]])[:, index]
+    np.testing.assert_allclose(data.y, expected)
+    np.testing.assert_allclose(data.x, [0, 0, 10])
+    assert "MPa" in data.ylabel and component in data.title
+    assert "Global axes" in data.note
+    path, metadata = write_plot_csv(tmp_path / "component.csv", source, data)
+    with path.open(newline="") as handle:
+        np.testing.assert_allclose([float(row["value_MPa"]) for row in csv.DictReader(handle)], expected)
+    assert component in json.loads(metadata.read_text())["title"]
+    histogram = make_plot_data(source, prefix + "-distribution", stress_component=component, bins=5)
+    assert sum(histogram.y) == 3 and histogram.x[0] < 0
+    with pytest.raises(ValueError, match="matching"):
+        make_plot_data(source, prefix + "-position", stress_component="xy" if index < 3 else "xx")
+
+
+def test_old_results_without_tensor_keep_von_mises_plots(tmp_path):
+    workspace, project, source = saved_source(tmp_path)
+    np.savez(source.directory / "fields.npz", **{key: value for key, value in source.arrays.items() if key != "stress"})
+    source = load_plot_source(workspace, project["id"])
+    assert "stress-position" in available_plots(source)
+    assert "normal-position" not in available_plots(source)
+
+
+def test_uniaxial_and_pure_shear_stresses_match_von_mises_identity(tmp_path):
+    from opensim.stress import von_mises
+    tensor = np.array([[12e6, 0, 0, 0, 0, 0], [-12e6, 0, 0, 0, 0, 0], [0, 0, 0, -4e6, 0, 0]])
+    _, _, source = saved_source(tmp_path, arrays={"stress": tensor, "von_mises_Pa": von_mises(tensor)})
+    np.testing.assert_allclose(make_plot_data(source, "normal-position").y, [12, -12, 0])
+    np.testing.assert_allclose(make_plot_data(source, "shear-position").y, [0, 0, -4])
+    np.testing.assert_allclose(make_plot_data(source, "stress-position").y, [12, 12, 4 * np.sqrt(3)])
 
 
 @pytest.mark.parametrize("study", ["static", "modal", "convergence"])
@@ -148,6 +190,16 @@ def test_plot_dialog_redraw_preserves_navigation_and_marks_historical_data(tmp_p
         np.testing.assert_allclose(dialog.data.y, [0, -2, 0])
         dialog.plot_type.setCurrentIndex(dialog.plot_type.findData("stress-distribution"))
         assert not dialog.bins.isHidden() and dialog.axis.isHidden()
+        dialog.plot_type.setCurrentIndex(dialog.plot_type.findData("normal-position"))
+        assert not dialog.stress_component.isHidden() and dialog.component.isHidden()
+        dialog.stress_component.setCurrentIndex(dialog.stress_component.findData("zz"))
+        np.testing.assert_allclose(dialog.data.y, [3, -9, 15])
+        assert "-zz-" in dialog.default_path(".csv").name
+        dialog.plot_type.setCurrentIndex(dialog.plot_type.findData("shear-distribution"))
+        assert dialog.stress_component.currentData() == "xy"
+        dialog.stress_component.setCurrentIndex(dialog.stress_component.findData("zx"))
+        assert sum(dialog.data.y) == 3 and "Szx" in dialog.data.title
+        assert "-zx-" in dialog.default_path(".csv").name
         workspace.set_parameters(project["id"], {"load_N": 500})
         dialog.update_banner()
         assert "Historical result" in dialog.banner.text()

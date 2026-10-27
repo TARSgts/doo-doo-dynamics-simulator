@@ -39,6 +39,10 @@ PLOT_NAMES = {
     "stress-position": "Von Mises stress vs position",
     "displacement-distribution": "Displacement distribution",
     "stress-distribution": "Von Mises stress distribution",
+    "normal-position": "Axial / normal stress vs position",
+    "normal-distribution": "Axial / normal stress distribution",
+    "shear-position": "Shear stress vs position",
+    "shear-distribution": "Shear stress distribution",
     "frequencies": "Natural frequencies",
     "mode-position": "Mode shape vs position",
     "convergence-displacement": "Maximum displacement vs element count",
@@ -46,6 +50,8 @@ PLOT_NAMES = {
     "convergence-stress": "Maximum stress vs element count",
 }
 COMPONENTS = {"magnitude": "Total magnitude", "x": "X component", "y": "Y component", "z": "Z component"}
+STRESS_COMPONENTS = {"xx": "Normal X · Sxx", "yy": "Normal Y · Syy", "zz": "Normal Z · Szz",
+                     "xy": "Shear XY · Sxy", "yz": "Shear YZ · Syz", "zx": "Shear ZX · Szx"}
 
 
 def load_plot_source(workspace, project_id, study=None):
@@ -65,7 +71,7 @@ def load_plot_source(workspace, project_id, study=None):
         path = directory / filename
         if not path.is_file():
             raise ValueError("This saved run has no plot data. Solve this study again to generate it")
-        keys = ("points", "displacement", "von_mises_Pa") if study == "static" else ("points", "normalized_modes", "frequencies_Hz")
+        keys = ("points", "displacement", "von_mises_Pa", "stress") if study == "static" else ("points", "normalized_modes", "frequencies_Hz")
         with np.load(path, allow_pickle=False) as saved:
             arrays = {key: saved[key].copy() for key in keys if key in saved}
         points = arrays.get("points")
@@ -78,6 +84,8 @@ def load_plot_source(workspace, project_id, study=None):
                 raise ValueError("Saved displacement data does not match the nodes")
             if "von_mises_Pa" in arrays and arrays["von_mises_Pa"].shape != (len(points),):
                 raise ValueError("Saved stress data does not match the nodes")
+            if "stress" in arrays and arrays["stress"].shape != (len(points), 6):
+                raise ValueError("Saved stress tensor must have six components per node")
         else:
             frequencies = arrays.get("frequencies_Hz", np.empty(0))
             if frequencies.ndim != 1 or not len(frequencies) or np.any(frequencies <= 0):
@@ -92,13 +100,15 @@ def available_plots(source):
         result = ["displacement-position", "displacement-distribution"]
         if "von_mises_Pa" in source.arrays:
             result += ["stress-position", "stress-distribution"]
+        if "stress" in source.arrays:
+            result += ["normal-position", "normal-distribution", "shear-position", "shear-distribution"]
         return result
     if source.study == "modal":
         return ["frequencies", "mode-position"]
     return ["convergence-displacement", "convergence-response", "convergence-stress"]
 
 
-def make_plot_data(source, plot, axis="x", component="magnitude", mode=1, bins=30):
+def make_plot_data(source, plot, axis="x", component="magnitude", mode=1, bins=30, stress_component=None):
     if plot not in available_plots(source):
         raise ValueError("This plot is not available for the saved study")
     if axis not in ("x", "y", "z") or component not in COMPONENTS:
@@ -135,8 +145,16 @@ def make_plot_data(source, plot, axis="x", component="magnitude", mode=1, bins=3
     else:
         vectors = source.arrays["displacement"]
         unit, scale = "mm", 1000
+    tensor = plot.startswith(("normal-", "shear-"))
     stress = plot.startswith("stress-")
-    if stress:
+    if tensor:
+        allowed = ("xx", "yy", "zz") if plot.startswith("normal-") else ("xy", "yz", "zx")
+        stress_component = stress_component or allowed[0]
+        if stress_component not in allowed:
+            raise ValueError("Choose a matching normal or shear stress component")
+        values = source.arrays["stress"][:, list(STRESS_COMPONENTS).index(stress_component)] * 1e-6
+        label, unit = "Recovered " + STRESS_COMPONENTS[stress_component], "MPa"
+    elif stress:
         values = source.arrays["von_mises_Pa"] * 1e-6
         label, unit = "Recovered von Mises stress", "MPa"
     else:
@@ -152,11 +170,14 @@ def make_plot_data(source, plot, axis="x", component="magnitude", mode=1, bins=3
         counts, edges = np.histogram(values, bins=bins, range=limits)
         return PlotData(label + " distribution", f"{label} ({unit})", "Mesh node count", "histogram", edges[:-1], counts,
                         {f"bin_lower_{unit}": edges[:-1], f"bin_upper_{unit}": edges[1:], "node_count": counts},
-                        f"{len(values):,} nodal samples. Counts depend on mesh-node density; no volume weighting.", widths=np.diff(edges))
+                        f"{len(values):,} nodal samples. Counts depend on mesh-node density; no volume weighting." +
+                        (" Global axes; normal stress positive in tension, negative in compression. Shear retains its tensor sign." if tensor else ""), widths=np.diff(edges))
     points = source.arrays["points"] * 1000
     x = points[:, "xyz".index(axis)]
     columns = {"node_id": np.arange(1, len(points) + 1), "x_mm": points[:, 0], "y_mm": points[:, 1], "z_mm": points[:, 2], f"value_{unit}": values}
     note = f"{len(values):,} mesh nodes across the whole model; undeformed coordinates."
+    if tensor:
+        note += " Global axes; normal stress positive in tension, negative in compression. Shear retains its tensor sign."
     if modal:
         note += f" Mode {mode}, {source.arrays['frequencies_Hz'][mode - 1]:.6g} Hz; arbitrary normalized amplitude."
     return PlotData(label + f" vs {axis.upper()} position", f"Undeformed {axis.upper()} position (mm)", f"{label} ({unit})", "scatter", x, values, columns, note)
