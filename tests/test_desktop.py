@@ -90,3 +90,38 @@ def test_desktop_has_real_actions_disabled_roadmap_and_shared_state(tmp_path):
         window.view.setPage(None)
         window.deleteLater()
         application.processEvents()
+
+
+def test_cat_translation_toggle_refresh_and_return_to_english_preserve_inputs(tmp_path):
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Geometry Modal Solve — my own project name")
+    workspace.show_project(project["id"])
+    window = SimulatorWindow(workspace)
+    before = workspace.get_project(project["id"])
+    disabled_before = [button.isEnabled() for button in window.findChildren(QPushButton)]
+    try:
+        window.cat_button.click()
+        assert window.language == "cat"
+        assert window.ribbon.tabText(0) == "Cat bed"
+        assert "MEOWMULATOR" in window.application_title.text()
+        assert window.tree.topLevelItem(0).text(0) == project["name"]
+        assert "Do a science, meow" in next(button.text() for button in window.analysis_buttons if "science, meow" in button.text())
+        assert window.fields["young_Pa"].value() == 210
+        assert not window.dirty
+        window.refresh()
+        window.refresh()
+        assert window.ribbon.tabText(0) == "Cat bed"
+        assert workspace.get_project(project["id"]) == before
+        window.cat_button.click()
+        assert window.language == "en"
+        assert window.ribbon.tabText(0) == "Home"
+        assert window.application_title.text() == "DOO DOO DYNAMICS  /  SIMULATOR"
+        assert window.animate_mode.text() == "Animate mode"
+        assert workspace.get_project(project["id"]) == before
+        assert [button.isEnabled() for button in window.findChildren(QPushButton)] == disabled_before
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()

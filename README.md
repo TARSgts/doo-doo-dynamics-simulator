@@ -6,6 +6,8 @@ An independent, open-source simulation platform being built in stages. The first
 
 **Dark mode is the default**, with a persistent Light/Dark toggle in the header and View menu. The viewport follows the selected theme. The Geometry/Validation ribbons include a quadratic cantilever preset.
 
+**Cat mode:** toggle **Cat mode** in the top bar or View menu for an original joke translation. Solve becomes “Do a science, meow,” modal analysis becomes “Find da wiggles,” and density becomes “Chonk density.” It remembers your choice and switches straight back to English. Numbers, units, project names, model inputs and solver data stay intact. [Preview and details](docs/CAT_MODE.md).
+
 The title occupies the top menu bar, and the viewport now uses batched WebGL rendering with pan/zoom controls and a Canvas fallback. The same-beam browser benchmark improved from about 11 to 144 FPS; see [measurement details](docs/VIEWPORT_PERFORMANCE.md).
 
 **Beam verification:** the [Euler–Bernoulli cantilever study](docs/cantilever/REPORT.md) gives 0.139% tip-section displacement error and a 0.0135% last-mesh change for the C3D10 model. Its C3D4 baseline underpredicts deflection by 50.8% at the tested mesh; element choice matters.

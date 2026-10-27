@@ -56,6 +56,8 @@ class Workspace:
                 connection.execute("ALTER TABLE ui ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'")
             if "modal_mode" not in {row["name"] for row in connection.execute("PRAGMA table_info(ui)")}:
                 connection.execute("ALTER TABLE ui ADD COLUMN modal_mode INTEGER NOT NULL DEFAULT 1")
+            if "language" not in {row["name"] for row in connection.execute("PRAGMA table_info(ui)")}:
+                connection.execute("ALTER TABLE ui ADD COLUMN language TEXT NOT NULL DEFAULT 'en'")
 
     def connect(self):
         connection = sqlite3.connect(self.database, timeout=10)
@@ -270,3 +272,9 @@ class Workspace:
             raise ValueError("Theme must be dark or light")
         with self.connect() as connection:
             connection.execute("UPDATE ui SET theme=? WHERE id=1", (theme,))
+
+    def set_language(self, language: str):
+        if language not in {"en", "cat"}:
+            raise ValueError("Language must be en or cat")
+        with self.connect() as connection:
+            connection.execute("UPDATE ui SET language=? WHERE id=1", (language,))

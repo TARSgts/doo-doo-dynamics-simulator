@@ -7,6 +7,7 @@ const nodeCount = simulation.points.length;
 const faceCount = simulation.faces.length;
 const isModal = simulation.summary.analysis === 'modal';
 let modeAnimation = false, modePhase = 1;
+let catMode = false;
 const coordinates = new Float64Array(nodeCount * 3);
 const deformation = new Float64Array(nodeCount * 3);
 const deformed = new Float64Array(nodeCount * 3);
@@ -126,6 +127,7 @@ meshCanvas.addEventListener('webglcontextrestored',()=>{gpuRenderer=createGpuRen
 
 function componentIndex(){return resultComponent==='magnitude'?0:'xyz'.indexOf(resultComponent)+1;}
 function setTheme(theme){themeDark=theme==='dark';document.body.classList.toggle('dark',themeDark);draw();}
+function setCatMode(value){catMode=Boolean(value);draw();}
 function setResultComponent(component){if(!['magnitude','x','y','z'].includes(component))return;resultComponent=component;colorDirty=true;draw();}
 function setViewportMode(mode){if(mode==='modal')mode='results';if(viewportMode!==mode){viewportMode=mode;deformationDirty=true;fitRequested=true;}draw();}
 function setModeAnimation(value){modeAnimation=isModal && Boolean(value);if(!modeAnimation)modePhase=1;draw();}
@@ -204,9 +206,9 @@ function drawFallback(){
 function drawOverlay(){
   const pixel=devicePixelRatio,range=scalarRanges[componentIndex()];
   context.font=`${12*pixel}px Segoe UI`;context.fillStyle=themeDark?'#bbd2ec':'#3a506b';
-  context.fillText(`${simulation.summary.element_type||'Tetrahedra'} · ${faceCount.toLocaleString()} surface triangles · ${gpuRenderer?'WebGL':'Canvas fallback'}`,20*pixel,27*pixel);
+  context.fillText(`${simulation.summary.element_type||'Tetrahedra'} · ${faceCount.toLocaleString()} ${catMode?'tiny triangle beans':'surface triangles'} · ${gpuRenderer?'WebGL':'Canvas fallback'}`,20*pixel,27*pixel);
   if(viewportMode==='results'){
-    context.fillText(isModal?`Mode ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · normalized shape · playback 1 Hz`:`Deformation display: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
+    context.fillText(isModal?`${catMode?'Wiggle':'Mode'} ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · ${catMode?'purr shape · dance speed':'normalized shape · playback'} 1 Hz`:`${catMode?'Wiggle exaggeration':'Deformation display'}: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
     const gradient=context.createLinearGradient(0,75*pixel,0,210*pixel);
     for(let stop=0;stop<=6;stop++)gradient.addColorStop(stop/6,`hsl(${225*stop/6} 75% 57%)`);
     context.fillStyle=gradient;context.fillRect(canvas.width-112*pixel,75*pixel,14*pixel,135*pixel);
@@ -215,7 +217,7 @@ function drawOverlay(){
     context.fillText((range[1]*unitScale).toPrecision(4),canvas.width-92*pixel,85*pixel);context.fillText((range[0]*unitScale).toPrecision(4),canvas.width-92*pixel,210*pixel);
   }
   const anchor=projection.project([bounds[0][0],center[1],center[2]]);
-  context.fillStyle=themeDark?'#41c8d6':'#087f8c';context.beginPath();context.arc(anchor[0],anchor[1],4*pixel,0,2*Math.PI);context.fill();context.fillText('FIXED',anchor[0]-15*pixel,anchor[1]+25*pixel);
+  context.fillStyle=themeDark?'#41c8d6':'#087f8c';context.beginPath();context.arc(anchor[0],anchor[1],4*pixel,0,2*Math.PI);context.fill();context.fillText(catMode?'NO ZOOMIES':'FIXED',anchor[0]-15*pixel,anchor[1]+25*pixel);
   if(simulation.summary.load_point_m){
     const vector=simulation.summary.load_point_displacement_m||[0,0,0];
     const position=simulation.summary.load_point_m.map((value,axis)=>value+factor*vector[axis]);

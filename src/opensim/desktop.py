@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QD
 
 from opensim.workspace import CAPABILITIES, Workspace
 from opensim.results import refresh_viewer
+from opensim.cat_language import cat_text
 
 
 STYLE = """
@@ -95,6 +96,8 @@ class SimulatorWindow(QMainWindow):
         self.project_revision = None
         self.dirty = False
         self.theme = None
+        self.language = None
+        self.presentation_text = {}
         self.analysis_buttons = []
         self.reference_dialogs = {}
         self.setWindowTitle("Doo Doo Dynamics Simulator — Structural Workbench")
@@ -128,6 +131,11 @@ class SimulatorWindow(QMainWindow):
         self.application_title.setObjectName("ApplicationTitle")
         self.application_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_row.addWidget(self.application_title, 1)
+        self.cat_button = QPushButton("Cat mode: OFF")
+        self.cat_button.setCheckable(True)
+        self.cat_button.setAccessibleName("Cat mode joke translation")
+        self.cat_button.toggled.connect(lambda checked: self.set_language("cat" if checked else "en"))
+        header_row.addWidget(self.cat_button)
         self.theme_button = QPushButton("Light mode")
         self.theme_button.setAccessibleName("Toggle dark mode")
         self.theme_button.clicked.connect(lambda: self.set_theme("light" if self.theme == "dark" else "dark"))
@@ -147,6 +155,10 @@ class SimulatorWindow(QMainWindow):
         self.dark_action.setCheckable(True)
         self.dark_action.toggled.connect(lambda checked: self.set_theme("dark" if checked else "light"))
         view_menu.addAction(self.dark_action)
+        self.cat_action = QAction("Cat mode (joke translation)", self)
+        self.cat_action.setCheckable(True)
+        self.cat_action.toggled.connect(lambda checked: self.set_language("cat" if checked else "en"))
+        view_menu.addAction(self.cat_action)
         help_menu.addAction("About", lambda: QMessageBox.information(
             self, "Doo Doo Dynamics Simulator",
             "Independent open-source structural workbench\nGPL-2.0-or-later\n\n"
@@ -554,7 +566,8 @@ class SimulatorWindow(QMainWindow):
     def apply_view_options(self, *args):
         state = self.workspace.ui_state()
         mode = state["view"]
-        self.animate_mode.setText("Pause mode" if self.animate_mode.isChecked() else "Animate mode")
+        animation_label = "Pause mode" if self.animate_mode.isChecked() else "Animate mode"
+        self.animate_mode.setText(cat_text(animation_label) if self.language == "cat" else animation_label)
         scale = ["auto", 1, 10, 100, 500][self.deformation.currentIndex()]
         if mode == "modal":
             scale = "auto"
@@ -562,6 +575,7 @@ class SimulatorWindow(QMainWindow):
         self.view.page().runJavaScript(
             f"if(typeof setViewportMode==='function'){{setViewportMode({json.dumps(mode)});setDeformationScale({json.dumps(scale)});}}"
             f"if(typeof setTheme==='function')setTheme({json.dumps(self.theme)});"
+            f"if(typeof setCatMode==='function')setCatMode({json.dumps(self.workspace.ui_state()['language'] == 'cat')});"
             f"if(typeof setModeAnimation==='function')setModeAnimation({json.dumps(mode == 'modal' and self.animate_mode.isChecked())});"
             f"if(typeof setResultComponent==='function')setResultComponent({json.dumps(component)});")
 
@@ -580,6 +594,56 @@ class SimulatorWindow(QMainWindow):
     def set_theme(self, theme):
         self.workspace.set_theme(theme)
         self.apply_theme()
+        self.apply_language()
+
+    def set_language(self, language):
+        self.workspace.set_language(language)
+        self.apply_language()
+        self.apply_view_options()
+
+    def present_text(self, identity, current, setter):
+        source, rendered = self.presentation_text.get(identity, (current, None))
+        if current != rendered:
+            source = current
+        target = cat_text(source) if self.language == "cat" else source
+        if current != target:
+            setter(target)
+        self.presentation_text[identity] = source, target
+
+    def apply_language(self):
+        previous = self.language
+        self.language = self.workspace.ui_state()["language"]
+        active = self.language == "cat"
+        for control in (self.cat_button, self.cat_action):
+            blocker = QSignalBlocker(control)
+            control.setChecked(active)
+            del blocker
+        self.cat_button.setText("Cat mode: ON" if active else "Cat mode: OFF")
+        self.cat_button.setToolTip("Switch back to English" if active else "A deeply unserious feline translation. Meow.")
+        skipped = {self.cat_button, self.viewport_title, self.status_label}
+        for widget in self.findChildren(QLabel) + self.findChildren(QPushButton) + self.findChildren(QToolButton):
+            if widget not in skipped:
+                self.present_text((widget, "text"), widget.text(), widget.setText)
+        for action in self.findChildren(QAction):
+            if action is not self.cat_action:
+                self.present_text((action, "text"), action.text(), action.setText)
+        for dock in self.findChildren(QDockWidget):
+            self.present_text((dock, "title"), dock.windowTitle(), dock.setWindowTitle)
+        self.present_text((self, "title"), self.windowTitle(), self.setWindowTitle)
+        for index in range(self.ribbon.count()):
+            self.present_text((self.ribbon, index), self.ribbon.tabText(index), lambda value, tab=index: self.ribbon.setTabText(tab, value))
+        for combo in self.findChildren(QComboBox):
+            blocker = QSignalBlocker(combo)
+            for index in range(combo.count()):
+                self.present_text((combo, index), combo.itemText(index), lambda value, item=index, control=combo: control.setItemText(item, value))
+            del blocker
+        for index in range(self.tree.topLevelItemCount()):
+            root = self.tree.topLevelItem(index)
+            for child_index in range(root.childCount()):
+                child = root.child(child_index)
+                self.present_text((self.tree, index, child_index), child.text(0), lambda value, item=child: item.setText(0, value))
+        if previous != self.language:
+            self.apply_view_options()
 
     def apply_theme(self):
         self.theme = self.workspace.ui_state()["theme"]
@@ -720,6 +784,7 @@ class SimulatorWindow(QMainWindow):
                     self.result_cards[1].setText(f"Extracted modes\n{summary['mode_count']}")
                     self.result_cards[2].setText("Mode shape\nNormalized · dimensionless")
                     self.legend.setText(f"  Mode {selected_mode}: {frequency:.6g} Hz · X-min fixed · no prestress · arbitrary amplitude · 1 Hz animation playback")
+                    self.apply_language()
                     return
                 if state["view"] != "results":
                     raise ValueError("Geometry or mesh view")
@@ -736,6 +801,7 @@ class SimulatorWindow(QMainWindow):
                     card.setText(title + "\n—")
                 label = "No solved result for current settings" if state["view"] in {"results", "modal"} else "Undeformed geometry / mesh preview"
                 self.legend.setText(f"  {label}   ·   Drag to rotate")
+        self.apply_language()
 
 
 def main():
