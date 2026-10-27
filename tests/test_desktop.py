@@ -10,6 +10,43 @@ from opensim.desktop import SimulatorWindow
 from opensim.workspace import Workspace
 
 
+def test_reference_report_starts_at_top_and_expands_without_changing_model(tmp_path):
+    from PySide6.QtWidgets import QLabel
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Preserved model")
+    workspace.show_project(project["id"])
+    before = workspace.get_project(project["id"])
+    window = SimulatorWindow(workspace)
+    try:
+        for benchmark in ("timoshenko", "hole"):
+            dialog = window.show_reference_report(benchmark)
+            notice = dialog.findChild(QLabel, "ReferenceNotice")
+            content = dialog.findChild(QWebEngineView, "ReferenceContent")
+            for width, height in ((1250, 850), (800, 600), (640, 420)):
+                dialog.resize(width, height)
+                dialog.layout().activate()
+                application.processEvents()
+                assert notice.height() < 65
+                assert content.y() < 85
+                assert content.height() > dialog.height() * 0.65
+            dialog.close()
+            assert window.show_reference_report(benchmark) is dialog
+            assert content.y() < 85
+            dialog.close()
+        assert workspace.get_project(project["id"]) == before
+        assert workspace.ui_state()["project_id"] == project["id"]
+    finally:
+        for dialog in window.reference_dialogs.values():
+            dialog.findChild(QWebEngineView).setPage(None)
+            dialog.close()
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
 def test_desktop_has_real_actions_disabled_roadmap_and_shared_state(tmp_path):
     application = QApplication.instance() or QApplication([])
     workspace = Workspace(tmp_path)

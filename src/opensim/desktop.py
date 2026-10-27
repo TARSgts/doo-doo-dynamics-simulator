@@ -11,7 +11,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QDoubleSpinBox,
                                QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
                                QLabel, QMainWindow, QMenuBar, QMessageBox, QPlainTextEdit, QPushButton,
-                               QScrollArea, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
+                               QScrollArea, QSizePolicy, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
 from opensim.workspace import CAPABILITIES, Workspace
@@ -441,12 +441,16 @@ class SimulatorWindow(QMainWindow):
         html = document.toHtml().replace("</head>", style + "</head>")
         dialog = QDialog(self)
         dialog.setWindowTitle(titles[benchmark] + " — Published reference study")
+        dialog.setMinimumSize(640, 420)
         dialog.resize(min(1250, self.width()), min(850, self.height()))
         layout = QVBoxLayout(dialog)
         note = QLabel("Published reference benchmark — independent of the currently selected project's settings.")
+        note.setObjectName("ReferenceNotice")
         note.setWordWrap(True)
+        note.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addWidget(note)
         view = QWebEngineView(dialog)
+        view.setObjectName("ReferenceContent")
         view.setAccessibleName(titles[benchmark] + " report")
         view.setHtml(html, QUrl.fromLocalFile(str(directory) + "/"))
         layout.addWidget(view, 1)
