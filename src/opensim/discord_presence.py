@@ -12,6 +12,10 @@ from PySide6.QtNetwork import QLocalSocket
 
 
 DEFAULT_APPLICATION_ID = "1564783884363632670"
+# Public app artwork, pinned to the commit that introduced it so every install
+# gets the same image without uploading files or needing developer credentials.
+PRESENCE_ICON_URL = ("https://raw.githubusercontent.com/TARSgts/doo-doo-dynamics-simulator/"
+                     "c8a32b8a9bfb3a081daa805cb4b42b6fea1c5da5/src/opensim/assets/app-icon.png")
 MAX_FRAME = 1024 * 1024
 
 
@@ -81,7 +85,8 @@ def activity_for(state, active=None, started=None, has_project=True):
     else:
         details = {"geometry": "Preparing a model", "mesh": "Inspecting mesh", "results": "Viewing displacement and stress",
                    "modal": "Viewing vibration modes"}.get(state.get("view"), "Working on a simulation")
-    return {"type": 0, "details": details, "state": study, "timestamps": {"start": int(started or time.time())}}
+    return {"type": 0, "details": details, "state": study, "timestamps": {"start": int(started or time.time())},
+            "assets": {"large_image": PRESENCE_ICON_URL, "large_text": "Doo Doo Dynamics Simulator"}}
 
 
 class DiscordPresence(QObject):

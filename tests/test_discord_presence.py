@@ -11,7 +11,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QSettings
 from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QApplication, QMessageBox
-from opensim.discord_presence import (DEFAULT_APPLICATION_ID, DiscordPresence, FrameReader,
+from opensim.discord_presence import (DEFAULT_APPLICATION_ID, PRESENCE_ICON_URL, DiscordPresence, FrameReader,
                                       activity_for, application_id, encode_frame, load_presence_preferences)
 
 
@@ -103,6 +103,8 @@ def test_activity_has_no_project_paths_names_or_results():
     activity = activity_for(state, job, 100)
     assert activity["details"] == "Calculating natural frequencies"
     assert activity["timestamps"]["start"] == 100
+    assert activity["assets"] == {"large_image": PRESENCE_ICON_URL, "large_text": "Doo Doo Dynamics Simulator"}
+    assert PRESENCE_ICON_URL.startswith("https://raw.githubusercontent.com/TARSgts/doo-doo-dynamics-simulator/")
     assert "secret" not in json.dumps(activity) and "private" not in json.dumps(activity)
     assert "library" in activity_for(state, started=100, has_project=False)["details"]
 
@@ -144,6 +146,7 @@ def test_saved_opt_out_and_custom_id_survive_updates(tmp_path):
 def test_local_ipc_handshake_activity_ack_ping_throttle_and_clear(app, ipc):
     presence, peer, reader = ipc
     message = ready(app, presence, peer, reader)
+    assert message["args"]["activity"]["assets"]["large_image"] == PRESENCE_ICON_URL
     peer.write(encode_frame(3, {"nonce": "ping-test"}))
     peer.flush()
     assert receive(app, peer, reader) == [(4, {"nonce": "ping-test"})]
