@@ -449,7 +449,7 @@ class SimulatorWindow(QMainWindow):
         view = QWebEngineView(dialog)
         view.setAccessibleName(titles[benchmark] + " report")
         view.setHtml(html, QUrl.fromLocalFile(str(directory) + "/"))
-        layout.addWidget(view)
+        layout.addWidget(view, 1)
         close = QPushButton("Back to model")
         close.clicked.connect(dialog.close)
         layout.addWidget(close)
