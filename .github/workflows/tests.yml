@@ -15,4 +15,10 @@ jobs:
         run: ./tools/setup.ps1 -Python python
       - name: Run tests including real solver
         shell: pwsh
+        run: ./.venv/Scripts/python.exe -m pytest tests/test_pipeline.py -q
+      - name: Install desktop and MCP dependencies
+        shell: pwsh
+        run: ./tools/install-desktop.ps1 -Python python
+      - name: Run desktop, MCP and worker tests
+        shell: pwsh
         run: ./.venv/Scripts/python.exe -m pytest -q

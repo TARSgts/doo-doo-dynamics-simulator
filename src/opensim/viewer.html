@@ -5,6 +5,7 @@
 <title>Doo Doo Dynamics Simulator | Structural Results</title>
 <style>
 body{margin:0;background:#101923;color:#e6edf3;font:16px system-ui}main{max-width:1100px;margin:auto;padding:32px}h1{font-size:30px;margin-bottom:8px}p{color:#aebdcb;line-height:1.5}canvas{display:block;width:100%;height:540px;background:#152330;border:1px solid #304457;border-radius:12px;touch-action:none}label{display:block;margin:20px 0}input{width:240px;vertical-align:middle}pre{white-space:pre-wrap;color:#9fdccc}button{background:#25475d;color:white;border:1px solid #4b738c;padding:8px 14px;border-radius:6px}.legend{height:12px;max-width:400px;background:linear-gradient(90deg,#3066ed,#38d9bf,#f2bd40,#ed5030)}
+.desktop{background:#edf1f6}.desktop main{padding:0;margin:0;max-width:none}.desktop main>*:not(canvas){display:none}.desktop canvas{height:100vh;width:100vw;border:0;border-radius:0;background:radial-gradient(ellipse at center,#fafcff,#dfe7f0)}
 </style>
 <main><h1>Doo Doo Dynamics Simulator</h1><p>Linear static structural results · SI units · four-node tetrahedra</p>
 <canvas id="view" aria-label="Rotatable surface mesh colored by displacement magnitude"></canvas>
@@ -14,6 +15,7 @@ body{margin:0;background:#101923;color:#e6edf3;font:16px system-ui}main{max-widt
 <p>Stage 1 research prototype. Stress output is retained in CalculiX FRD format; this viewer shows displacement only.</p></main>
 <script>
 const simulation = __SIMULATION_DATA__;
+if(new URLSearchParams(location.search).has('desktop')) document.body.classList.add('desktop');
 const canvas = document.getElementById('view');
 const context = canvas.getContext('2d');
 const slider = document.getElementById('scale');
@@ -23,12 +25,18 @@ const bounds = [0,1,2].map(axis => [Math.min(...simulation.points.map(point => p
 const center = bounds.map(bound => (bound[0]+bound[1])/2);
 const span = Math.max(...bounds.map(bound => bound[1]-bound[0]));
 let yaw = -0.45, pitch = 0.5, drag = null;
+let viewportMode = simulation.summary.view === 'mesh' ? 'mesh' : 'results';
+let edgeVisibility = true;
+function setViewportMode(mode){viewportMode=mode;draw()}
+function setEdgeVisibility(value){edgeVisibility=value;draw()}
+function setDeformationScale(value){slider.value=value;draw()}
+function resetViewport(){yaw=-0.45;pitch=0.5;draw()}
 function draw(){
   canvas.width = canvas.clientWidth * devicePixelRatio; canvas.height = canvas.clientHeight * devicePixelRatio;
   context.clearRect(0,0,canvas.width,canvas.height);
   const zoom = Math.min(canvas.width,canvas.height)*0.8/span;
   const points = simulation.points.map((point,index) => {
-    const moved = point.map((value,axis) => value-center[axis]+Number(slider.value)*simulation.displacement[index][axis]);
+    const moved = point.map((value,axis) => value-center[axis]+(viewportMode==='results'?Number(slider.value):0)*simulation.displacement[index][axis]);
     const horizontal = moved[0]*Math.cos(yaw)-moved[1]*Math.sin(yaw);
     const depth = moved[0]*Math.sin(yaw)+moved[1]*Math.cos(yaw);
     return [canvas.width/2+horizontal*zoom,canvas.height/2-(moved[2]*Math.cos(pitch)-depth*Math.sin(pitch))*zoom,depth*Math.cos(pitch)+moved[2]*Math.sin(pitch)];
@@ -37,7 +45,7 @@ function draw(){
   for(const face of faces){
     const fraction = maximum ? face.reduce((sum,index)=>sum+magnitudes[index],0)/3/maximum : 0;
     context.beginPath(); face.forEach((index,position)=>position ? context.lineTo(...points[index].slice(0,2)) : context.moveTo(...points[index].slice(0,2))); context.closePath();
-    context.fillStyle = `hsl(${225*(1-fraction)} 75% 57%)`; context.fill(); context.strokeStyle='#14232b88'; context.lineWidth=0.6*devicePixelRatio; context.stroke();
+    context.fillStyle = viewportMode==='results' ? `hsl(${225*(1-fraction)} 75% 57%)` : '#aebed0'; context.fill(); context.strokeStyle='#31485d99'; context.lineWidth=0.6*devicePixelRatio; if(edgeVisibility && viewportMode!=='geometry') context.stroke();
   }
 }
 slider.oninput=()=>{document.getElementById('factor').value=slider.value+'×';draw()};

@@ -61,7 +61,8 @@ def run_solver(executable: Path, directory: Path, timeout: float = 120):
     try:
         completed = subprocess.run([str(executable), "-i", "model"], cwd=directory,
                                    capture_output=True, text=True, errors="replace",
-                                   timeout=timeout, env=environment, shell=False)
+                                   timeout=timeout, env=environment, shell=False,
+                                   creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     except subprocess.TimeoutExpired as error:
         (directory / "solver.log").write_text(str(error), encoding="utf-8")
         raise RuntimeError(f"CalculiX exceeded {timeout} seconds") from error
