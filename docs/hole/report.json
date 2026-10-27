@@ -1,0 +1,164 @@
+{
+  "result": "PASS",
+  "criteria": {
+    "fine_peak_error_below_1_percent": true,
+    "larger_domain_peak_error_below_1_percent": true,
+    "last_mesh_change_below_0_5_percent": true,
+    "domain_change_below_0_5_percent": true,
+    "hoop_curve_error_below_1_percent_of_peak": true,
+    "recovered_radial_stress_below_1_percent_of_remote": true,
+    "peak_at_90_degrees": true,
+    "force_balance_below_1e_5": true,
+    "moment_balance_below_1e_5": true
+  },
+  "reference": "Kirsch: sigma_hoop(a,theta)=sigma_infinity*(1-2*cos(2*theta)); Kt_gross=3",
+  "theoretical_Kt_gross": 3.0,
+  "remote_stress_Pa": 1000000.0,
+  "full_plate_size_m": [
+    0.4,
+    0.4,
+    0.0001
+  ],
+  "hole_diameter_m": 0.01,
+  "material": {
+    "young_Pa": 210000000000.0,
+    "poisson": 0.3
+  },
+  "formulation": "Quarter-symmetry, plane-stress CPS8R",
+  "stress_measure": "Recovered/averaged nodal hoop stress on the circular boundary, not von Mises or raw Gauss-point maximum",
+  "normalization": "Gross remote tensile stress; net-section normalization is reported separately",
+  "last_mesh_change_fraction": 0.0035176548967354774,
+  "domain_change_fraction": 0.0013041636508576654,
+  "fine_reference_error_fraction": 0.0006666666666665932,
+  "cases": [
+    {
+      "case": "coarse",
+      "element_type": "CPS8R",
+      "nodes": 2417,
+      "elements": 768,
+      "radial_divisions": 24,
+      "angular_divisions_per_patch": 16,
+      "half_width_m": 0.2,
+      "hole_radius_m": 0.005,
+      "thickness_m": 0.0001,
+      "remote_stress_Pa": 1000000.0,
+      "peak_hoop_stress_Pa": 2954750.0,
+      "Kt_gross": 2.95475,
+      "Kt_net": 2.8808812500000003,
+      "peak_angle_deg": 90.0,
+      "curve_normalized_max_error": 0.01648460005580728,
+      "hole_radial_residual_over_remote": 0.03173748776278173,
+      "relative_force_imbalance": 5.950137829463147e-08,
+      "reaction_N": [
+        -20.00000119,
+        -8.09999999365485e-09,
+        0.0
+      ],
+      "relative_moment_imbalance": 4.597685465679291e-08,
+      "applied_force_N": [
+        20.0,
+        0.0,
+        0.0
+      ],
+      "solver_sha256": "e18360eb32a5cd48f91a212c57069212cd8e27d2f798a599a78106bd0b3ecc1f",
+      "deck_sha256": "84c6b2ba8eb25dc864153b9385554f0745bd0d4499af4796a0159978c652fe9e"
+    },
+    {
+      "case": "medium",
+      "element_type": "CPS8R",
+      "nodes": 9441,
+      "elements": 3072,
+      "radial_divisions": 48,
+      "angular_divisions_per_patch": 32,
+      "half_width_m": 0.2,
+      "hole_radius_m": 0.005,
+      "thickness_m": 0.0001,
+      "remote_stress_Pa": 1000000.0,
+      "peak_hoop_stress_Pa": 2991440.0,
+      "Kt_gross": 2.99144,
+      "Kt_net": 2.916654,
+      "peak_angle_deg": 90.0,
+      "curve_normalized_max_error": 0.0034621054345982394,
+      "hole_radial_residual_over_remote": 0.00915049033062416,
+      "relative_force_imbalance": 5.5048910160049145e-09,
+      "reaction_N": [
+        -19.99999989,
+        4.640000012250817e-09,
+        0.0
+      ],
+      "relative_moment_imbalance": 1.7240541216878565e-09,
+      "applied_force_N": [
+        20.000000000000004,
+        0.0,
+        0.0
+      ],
+      "solver_sha256": "e18360eb32a5cd48f91a212c57069212cd8e27d2f798a599a78106bd0b3ecc1f",
+      "deck_sha256": "3820667e8fc51b3a3618eed860d93bc2b4bf5c1ad45d4d1ac190c6d5713ec026"
+    },
+    {
+      "case": "fine",
+      "element_type": "CPS8R",
+      "nodes": 37313,
+      "elements": 12288,
+      "radial_divisions": 96,
+      "angular_divisions_per_patch": 64,
+      "half_width_m": 0.2,
+      "hole_radius_m": 0.005,
+      "thickness_m": 0.0001,
+      "remote_stress_Pa": 1000000.0,
+      "peak_hoop_stress_Pa": 3002000.0,
+      "Kt_gross": 3.002,
+      "Kt_net": 2.9269499999999997,
+      "peak_angle_deg": 90.0,
+      "curve_normalized_max_error": 0.0006666666666665932,
+      "hole_radial_residual_over_remote": 0.0024676558831508155,
+      "relative_force_imbalance": 7.250164940748945e-09,
+      "reaction_N": [
+        -20.000000145,
+        9.800000010714432e-10,
+        0.0
+      ],
+      "relative_moment_imbalance": 2.566533596759511e-09,
+      "applied_force_N": [
+        20.000000000000014,
+        0.0,
+        0.0
+      ],
+      "solver_sha256": "e18360eb32a5cd48f91a212c57069212cd8e27d2f798a599a78106bd0b3ecc1f",
+      "deck_sha256": "831203a6ff8d513146d10d4442c9c364615c6a7ced2633c677adaf9802a2e75b"
+    },
+    {
+      "case": "larger-domain",
+      "element_type": "CPS8R",
+      "nodes": 44647,
+      "elements": 14720,
+      "radial_divisions": 115,
+      "angular_divisions_per_patch": 64,
+      "half_width_m": 0.4,
+      "hole_radius_m": 0.005,
+      "thickness_m": 0.0001,
+      "remote_stress_Pa": 1000000.0,
+      "peak_hoop_stress_Pa": 2998090.0,
+      "Kt_gross": 2.99809,
+      "Kt_net": 2.960613875,
+      "peak_angle_deg": 90.0,
+      "curve_normalized_max_error": 0.0008592327337201647,
+      "hole_radial_residual_over_remote": 0.002422341047551017,
+      "relative_force_imbalance": 5.030970908228537e-10,
+      "reaction_N": [
+        -40.00000001999997,
+        -2.2300000027987432e-09,
+        0.0
+      ],
+      "relative_moment_imbalance": 1.1998539384272525e-09,
+      "applied_force_N": [
+        40.00000000000003,
+        0.0,
+        0.0
+      ],
+      "solver_sha256": "e18360eb32a5cd48f91a212c57069212cd8e27d2f798a599a78106bd0b3ecc1f",
+      "deck_sha256": "41c68c8704f826eef3bbbd7decc976c9a2ea105872825cfd47c6b3d744d7c0f0"
+    }
+  ],
+  "limitations": "Kirsch is an infinite-plate reference. Finite domain and recovered stress discretization errors remain; this is an elastic plane-stress benchmark."
+}

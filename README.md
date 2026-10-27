@@ -10,6 +10,8 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 **Beam verification:** the [Euler–Bernoulli cantilever study](docs/cantilever/REPORT.md) gives 0.139% tip-section displacement error and a 0.0135% last-mesh change for the C3D10 model. Its C3D4 baseline underpredicts deflection by 50.8% at the tested mesh; element choice matters.
 
+**Hole stress verification:** the [thin-plate circular-hole study](docs/hole/REPORT.md) gives a gross stress concentration factor of **3.002**, versus Kirsch's **3** (0.067% error). Three quadratic plane-stress meshes and a doubled-domain check separate mesh and finite-plate effects. This is a dedicated benchmark; general desktop stress contours remain planned.
+
 ![Displacement viewer](docs/viewer-preview.png)
 
 ## Working now
@@ -34,6 +36,7 @@ This checkout already has a project environment and CalculiX installed. From the
 Start-Process .\runs\my-bar\results.html
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\open-sim.exe validate-cantilever --out runs\beam-validation
+.\.venv\Scripts\open-sim.exe validate-hole --out runs\hole-validation
 ```
 
 The supplied `examples/axial-bar.step` is a generated 1 × 0.1 × 0.1 bar. Use a new output folder for each run; existing run folders are deliberately preserved. Failed runs retain their input/log files and should be inspected before retrying into a new folder.

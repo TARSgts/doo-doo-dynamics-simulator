@@ -87,9 +87,17 @@ def main():
     commands.add_parser("doctor", help="Show installed mesher and solver paths")
     validation = commands.add_parser("validate-cantilever", help="Run point-tip beam validation and a mesh study")
     validation.add_argument("--out", type=Path, required=True)
+    hole = commands.add_parser("validate-hole", help="Validate thin-plate hole stress concentration against Kirsch")
+    hole.add_argument("--out", type=Path, required=True)
     arguments = parser.parse_args()
     try:
-        if arguments.command == "validate-cantilever":
+        if arguments.command == "validate-hole":
+            from opensim.hole_validation import run_hole_validation
+            report = run_hole_validation(arguments.out)
+            print(json.dumps(report, indent=2))
+            if report["result"] != "PASS":
+                parser.exit(1, "Hole stress-concentration validation did not meet acceptance criteria\n")
+        elif arguments.command == "validate-cantilever":
             from opensim.validation import run_cantilever_validation
             report = run_cantilever_validation(arguments.out)
             print(json.dumps(report, indent=2))
