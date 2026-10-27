@@ -6,8 +6,8 @@ from pathlib import Path
 import sys
 import time
 
-from PySide6.QtCore import Qt, QSignalBlocker, QTimer, QUrl
-from PySide6.QtGui import QAction, QFont, QIcon, QTextDocument
+from PySide6.QtCore import Qt, QPointF, QSignalBlocker, QTimer, QUrl
+from PySide6.QtGui import QAction, QFont, QIcon, QTextDocument, QWheelEvent
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QDoubleSpinBox,
                                QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLineEdit,
@@ -90,6 +90,31 @@ QScrollBar:vertical { background:#19273b; }
 QScrollBar::handle:vertical { background:#425c7e; }
 QWidget#ApplicationHeader { background:#0d1420; }
 """
+
+
+def forward_wheel_to_panel(control, event):
+    parent = control.parentWidget()
+    while parent is not None and not isinstance(parent, QScrollArea):
+        parent = parent.parentWidget()
+    if parent is None:
+        event.ignore()
+        return
+    viewport = parent.viewport()
+    position = QPointF(viewport.mapFromGlobal(event.globalPosition().toPoint()))
+    forwarded = QWheelEvent(position, event.globalPosition(), event.pixelDelta(), event.angleDelta(), event.buttons(),
+                            event.modifiers(), event.phase(), event.inverted(), event.source(), event.pointingDevice())
+    QApplication.sendEvent(viewport, forwarded)
+    event.accept()
+
+
+class ScrollSafeDoubleSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event):
+        forward_wheel_to_panel(self, event)
+
+
+class ScrollSafeSpinBox(QSpinBox):
+    def wheelEvent(self, event):
+        forward_wheel_to_panel(self, event)
 
 
 class SimulatorWindow(QMainWindow):
@@ -356,7 +381,7 @@ class SimulatorWindow(QMainWindow):
                        ("density_kg_m3", "Density (kg/m³)", 0.001, 1e9, 7850, 3),
                        ("load_N", "Total force (N)", -1e12, 1e12, 1000, 3)]
         for key, label, minimum, maximum, value, decimals in definitions:
-            field = QDoubleSpinBox()
+            field = ScrollSafeDoubleSpinBox()
             field.setRange(minimum, maximum)
             field.setDecimals(decimals)
             field.setValue(value)
@@ -368,7 +393,7 @@ class SimulatorWindow(QMainWindow):
             self.fields[key] = field
             form.addRow(label, field)
         layout.addLayout(form)
-        mode_count = QSpinBox()
+        mode_count = ScrollSafeSpinBox()
         mode_count.setRange(1, 30)
         mode_count.setValue(6)
         mode_count.setAccessibleName("Requested modes")

@@ -10,6 +10,50 @@ from opensim.desktop import SimulatorWindow
 from opensim.workspace import Workspace
 
 
+def test_number_fields_ignore_wheel_without_changing_inputs_but_keep_keyboard_controls(tmp_path):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QScrollArea
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Wheel guard")
+    workspace.show_project(project["id"])
+    window = SimulatorWindow(workspace)
+    try:
+        scroll = window.findChild(QScrollArea, "PropertiesScroll")
+        scroll.setFixedHeight(250)
+        window.show()
+        application.processEvents()
+        bar = scroll.verticalScrollBar()
+        assert bar.maximum() > 0
+        field = window.fields["mesh_size_m"]
+        event = QWheelEvent(QPointF(5, 5), QPointF(field.mapToGlobal(QPoint(5, 5))), QPoint(), QPoint(0, -120),
+                            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+        application.sendEvent(field, event)
+        assert bar.value() > 0
+        for field in window.fields.values():
+            original = field.value()
+            for focused in (False, True):
+                field.setFocus() if focused else field.clearFocus()
+                for delta in (-120, 120):
+                    event = QWheelEvent(QPointF(5, 5), QPointF(field.mapToGlobal(QPoint(5, 5))), QPoint(), QPoint(0, delta),
+                                        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+                    application.sendEvent(field, event)
+                    assert field.value() == original
+        assert not window.dirty
+        assert workspace.get_project(project["id"])["revision"] == 0
+        field = window.fields["mode_count"]
+        original = field.value()
+        QTest.keyClick(field, Qt.Key.Key_Up)
+        assert field.value() == original + 1
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
 def test_bottom_progress_busy_completed_failed_and_project_switch(tmp_path):
     import time
     application = QApplication.instance() or QApplication([])
