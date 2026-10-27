@@ -10,24 +10,23 @@ from opensim.geometry import import_and_mesh
 from opensim.modal_parameters import validate_modal_parameters
 from opensim.results import write_viewer, write_vtk
 from opensim.solver import find_solver, run_solver
+from opensim.regions import support_nodes
 
 
-def write_modal_deck(mesh, path, young, poisson, density, mode_count):
+def write_modal_deck(mesh, path, young, poisson, density, mode_count, support_region=None, length_scale=1.0):
     validate_modal_parameters(density, mode_count)
     if not np.isfinite(young) or young <= 0 or not np.isfinite(poisson) or not -1 < poisson < 0.5:
         raise ValueError("Use positive finite Young's modulus and Poisson ratio strictly between -1 and 0.5")
-    fixed = mesh.end_nodes("min")
-    if len(fixed) < 3 or np.linalg.matrix_rank(mesh.points[fixed] - mesh.points[fixed[0]]) < 2:
-        raise ValueError("The X-min fixed support needs a planar face with noncollinear nodes")
+    fixed = support_nodes(mesh, support_region)
     lines = ["*HEADING", "Independent undamped unprestressed modal analysis", "*NODE, NSET=NALL"]
-    lines.extend(f"{index + 1}, " + ", ".join(f"{value:.15g}" for value in point) for index, point in enumerate(mesh.points))
+    lines.extend(f"{index + 1}, " + ", ".join(f"{value:.15g}" for value in point) for index, point in enumerate(mesh.points * length_scale))
     lines.append(f"*ELEMENT, TYPE={mesh.element_type}, ELSET=SOLID")
     lines.extend(f"{index + 1}, " + ", ".join(str(int(node) + 1) for node in element)
                  for index, element in enumerate(mesh.tetrahedra))
     lines.append("*NSET, NSET=FIX")
     lines.extend(str(int(node) + 1) for node in fixed)
-    lines.extend(["*MATERIAL, NAME=ELASTIC", "*ELASTIC", f"{young:.15g}, {poisson:.15g}",
-                  "*DENSITY", f"{density:.15g}", "*SOLID SECTION, ELSET=SOLID, MATERIAL=ELASTIC", "*BOUNDARY", "FIX, 1, 3, 0",
+    lines.extend(["*MATERIAL, NAME=ELASTIC", "*ELASTIC", f"{young / length_scale ** 2:.15g}, {poisson:.15g}",
+                  "*DENSITY", f"{density / length_scale ** 4:.15g}", "*SOLID SECTION, ELSET=SOLID, MATERIAL=ELASTIC", "*BOUNDARY", "FIX, 1, 3, 0",
                   "*STEP", "*FREQUENCY, SOLVER=SPOOLES", str(mode_count), "*NODE PRINT, NSET=NALL", "U", "*NODE FILE", "U", "*END STEP"])
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
 
@@ -86,27 +85,30 @@ def parse_modal_dat(path: Path, node_count: int, mode_count: int):
 
 
 def solve_modal(cad: Path, output: Path, size=0.01, scale=1.0, young=210e9,
-                poisson=0.3, density=7850.0, mode_count=6, ccx=None, order=2):
+                poisson=0.3, density=7850.0, mode_count=6, ccx=None, order=2, support_region=None):
     validate_modal_parameters(density, mode_count)
     executable = find_solver(ccx)
     if not cad.is_file():
         raise FileNotFoundError(cad)
     output.mkdir(parents=True, exist_ok=False)
     mesh = import_and_mesh(cad, size, scale, output / "mesh.msh", order=order)
-    write_modal_deck(mesh, output / "model.inp", young, poisson, density, mode_count)
+    solver_length_scale = 1000.0 if support_region else 1.0
+    write_modal_deck(mesh, output / "model.inp", young, poisson, density, mode_count, support_region, solver_length_scale)
     run_solver(executable, output)
     frequencies, eigenvalues, raw_modes = parse_modal_dat(output / "model.dat", len(mesh.points), mode_count)
     maxima = np.max(np.linalg.norm(raw_modes, axis=2), axis=1)
     shapes = raw_modes / maxima[:, None, None]
     for shape in shapes:
         shape *= np.sign(shape.flat[np.abs(shape).argmax()])
-    clamp_residual = float(np.abs(shapes[:, mesh.end_nodes("min")]).max())
+    clamp_residual = float(np.abs(shapes[:, support_nodes(mesh, support_region)]).max())
     if clamp_residual > 1e-8:
         raise ValueError("Mode shapes violate the fixed support")
     summary = {"analysis": "modal", "nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra),
                "element_type": mesh.element_type, "mode_count": mode_count, "frequencies_Hz": frequencies.tolist(),
                "eigenvalues_rad2_s2": eigenvalues.tolist(), "young_Pa": young, "poisson": poisson,
-               "density_kg_m3": density, "boundary_condition": "X-min face fully fixed; all other boundaries free",
+               "density_kg_m3": density, "boundary_condition": "Selected surface fully fixed; all other boundaries free" if support_region else "X-min face fully fixed; all other boundaries free",
+               "support_region": support_region or {}, "support_point_m": mesh.points[support_nodes(mesh, support_region)].mean(axis=0).tolist(),
+               "cad_faces": mesh.surface_catalog(),
                "clamp_shape_residual": clamp_residual,
                "normalization": "Each displayed eigenvector has maximum nodal vector magnitude 1 (dimensionless)",
                "interpretation": "Undamped, unprestressed free vibration; no static loads. Display amplitude and animation speed are arbitrary."}
@@ -118,6 +120,7 @@ def solve_modal(cad: Path, output: Path, size=0.01, scale=1.0, young=210e9,
                         frequencies_Hz=frequencies, eigenvalues=eigenvalues, raw_modes=raw_modes,
                         normalized_modes=shapes, raw_maxima=maxima)
     manifest = {"schema_version": 1, "analysis": "modal", "cad_path": str(cad.resolve()), "cad_sha256": digest(cad),
+                "solver_length_unit_m": 1 / solver_length_scale, "solver_density_unit_kg_m3": solver_length_scale ** 4,
                 "ccx_path": str(executable), "ccx_sha256": digest(executable), "deck_sha256": digest(output / "model.inp"),
                 "mesh_size_m": size, "cad_scale_to_m": scale, "element_order": order,
                 "gmsh": importlib.metadata.version("gmsh"), "numpy": np.__version__, "summary": summary}

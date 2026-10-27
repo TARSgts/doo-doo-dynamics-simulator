@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import gmsh
@@ -10,6 +10,7 @@ import numpy as np
 class Mesh:
     points: np.ndarray
     tetrahedra: np.ndarray
+    surface_groups: dict = field(default_factory=dict)
 
     @property
     def element_type(self) -> str:
@@ -71,6 +72,17 @@ class Mesh:
         if area_sum <= 0:
             raise ValueError("No planar tip surface available for area averaging")
         return integrated / area_sum
+
+    def surface_catalog(self):
+        result = []
+        for tag, faces in self.surface_groups.items():
+            corners = self.points[np.asarray(faces, dtype=int)[:, :3]]
+            areas = np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1) / 2
+            area = float(areas.sum())
+            if area > 0:
+                result.append({"id": int(tag), "triangles": len(faces), "area_m2": area,
+                               "centroid_m": (np.sum(corners.mean(axis=1) * areas[:, None], axis=0) / area).tolist()})
+        return result
 
 
 @contextmanager
@@ -156,4 +168,14 @@ def import_and_mesh(path: Path, size: float, scale: float, output: Path, order=1
         if len(tetrahedra) == 0 or np.any(determinants <= 0):
             raise ValueError("Mesh contains empty, inverted or degenerate tetrahedra")
         gmsh.write(str(output.resolve()))
-        return Mesh(points, tetrahedra)
+        surface_groups = {}
+        for _, tag in gmsh.model.getEntities(2):
+            surface_types, _, surface_connectivity = gmsh.model.mesh.getElements(2, tag)
+            faces = []
+            for element_type, records in zip(surface_types, surface_connectivity):
+                width = {2: 3, 9: 6}.get(int(element_type))
+                if width is None:
+                    raise ValueError("Unsupported surface mesh element")
+                faces.extend([[node_map[int(node)] for node in row] for row in records.reshape(-1, width)])
+            surface_groups[str(tag)] = faces
+        return Mesh(points, tetrahedra, surface_groups)

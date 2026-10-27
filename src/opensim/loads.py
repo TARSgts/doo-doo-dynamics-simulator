@@ -13,7 +13,7 @@ class AppliedLoad:
     faces: list
 
 
-def assemble_load(mesh, total_force, axis="x", kind="face", surface="x-max"):
+def assemble_load(mesh, total_force, axis="x", kind="face", surface="x-max", region=None):
     if not np.isfinite(total_force) or total_force == 0:
         raise ValueError("Total force must be finite and nonzero")
     if axis not in "xyz" or len(axis) != 1 or kind not in LOAD_KINDS or surface not in LOAD_SURFACES:
@@ -30,8 +30,10 @@ def assemble_load(mesh, total_force, axis="x", kind="face", surface="x-max"):
     target = mesh.points[:, coordinate_axis].min() if surface.endswith("min") else mesh.points[:, coordinate_axis].max()
     tolerance = float(np.ptp(mesh.points, axis=0).max()) * 1e-8
     area_sum, first_moment, faces = 0.0, np.zeros(3), []
-    for face in mesh.boundary_elements():
-        if not np.all(np.abs(mesh.points[face, coordinate_axis] - target) <= tolerance):
+    from opensim.regions import selected_faces
+    candidates = selected_faces(mesh, region) if region else mesh.boundary_elements()
+    for face in candidates:
+        if not region and not np.all(np.abs(mesh.points[face, coordinate_axis] - target) <= tolerance):
             continue
         corners = mesh.points[face[:3]]
         area = np.linalg.norm(np.cross(corners[1] - corners[0], corners[2] - corners[0])) / 2

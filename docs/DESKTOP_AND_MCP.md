@@ -93,6 +93,8 @@ Typical sequence: create project → set parameters → create/import CAD → wa
 
 ## Verified behavior
 
+The properties panel wraps explanations and keeps controls inside the dock at narrow/wide sizes in both languages. The current suite contains 128 passing tests. Selected support/load regions and recovered stress contours are documented in [surface regions](SURFACE_REGIONS.md), including the native-unit conversion and limitations of fully fixed support approximations.
+
 Modal analysis is now enabled in the desktop toolbox and Solution ribbon. Density, mode count, mode selection and normalized animation are available; see [modal setup](MODAL.md) and [validation](modal/REPORT.md). The MCP catalog has expanded from 13 to **16** tools with `set_modal_parameters`, `run_modal_analysis` and `get_modal_results`. `show_in_desktop` also accepts `view="modal"` and a `mode` number. Static and modal results stay separate and both reject stale revisions. Reconnect an existing MCP client to discover the new catalog.
 
 The full suite passes 116 tests locally, including real MCP stdio modal and distributed-load solves, persistent theme and joke-language toggling, parameter validation, disabled UI controls, saved-viewer upgrades, top-header placement, C3D10 node mapping and quadratic face/load integration, point-force deck generation, cross-process jobs, stale-result rejection, malformed-CAD failure and the structural benchmarks. The [cantilever report](cantilever/REPORT.md) documents the bending comparison and mesh refinement. A separate MCP workflow configured the quadratic beam, applied its point load, solved it, selected its desktop results view and enabled dark mode.

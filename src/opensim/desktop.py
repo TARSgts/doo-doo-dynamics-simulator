@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QSignalBlocker, QTimer, QUrl
 from PySide6.QtGui import QAction, QFont, QTextDocument
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QDoubleSpinBox,
-                               QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
+                               QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLineEdit,
                                QLabel, QMainWindow, QMenuBar, QMessageBox, QPlainTextEdit, QPushButton,
                                QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
@@ -199,7 +199,7 @@ class SimulatorWindow(QMainWindow):
             "Environment": [("Apply settings", "Material / axial force", self.save_parameters),
                             ("Face selection", "Planned", None), ("Contact", "Planned", None)],
             "Solution": [("Solve", "CalculiX static", self.solve), ("Displacement", "Current result", lambda: self.change_view("results")),
-                         ("Stress contours", "Planned", None), ("Modal", "Natural frequencies", self.modal), ("Thermal", "Planned", None)],
+                         ("Stress contours", "Recovered von Mises", self.show_stress), ("Modal", "Natural frequencies", self.modal), ("Thermal", "Planned", None)],
             "Automation": [("MCP status", "16 local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
                            ("Remote access", "Planned", None)],
             "Validation": [("Cantilever", "Create beam preset", self.create_beam),
@@ -246,13 +246,15 @@ class SimulatorWindow(QMainWindow):
         self.deformation.currentIndexChanged.connect(self.apply_view_options)
         tool_row.addWidget(self.deformation)
         self.camera = QComboBox()
-        self.camera.addItems(["Iso", "Front XZ", "Top XY"])
+        self.camera.addItems(["Iso", "Front XZ", "Top XY", "Front XZ · flipped"])
         self.camera.setToolTip("Camera orientation")
         self.camera.currentIndexChanged.connect(self.apply_camera)
         tool_row.addWidget(self.camera)
         self.result_component = QComboBox()
         self.result_component.addItems(["Total |U|", "Ux", "Uy", "Uz"])
+        self.result_component.addItem("von Mises stress")
         self.result_component.currentIndexChanged.connect(self.apply_view_options)
+        self.result_component.currentIndexChanged.connect(lambda: self.refresh())
         tool_row.addWidget(self.result_component)
         layout.addWidget(tools)
         self.modal_tools = QWidget()
@@ -359,13 +361,27 @@ class SimulatorWindow(QMainWindow):
             selector.currentIndexChanged.connect(self.mark_dirty)
             form.addRow(label, selector)
             self.selectors[key] = selector
-        note = QLabel("Fixed support: X-min face\nTraction: total force (N) spread uniformly over the selected bounding-plane surface.\nSurface selector applies only to traction.\nModal: no loads or prestress.")
+        for control in list(self.fields.values()) + list(self.selectors.values()):
+            label_widget = form.labelForField(control)
+            label_widget.setWordWrap(True)
+            label_widget.setMinimumWidth(0)
+            label_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        note = QLabel("Default support: X-min face. Selected regions override defaults.\nTraction: total force (N) spread uniformly over the selected surface.\nBounding-plane selector is used when no load region is set.\nModal: no loads or prestress.")
         note.setWordWrap(True)
         note.setStyleSheet("color:#6f8094;padding:6px")
         layout.addWidget(note)
         self.apply_button = QPushButton("Apply settings")
         self.apply_button.clicked.connect(lambda: self.safe(self.save_parameters))
         layout.addWidget(self.apply_button)
+        self.region_button = QPushButton("Support / load regions…")
+        self.region_button.setMinimumWidth(100)
+        self.region_button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.region_button.clicked.connect(lambda: self.safe(self.edit_regions))
+        self.analysis_buttons.append(self.region_button)
+        layout.addWidget(self.region_button)
+        self.region_note = QLabel("Support: X-min default. Load: selected bounding plane.")
+        self.region_note.setWordWrap(True)
+        layout.addWidget(self.region_note)
         self.details_note = QLabel("SI units are stored with every job.")
         self.details_note.setWordWrap(True)
         self.details_note.setStyleSheet("color:#8290a2;padding:6px")
@@ -553,6 +569,74 @@ class SimulatorWindow(QMainWindow):
         self.workspace.start_job(self.require_project(), "modal")
         self.workspace.show_project(self.project_id, "modal")
 
+    def show_stress(self):
+        result = self.workspace.get_results(self.require_project())
+        if "maximum_von_mises_Pa" not in result["summary"]:
+            raise ValueError("Solve again to generate recovered stress contours")
+        self.workspace.show_project(self.project_id, "results")
+        self.result_component.setCurrentIndex(4)
+        self.refresh()
+
+    def edit_regions(self):
+        self.save_parameters()
+        project = self.workspace.get_project(self.require_project())
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Support and load surface regions")
+        dialog.resize(600, 380)
+        layout = QVBoxLayout(dialog)
+        note = QLabel("Enter CAD face IDs separated by commas. An optional box selects triangles whose centers lie inside it. Box values are xmin,ymin,zmin,xmax,ymax,zmax in mm. Empty support uses X-min; empty load uses the bounding plane. A selected support is fully fixed—this does not simulate contact or sliding.")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        entries = {}
+        for key, caption in (("support_region", "Fixed support"), ("load_region", "Uniform traction")):
+            region = project["parameters"][key]
+            face_input = QLineEdit(", ".join(str(value) for value in region.get("faces", [])))
+            box_input = QLineEdit(", ".join(f"{value * 1000:g}" for value in region.get("box_m", [])))
+            form.addRow(caption + " CAD faces", face_input)
+            form.addRow(caption + " box (mm)", box_input)
+            entries[key] = face_input, box_input
+        layout.addLayout(form)
+        error = QLabel()
+        error.setWordWrap(True)
+        layout.addWidget(error)
+        catalogue = []
+        for job in self.workspace.list_jobs(project["id"]):
+            if job["status"] == "completed" and job["revision"] == project["revision"] and job.get("result"):
+                catalogue = job["result"].get("cad_faces", [])
+                if catalogue:
+                    break
+        face_list = QPlainTextEdit()
+        face_list.setReadOnly(True)
+        face_list.setPlainText("CAD face | area mm² | center X,Y,Z mm\n" + "\n".join(
+            f"{face['id']} | {face['area_m2'] * 1e6:.4g} | " + ", ".join(f"{value * 1000:.4g}" for value in face["centroid_m"])
+            for face in catalogue) if catalogue else "Generate a mesh to list CAD face IDs and centers.")
+        layout.addWidget(face_list)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        layout.addWidget(buttons)
+        buttons.rejected.connect(dialog.reject)
+        def save():
+            try:
+                parameters = {}
+                for key, (face_input, box_input) in entries.items():
+                    region = {}
+                    if face_input.text().strip():
+                        region["faces"] = json.loads("[" + face_input.text() + "]")
+                    if box_input.text().strip():
+                        region["box_m"] = [value / 1000 for value in json.loads("[" + box_input.text() + "]")]
+                    parameters[key] = region
+                if parameters["load_region"]:
+                    parameters["load_kind"] = "traction"
+                self.workspace.set_parameters(project["id"], parameters)
+                self.project_revision = None
+                dialog.accept()
+                self.refresh()
+            except (ValueError, TypeError) as failure:
+                error.setText(str(failure))
+        buttons.accepted.connect(save)
+        dialog.exec()
+
     def select_mode(self, *args):
         if self.modal_selector.currentData() is not None and self.project_id:
             self.workspace.show_project(self.project_id, "modal", self.modal_selector.currentData())
@@ -584,7 +668,7 @@ class SimulatorWindow(QMainWindow):
         scale = ["auto", 1, 10, 100, 500][self.deformation.currentIndex()]
         if mode == "modal":
             scale = "auto"
-        component = ["magnitude", "x", "y", "z"][self.result_component.currentIndex()]
+        component = ["magnitude", "x", "y", "z", "stress"][self.result_component.currentIndex()]
         self.view.page().runJavaScript(
             f"if(typeof setViewportMode==='function'){{setViewportMode({json.dumps(mode)});setDeformationScale({json.dumps(scale)});}}"
             f"if(typeof setTheme==='function')setTheme({json.dumps(self.theme)});"
@@ -593,7 +677,7 @@ class SimulatorWindow(QMainWindow):
             f"if(typeof setResultComponent==='function')setResultComponent({json.dumps(component)});")
 
     def apply_camera(self, *args):
-        orientation = ["isometric", "front", "top"][self.camera.currentIndex()]
+        orientation = ["isometric", "front", "top", "flipped-front"][self.camera.currentIndex()]
         self.view.page().runJavaScript(f"if(typeof setViewOrientation==='function')setViewOrientation({json.dumps(orientation)});")
 
     def viewer_for_artifact(self, artifact):
@@ -671,6 +755,11 @@ class SimulatorWindow(QMainWindow):
     def refresh(self):
         self.workspace.heartbeat()
         state = self.workspace.ui_state()
+        self.result_component.model().item(4).setEnabled(state["view"] == "results")
+        if state["view"] == "modal" and self.result_component.currentIndex() == 4:
+            blocker = QSignalBlocker(self.result_component)
+            self.result_component.setCurrentIndex(0)
+            del blocker
         if state["theme"] != self.theme:
             self.apply_theme()
         projects = self.workspace.list_projects()
@@ -683,6 +772,8 @@ class SimulatorWindow(QMainWindow):
             self.project_revision = None
             self.dirty = False
         project = self.workspace.get_project(selected) if selected else None
+        if project:
+            self.region_note.setText("Support region: " + json.dumps(project["parameters"]["support_region"]) + "\nLoad region: " + json.dumps(project["parameters"]["load_region"]))
         if project_changed and project:
             transverse_point = project["parameters"]["load_kind"] == "point" and project["parameters"]["load_axis"] == "z"
             self.camera.setCurrentIndex(1 if transverse_point else 0)
@@ -697,10 +788,11 @@ class SimulatorWindow(QMainWindow):
                 self.tree.addTopLevelItem(root)
                 element = "C3D10" if entry["parameters"]["element_order"] == 2 else "C3D4"
                 axis = entry["parameters"]["load_axis"].upper()
-                application = ("uniform traction / " + entry["parameters"]["load_surface"] if entry["parameters"]["load_kind"] == "traction"
+                application = ("selected load region" if entry["parameters"]["load_region"] else "uniform traction / " + entry["parameters"]["load_surface"] if entry["parameters"]["load_kind"] == "traction"
                                else "tip point" if entry["parameters"]["load_kind"] == "point" else "end face (equal nodes)")
+                support_caption = "Selected region" if entry["parameters"]["support_region"] else "X-min"
                 for label, view in (("Geometry (single solid)", "geometry"), (f"Mesh / {element}", "mesh"),
-                                    ("Static Structural", "geometry"), ("  Fixed Support / X-min", "geometry"),
+                                    ("Static Structural", "geometry"), ("  Fixed Support / " + support_caption, "geometry"),
                                     (f"  Static force / {axis} · {application}", "geometry"), ("Solution / Displacement", "results"),
                                     ("Modal / Natural frequencies", "modal")):
                     child = QTreeWidgetItem([label])
@@ -799,19 +891,25 @@ class SimulatorWindow(QMainWindow):
                     self.result_cards[0].setText(f"Mode {selected_mode} frequency\n{frequency:.6g} Hz")
                     self.result_cards[1].setText(f"Extracted modes\n{summary['mode_count']}")
                     self.result_cards[2].setText("Mode shape\nNormalized · dimensionless")
-                    self.legend.setText(f"  Mode {selected_mode}: {frequency:.6g} Hz · X-min fixed · no prestress · arbitrary amplitude · 1 Hz animation playback")
+                    support_label = "selected support fixed" if summary.get("support_region") else "X-min fixed"
+                    self.legend.setText(f"  Mode {selected_mode}: {frequency:.6g} Hz · {support_label} · no prestress · arbitrary amplitude · 1 Hz animation playback")
                     self.apply_language()
                     return
                 if state["view"] != "results":
                     raise ValueError("Geometry or mesh view")
                 summary = self.workspace.get_results(selected)["summary"]
-                self.result_cards[0].setText(f"Maximum |U|\n{summary['maximum_displacement_m'] * 1000:.6g} mm")
-                tip = summary.get("tip_mean_displacement_m", [0, 0, 0])
+                self.result_cards[0].setText(f"Maximum recovered von Mises\n{summary['maximum_von_mises_Pa'] / 1e6:.6g} MPa" if self.result_component.currentIndex() == 4 and "maximum_von_mises_Pa" in summary
+                                           else f"Maximum |U|\n{summary['maximum_displacement_m'] * 1000:.6g} mm")
+                selected_load = bool(summary.get("load_region"))
+                tip = summary.get("loaded_surface_mean_displacement_m", [0, 0, 0]) if selected_load else summary.get("tip_mean_displacement_m") or summary.get("loaded_surface_mean_displacement_m", [0, 0, 0])
                 axis = summary.get("load_axis", "x")
-                self.result_cards[1].setText(f"Tip mean U{axis}\n{tip['xyz'.index(axis)] * 1000:.6g} mm")
+                location_label = "Tip mean" if summary.get("tip_mean_displacement_m") and not selected_load else "Loaded surface mean"
+                self.result_cards[1].setText(f"{location_label} U{axis}\n{tip['xyz'.index(axis)] * 1000:.6g} mm")
                 self.result_cards[2].setText(f"Force balance residual\n{summary['relative_force_imbalance']:.2e}")
                 self.legend.setText(f"  Displacement |U|: 0 → {summary['maximum_displacement_m'] * 1000:.6g} mm   ·   "
                                     f"{summary['tetrahedra']:,} elements   ·   Display deformation is exaggerated   ·   Drag to rotate")
+                if self.result_component.currentIndex() == 4 and "maximum_von_mises_Pa" in summary:
+                    self.legend.setText(f"  Recovered von Mises: 0 → {summary['maximum_von_mises_Pa'] / 1e6:.6g} MPa · Ideal fixed-edge peaks may be singular · Display deformation is exaggerated")
             except ValueError:
                 for card, title in zip(self.result_cards, ("Maximum |U|", "Tip displacement", "Force balance")):
                     card.setText(title + "\n—")

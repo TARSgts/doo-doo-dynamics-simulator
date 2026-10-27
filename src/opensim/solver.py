@@ -7,6 +7,7 @@ import numpy as np
 
 from opensim.geometry import Mesh
 from opensim.loads import assemble_load
+from opensim.regions import support_nodes
 
 
 def find_solver(explicit: str | None = None) -> Path:
@@ -27,27 +28,28 @@ def find_solver(explicit: str | None = None) -> Path:
 
 
 def write_deck(mesh: Mesh, path: Path, young: float, poisson: float, load: float,
-               load_axis="x", load_kind="face", load_surface="x-max"):
+               load_axis="x", load_kind="face", load_surface="x-max", support_region=None, load_region=None, length_scale=1.0):
     if not np.isfinite(young) or young <= 0:
         raise ValueError("Young's modulus must be positive and finite")
     if not np.isfinite(poisson) or not -1 < poisson < 0.5:
         raise ValueError("Poisson ratio must be between -1 and 0.5, exclusive")
     if not np.isfinite(load) or load == 0:
         raise ValueError("Load must be nonzero and finite")
-    applied = assemble_load(mesh, load, load_axis, load_kind, load_surface)
-    fixed = mesh.end_nodes("min")
-    for nodes in (fixed,):
-        if len(nodes) < 3 or np.linalg.matrix_rank(mesh.points[nodes] - mesh.points[nodes[0]]) < 2:
-            raise ValueError("The X-min support must contain a planar face with at least three noncollinear nodes")
+    if load_region and load_kind != "traction":
+        raise ValueError("A selected load region requires uniform surface traction")
+    applied = assemble_load(mesh, load, load_axis, load_kind, load_surface, load_region)
+    fixed = support_nodes(mesh, support_region)
+    if not np.isfinite(length_scale) or length_scale <= 0:
+        raise ValueError("Solver length scale must be positive and finite")
     lines = ["*HEADING", "Independent open-simulation static structural", "*NODE, NSET=NALL"]
     lines.extend(f"{index + 1}, " + ", ".join(f"{value:.15g}" for value in point)
-                 for index, point in enumerate(mesh.points))
+                 for index, point in enumerate(mesh.points * length_scale))
     lines.append(f"*ELEMENT, TYPE={mesh.element_type}, ELSET=SOLID")
     lines.extend(f"{index + 1}, " + ", ".join(str(int(node) + 1) for node in element)
                  for index, element in enumerate(mesh.tetrahedra))
     lines.append("*NSET, NSET=FIX")
     lines.extend(str(int(node) + 1) for node in fixed)
-    lines.extend(["*MATERIAL, NAME=ELASTIC", "*ELASTIC", f"{young:.15g}, {poisson:.15g}",
+    lines.extend(["*MATERIAL, NAME=ELASTIC", "*ELASTIC", f"{young / length_scale ** 2:.15g}, {poisson:.15g}",
                   "*SOLID SECTION, ELSET=SOLID, MATERIAL=ELASTIC", "*BOUNDARY", "FIX, 1, 3, 0",
                   "*STEP", "*STATIC, SOLVER=SPOOLES", "*CLOAD"])
     direction = "xyz".index(load_axis) + 1

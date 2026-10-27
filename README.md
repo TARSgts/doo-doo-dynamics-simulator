@@ -12,13 +12,15 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 **Beam verification:** the [Euler–Bernoulli cantilever study](docs/cantilever/REPORT.md) gives 0.139% tip-section displacement error and a 0.0135% last-mesh change for the C3D10 model. Its C3D4 baseline underpredicts deflection by 50.8% at the tested mesh; element choice matters.
 
-**Hole stress verification:** the [thin-plate circular-hole study](docs/hole/REPORT.md) gives a gross stress concentration factor of **3.002**, versus Kirsch's **3** (0.067% error). Three quadratic plane-stress meshes and a doubled-domain check separate mesh and finite-plate effects. This is a dedicated benchmark; general desktop stress contours remain planned.
+**Hole stress verification:** the [thin-plate circular-hole study](docs/hole/REPORT.md) gives a gross stress concentration factor of **3.002**, versus Kirsch's **3** (0.067% error). Three quadratic plane-stress meshes and a doubled-domain check separate mesh and finite-plate effects. The dedicated plane-stress benchmark is separate from the general solid workflow.
 
 **Timoshenko verification:** the [thin-beam and shear-control study](docs/timoshenko/REPORT.md) compares nine independent 3D solves with bending-plus-shear theory. The thin beam differs by 0.1701%; a shorter zero-Poisson control differs by 0.0329% and recovers 98.59% of the theoretical shear increment. A retained short ν=0.3 study documents clamp effects. Open the Timoshenko and circular-hole reports from the desktop Validation ribbon.
 
 **Modal analysis:** extract 1–30 natural frequencies and normalized mode shapes from the desktop **Modal analysis** button, CLI or MCP. Enter density in kg/m³, choose quadratic elements for bending, solve and select a mode to animate. The [modal beam study](docs/modal/REPORT.md) validates six bending frequencies within 0.402% of theory, plus shapes, mesh stability and density scaling. See [modal setup and limits](docs/MODAL.md).
 
 **Distributed loads:** choose **Uniform surface traction**, a bounding-plane surface and X/Y/Z direction, then enter the **total force in N**. The solver integrates that force consistently over the selected surface. The [uniformly loaded beam study](docs/distributed/REPORT.md) gives 0.1784% tip-deflection error and 0.0202% last-mesh change. See [load setup and scope](docs/DISTRIBUTED_LOADS.md).
+
+**Selected regions and stress:** **Support / load regions…** accepts CAD face IDs and an optional coordinate box. Selected supports are fully fixed; loads remain uniform global vector traction. New static solves offer recovered **von Mises stress** in MPa alongside displacement. See [setup, unit conversion and limitations](docs/SURFACE_REGIONS.md). The properties panel wraps its text and keeps input controls inside narrow docks in both languages.
 
 ![Displacement viewer](docs/viewer-preview.png)
 
@@ -32,7 +34,7 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 - Record CAD, input-deck and solver hashes, material properties, mesh settings and dependency versions per run.
 - Extract undamped, unprestressed natural frequencies with the X-min face fixed, export every mode as HTML/VTK and retain raw eigenvectors. Animate normalized shapes with arbitrary display amplitude and 1 Hz playback.
 
-This is a research prototype. It supports one material, one solid and the fixed-support/load conditions above. The legacy equal-node load and the new consistent uniform traction are separate choices. Point loading requires an end face containing the bounding-section center. Assemblies, contact, nonlinear behavior and arbitrary support/CAD-face selection need later stages. Prefer C3D10 for bending and perform mesh-convergence checks. A point load has a local stress singularity; the cantilever studies validate global displacement and equilibrium, not peak stress. No Ansys compatibility or accuracy equivalence is claimed.
+This is a research prototype. It supports one material, one solid and the fixed-support/load conditions above. The legacy equal-node load and consistent uniform traction are separate choices. Point loading requires an end face containing the bounding-section center. Assemblies, contact, nonlinear behavior, interactive CAD-face picking and more general support types need later stages. Prefer C3D10 for bending and perform mesh-convergence checks. A point load has a local stress singularity; the cantilever studies validate global displacement and equilibrium, not arbitrary peak stresses. No Ansys compatibility or accuracy equivalence is claimed.
 
 ## Run locally on Windows
 
@@ -72,7 +74,7 @@ On another operating system or Python version, create a virtual environment, ins
 .\.venv\Scripts\open-sim.exe solve part.step --cad-scale 0.001 --mesh-size 0.005 --young 210000000000 --poisson 0.3 --load 1000 --out runs\part-01
 ```
 
-All solver quantities use meters, newtons and pascals. `--cad-scale` multiplies coordinates returned by the CAD importer; inspect the resulting mesh dimensions because CAD exporters and import kernels can normalize units. For a file whose imported numerical coordinates are millimeters, use `0.001`. The example's default Poisson ratio is zero to make the analytical axial benchmark simple; choose the appropriate material properties for real models.
+Application inputs and processed results use meters, newtons and pascals. Selected-region runs use an equivalent native N–mm–MPa solver deck, recorded in the manifest; raw DAT/FRD units follow that deck. `--cad-scale` multiplies coordinates returned by the CAD importer; inspect the resulting mesh dimensions because CAD exporters and import kernels can normalize units. For a file whose imported numerical coordinates are millimeters, use `0.001`. The example's default Poisson ratio is zero to make the analytical axial benchmark simple; choose the appropriate material properties for real models.
 
 For the supplied cantilever geometry, use `--order 2 --load-axis z --load-kind point --load -10 --poisson 0.3 --mesh-size 0.0067`. The `validate-cantilever` command creates that 1 × 0.02 × 0.02 m geometry and runs the full mesh study; plotting dependencies are installed by the desktop installer or `pip install '.[validation]'`.
 

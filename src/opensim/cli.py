@@ -9,6 +9,8 @@ import numpy as np
 from opensim.geometry import import_and_mesh, make_box
 from opensim.results import write_viewer, write_vtk
 from opensim.solver import find_solver, parse_dat, run_solver, write_deck
+from opensim.regions import support_nodes
+from opensim.stress import read_stress, von_mises
 
 
 def digest(path: Path) -> str:
@@ -16,16 +18,23 @@ def digest(path: Path) -> str:
 
 
 def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
-          poisson=0.0, load=1000.0, ccx=None, order=1, load_axis="x", load_kind="face", load_surface="x-max") -> dict:
+          poisson=0.0, load=1000.0, ccx=None, order=1, load_axis="x", load_kind="face", load_surface="x-max",
+          support_region=None, load_region=None) -> dict:
     executable = find_solver(ccx)
     if not cad.is_file():
         raise FileNotFoundError(cad)
     output.mkdir(parents=True, exist_ok=False)
     mesh = import_and_mesh(cad, size, scale, output / "mesh.msh", order=order, tip_point=load_kind == "point")
-    loading = write_deck(mesh, output / "model.inp", young, poisson, load, load_axis, load_kind, load_surface)
+    solver_length_scale = 1000.0 if support_region or load_region else 1.0
+    loading = write_deck(mesh, output / "model.inp", young, poisson, load, load_axis, load_kind, load_surface,
+                         support_region, load_region, solver_length_scale)
     run_solver(executable, output)
     displacement, reactions = parse_dat(output / "model.dat", len(mesh.points))
-    fixed_ids = {int(node) + 1 for node in mesh.end_nodes("min")}
+    displacement /= solver_length_scale
+    stress = read_stress(output / "model.frd", len(mesh.points)) * solver_length_scale ** 2
+    equivalent = von_mises(stress)
+    fixed = support_nodes(mesh, support_region)
+    fixed_ids = {int(node) + 1 for node in fixed}
     if set(reactions) != fixed_ids:
         raise ValueError("Reaction results do not match the fixed node set")
     reported_reactions = {node: force.copy() for node, force in reactions.items()}
@@ -35,20 +44,25 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
     relative_imbalance = float(np.linalg.norm(resultant + applied) / abs(load))
     if relative_imbalance > 1e-4:
         raise ValueError("Reaction forces fail global equilibrium tolerance")
-    reference = (mesh.points.min(axis=0) + mesh.points.max(axis=0)) / 2
-    reference[0] = mesh.points[:, 0].min()
+    reference = mesh.points[fixed].mean(axis=0)
     loaded = np.array([mesh.tip_node()]) if load_kind == "point" else mesh.end_nodes("max")
     reaction_moment = np.sum([np.cross(mesh.points[node - 1] - reference, force)
                               for node, force in reactions.items()], axis=0)
     applied_moment = np.cross(mesh.points - reference, loading.forces).sum(axis=0)
-    moment_scale = abs(load) * np.ptp(mesh.points[:, 0])
+    moment_scale = abs(load) * np.ptp(mesh.points, axis=0).max()
     moment_imbalance = float(np.linalg.norm(reaction_moment + applied_moment) / moment_scale)
     if moment_imbalance > 1e-4:
         raise ValueError("Reaction forces fail global moment equilibrium tolerance")
+    try:
+        tip_mean = mesh.tip_average(displacement).tolist()
+    except ValueError:
+        if not support_region:
+            raise
+        tip_mean = None
     summary = {"nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra), "element_type": mesh.element_type,
                "maximum_displacement_m": float(np.linalg.norm(displacement, axis=1).max()),
                "mean_loaded_ux_m": float(displacement[mesh.end_nodes("max"), 0].mean()),
-               "tip_mean_displacement_m": mesh.tip_average(displacement).tolist(),
+               "tip_mean_displacement_m": tip_mean,
                "load_point_m": loading.centroid.tolist(),
                "load_point_displacement_m": displacement[loaded].mean(axis=0).tolist(),
                "reaction_moment_Nm": reaction_moment.tolist(), "applied_moment_Nm": applied_moment.tolist(),
@@ -68,18 +82,32 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
                         "uniform_traction_Pa": load / loading.area, "load_markers": markers,
                         "applied_force_N": applied.tolist(),
                         "reported_support_forces_N": np.sum(list(reported_reactions.values()), axis=0).tolist(),
-                        "applied_force_at_support_N": loading.forces[mesh.end_nodes("min")].sum(axis=0).tolist(),
+                        "applied_force_at_support_N": loading.forces[fixed].sum(axis=0).tolist(),
                         "boundary_condition": f"X minimum clamped; uniform {load_axis.upper()} traction on {load_surface}; total force {load} N"})
+        patch_average = np.zeros(3)
+        for face in loading.faces:
+            corners = mesh.points[face[:3]]
+            area = np.linalg.norm(np.cross(corners[1] - corners[0], corners[2] - corners[0])) / 2
+            patch_average += area * displacement[face[3:] if len(face) == 6 else face].mean(axis=0)
+        summary["loaded_surface_mean_displacement_m"] = (patch_average / loading.area).tolist()
+    summary.update({"support_region": support_region or {}, "load_region": load_region or {},
+                    "cad_faces": mesh.surface_catalog(),
+                    "support_point_m": reference.tolist(), "support_node_count": len(fixed),
+                    "maximum_von_mises_Pa": float(equivalent.max()), "stress_measure": "Recovered nodal stress; ideal support edges may be singular"})
+    if support_region or load_region:
+        summary["boundary_condition"] = "Selected surface region fully fixed; selected load region carries constant global vector traction. No contact/sliding model."
     manifest = {"schema_version": 1, "cad_path": str(cad.resolve()), "cad_sha256": digest(cad),
+                "solver_length_unit_m": 1 / solver_length_scale, "solver_force_unit_N": 1,
+                "solver_stress_unit_Pa": solver_length_scale ** 2,
                 "ccx_path": str(executable), "ccx_sha256": digest(executable),
                 "mesh_size_m": size, "cad_scale_to_m": scale, "element_order": order,
                 "gmsh": importlib.metadata.version("gmsh"), "numpy": np.__version__,
                 "deck_sha256": digest(output / "model.inp"), "summary": summary}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2, allow_nan=False), encoding="utf-8")
-    write_vtk(output / "results.vtk", mesh, displacement)
-    write_viewer(output / "results.html", mesh, displacement, summary)
+    write_vtk(output / "results.vtk", mesh, displacement, stress=equivalent)
+    write_viewer(output / "results.html", mesh, displacement, summary, equivalent)
     np.savez_compressed(output / "fields.npz", points=mesh.points, tetrahedra=mesh.tetrahedra, displacement=displacement,
-                        applied_forces_N=loading.forces)
+                        applied_forces_N=loading.forces, stress=stress, von_mises_Pa=equivalent, support_nodes=fixed)
     return summary
 
 
@@ -102,6 +130,7 @@ def main():
     run.add_argument("--load-kind", choices=["face", "point", "traction"], default="face")
     from opensim.load_settings import LOAD_SURFACES
     run.add_argument("--load-surface", choices=LOAD_SURFACES, default="x-max", help="Bounding-plane patch for uniform traction; --load is total signed force in N")
+    run.add_argument("--regions", type=Path, help="JSON file containing support_region and/or load_region")
     commands.add_parser("doctor", help="Show installed mesher and solver paths")
     validation = commands.add_parser("validate-cantilever", help="Run point-tip beam validation and a mesh study")
     validation.add_argument("--out", type=Path, required=True)
@@ -168,9 +197,12 @@ def main():
         elif arguments.command == "doctor":
             print(json.dumps({"gmsh": importlib.metadata.version("gmsh"), "ccx": str(find_solver())}, indent=2))
         else:
+            region_options = json.loads(arguments.regions.read_text(encoding="utf-8")) if arguments.regions else {}
+            if not isinstance(region_options, dict) or set(region_options) - {"support_region", "load_region"}:
+                raise ValueError("Region JSON accepts only support_region and load_region")
             summary = solve(arguments.cad, arguments.out, arguments.mesh_size, arguments.cad_scale,
                             arguments.young, arguments.poisson, arguments.load, arguments.ccx,
-                            arguments.order, arguments.load_axis, arguments.load_kind, arguments.load_surface)
+                            arguments.order, arguments.load_axis, arguments.load_kind, arguments.load_surface, **region_options)
             print(json.dumps(summary, indent=2))
     except (ValueError, FileNotFoundError, FileExistsError, RuntimeError) as error:
         parser.exit(1, f"open-sim: {error}\n")

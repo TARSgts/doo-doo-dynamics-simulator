@@ -22,7 +22,9 @@ The [Timoshenko benchmark](timoshenko/REPORT.md) adds thin-beam total-deflection
 
 Initial modal analysis is implemented: positive density, 1–30 modes, X-min fixed support, unprestressed CalculiX eigenfrequency extraction, normalized mode viewers/animation, CLI and MCP controls, and a [six-mode beam benchmark](modal/REPORT.md) covering mesh refinement, shape comparison and density scaling. See [scope](MODAL.md).
 
-Uniform vector traction is implemented on selected axis-aligned bounding-plane patches with consistent P1/P2 surface integration, total-force input, correct applied/support moments and RF correction for loads sharing constrained nodes. Desktop/CLI/MCP controls and [axial/UDL beam verification](distributed/REPORT.md) are available. Arbitrary CAD-face selection, normal pressure and varying traction remain future work.
+Uniform vector traction is implemented on selected axis-aligned bounding-plane patches with consistent P1/P2 surface integration, total-force input, correct applied/support moments and RF correction for loads sharing constrained nodes. Desktop/CLI/MCP controls and [axial/UDL beam verification](distributed/REPORT.md) are available. Normal pressure and varying traction remain future work; additional region selection is described below.
+
+CAD face-ID regions with optional centroid-box filtering are now available for fully fixed support patches and global vector traction, including modal fixed supports. General solid solves also recover nodal stress and display von Mises contours. This does not implement contact or interactive graphical face picking. See [scope and tests](SURFACE_REGIONS.md).
 
 Add a versioned project schema; CAD face selection and persistent named groups; normal pressure and spatially varying traction; arbitrary vector loads and displacement constraints; multiple materials and load cases; automatic rigid-body checks; general stress parsing, von Mises contours and reaction summaries. Add manufactured solutions and distorted-element tests before expanding supported analyses.
 

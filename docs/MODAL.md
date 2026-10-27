@@ -1,5 +1,7 @@
 # Modal analysis
 
+Selected fully fixed CAD-face/box support regions are now available in addition to X-min. Modal analysis uses the selected support, ignores load regions, and preserves frequencies in Hz when using equivalent native solver units. See [surface regions and units](SURFACE_REGIONS.md).
+
 The native desktop, command line and MCP server now run CalculiX frequency extraction for a single isotropic elastic solid with its X-min face fully fixed. This solves `K φ = ω² M φ` and reports `f=ω/(2π)` in Hz. Positive mass density is required. No force, static prestress, damping or forced response is included.
 
 ## Desktop

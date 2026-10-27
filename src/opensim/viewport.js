@@ -13,6 +13,8 @@ const deformation = new Float64Array(nodeCount * 3);
 const deformed = new Float64Array(nodeCount * 3);
 const magnitudes = new Float64Array(nodeCount);
 const scalarRanges = [[0,0],[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];
+const stressValues = new Float32Array(simulation.von_mises_Pa || nodeCount);
+scalarRanges.push([0,stressValues.reduce((maximum,value)=>Math.max(maximum,value),0)]);
 const bounds = [[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];
 for(let node=0;node<nodeCount;node++){
   magnitudes[node] = Math.hypot(...simulation.displacement[node]);
@@ -60,10 +62,10 @@ function createGpuRenderer(){
     }
     const program=gpu.createProgram();
     gpu.attachShader(program,shader(gpu.VERTEX_SHADER,`
-      attribute vec3 position;attribute vec3 displacement;attribute vec4 values;
-      uniform mat4 projection;uniform vec3 target;uniform float deformationScale;uniform vec4 component;
+      attribute vec3 position;attribute vec3 displacement;attribute vec4 values;attribute float stressValue;
+      uniform mat4 projection;uniform vec3 target;uniform float deformationScale;uniform vec4 component;uniform float stressWeight;
       varying float scalar;
-      void main(){gl_Position=projection*vec4(position+deformationScale*displacement-target,1.0);scalar=dot(values,component);}
+      void main(){gl_Position=projection*vec4(position+deformationScale*displacement-target,1.0);scalar=dot(values,component)+stressValue*stressWeight;}
     `));
     gpu.attachShader(program,shader(gpu.FRAGMENT_SHADER,`
       precision highp float;varying float scalar;
@@ -87,6 +89,7 @@ function createGpuRenderer(){
     const positions=new Float32Array(nodeCount*3),displacements=new Float32Array(deformation);
     for(let node=0;node<nodeCount;node++)for(let axis=0;axis<3;axis++)positions[node*3+axis]=coordinates[node*3+axis]-center[axis];
     attribute('position',3,positions);attribute('displacement',3,displacements);attribute('values',4,scalarBuffer);
+    attribute('stressValue',1,stressValues);
     const IndexType=wideIndices?Uint32Array:Uint16Array;
     function indexBuffer(data){const buffer=gpu.createBuffer();gpu.bindBuffer(gpu.ELEMENT_ARRAY_BUFFER,buffer);gpu.bufferData(gpu.ELEMENT_ARRAY_BUFFER,new IndexType(data),gpu.STATIC_DRAW);return buffer;}
     const triangles=indexBuffer(faceIndices);
@@ -96,7 +99,7 @@ function createGpuRenderer(){
       lineIndices.set([first,second,second,third,third,first],face*6);
     }
     const lines=indexBuffer(lineIndices);
-    const uniforms=Object.fromEntries(['projection','target','deformationScale','component','range','results','edges','edgeColor','solidColor'].map(name=>[name,gpu.getUniformLocation(program,name)]));
+    const uniforms=Object.fromEntries(['projection','target','deformationScale','component','stressWeight','range','results','edges','edgeColor','solidColor'].map(name=>[name,gpu.getUniformLocation(program,name)]));
     gpu.enable(gpu.DEPTH_TEST);gpu.depthFunc(gpu.LEQUAL);gpu.clearColor(0,0,0,0);
     viewportStats.geometryUploads++;
     return {draw(matrix){
@@ -104,7 +107,8 @@ function createGpuRenderer(){
       gpu.useProgram(program);gpu.uniformMatrix4fv(uniforms.projection,false,matrix);
       gpu.uniform3fv(uniforms.target,target.map((value,axis)=>value-center[axis]));
       gpu.uniform1f(uniforms.deformationScale,factor*modePhase);
-      const component=[0,0,0,0];component[componentIndex()]=1;gpu.uniform4fv(uniforms.component,component);
+      const component=[0,0,0,0];if(componentIndex()<4)component[componentIndex()]=1;gpu.uniform4fv(uniforms.component,component);
+      gpu.uniform1f(uniforms.stressWeight,resultComponent==='stress'?1:0);
       gpu.uniform2fv(uniforms.range,scalarRanges[componentIndex()]);gpu.uniform1i(uniforms.results,viewportMode==='results');
       gpu.uniform3fv(uniforms.solidColor,themeDark?[0.44,0.55,0.68]:[0.68,0.75,0.82]);
       gpu.uniform1i(uniforms.edges,false);gpu.enable(gpu.POLYGON_OFFSET_FILL);gpu.polygonOffset(1,1);
@@ -125,16 +129,16 @@ meshCanvas.style.display=gpuRenderer?'block':'none';
 meshCanvas.addEventListener('webglcontextlost',event=>{event.preventDefault();gpuRenderer=null;meshCanvas.style.display='none';viewportStats.renderer='canvas2d';colorDirty=true;draw();});
 meshCanvas.addEventListener('webglcontextrestored',()=>{gpuRenderer=createGpuRenderer();viewportStats.renderer=gpuRenderer?'webgl':'canvas2d';meshCanvas.style.display=gpuRenderer?'block':'none';draw();});
 
-function componentIndex(){return resultComponent==='magnitude'?0:'xyz'.indexOf(resultComponent)+1;}
+function componentIndex(){return resultComponent==='stress'?4:resultComponent==='magnitude'?0:'xyz'.indexOf(resultComponent)+1;}
 function setTheme(theme){themeDark=theme==='dark';document.body.classList.toggle('dark',themeDark);draw();}
 function setCatMode(value){catMode=Boolean(value);draw();}
-function setResultComponent(component){if(!['magnitude','x','y','z'].includes(component))return;resultComponent=component;colorDirty=true;draw();}
+function setResultComponent(component){if(!['magnitude','x','y','z','stress'].includes(component))return;resultComponent=component==='stress'&&!simulation.von_mises_Pa?'magnitude':component;colorDirty=true;draw();}
 function setViewportMode(mode){if(mode==='modal')mode='results';if(viewportMode!==mode){viewportMode=mode;deformationDirty=true;fitRequested=true;}draw();}
 function setModeAnimation(value){modeAnimation=isModal && Boolean(value);if(!modeAnimation)modePhase=1;draw();}
 function setEdgeVisibility(value){edgeVisibility=Boolean(value);draw();}
 function setDeformationScale(value){deformationOverride=value==='auto'?(maximum?span*0.1/maximum:0):Number(value);deformationDirty=true;fitRequested=true;draw();}
 function resetViewport(){panX=panY=0;fitRequested=true;draw();}
-function setViewOrientation(orientation){yaw=orientation==='isometric'?-0.45:0;pitch=orientation==='front'?0:orientation==='top'?-Math.PI/2:0.5;panX=panY=0;fitRequested=true;draw();}
+function setViewOrientation(orientation){yaw=orientation==='flipped-front'?Math.PI:orientation==='isometric'?-0.45:0;pitch=orientation==='flipped-front'?Math.PI:orientation==='front'?0:orientation==='top'?-Math.PI/2:0.5;panX=panY=0;fitRequested=true;draw();}
 function draw(){
   viewportStats.drawRequests++;
   if(framePending)return;
@@ -184,7 +188,7 @@ function drawFallback(){
   const component=componentIndex(),range=scalarRanges[component];
   if(colorDirty){
     fallbackColors=Array.from({length:faceCount},(_,face)=>{
-      let average=0;for(let corner=0;corner<3;corner++)average+=scalarBuffer[faceIndices[face*3+corner]*4+component]/3;
+      let average=0;for(let corner=0;corner<3;corner++){const node=faceIndices[face*3+corner];average+=(component===4?stressValues[node]:scalarBuffer[node*4+component])/3;}
       const fraction=range[1]>range[0]?(average-range[0])/(range[1]-range[0]):0;
       return `hsl(${225*(1-fraction)} 75% 57%)`;
     });colorDirty=false;
@@ -212,11 +216,11 @@ function drawOverlay(){
     const gradient=context.createLinearGradient(0,75*pixel,0,210*pixel);
     for(let stop=0;stop<=6;stop++)gradient.addColorStop(stop/6,`hsl(${225*stop/6} 75% 57%)`);
     context.fillStyle=gradient;context.fillRect(canvas.width-112*pixel,75*pixel,14*pixel,135*pixel);
-    const units=isModal?'(norm.)':'(mm)',unitScale=isModal?1:1000;
-    context.fillStyle=themeDark?'#c6d7ec':'#34485f';context.fillText((resultComponent==='magnitude'?'|U|':`U${resultComponent}`)+' '+units,canvas.width-125*pixel,58*pixel);
+    const units=resultComponent==='stress'?'(MPa)':isModal?'(norm.)':'(mm)',unitScale=resultComponent==='stress'?1e-6:isModal?1:1000;
+    context.fillStyle=themeDark?'#c6d7ec':'#34485f';context.fillText((resultComponent==='stress'?'von Mises':resultComponent==='magnitude'?'|U|':`U${resultComponent}`)+' '+units,canvas.width-150*pixel,58*pixel);
     context.fillText((range[1]*unitScale).toPrecision(4),canvas.width-92*pixel,85*pixel);context.fillText((range[0]*unitScale).toPrecision(4),canvas.width-92*pixel,210*pixel);
   }
-  const anchor=projection.project([bounds[0][0],center[1],center[2]]);
+  const anchor=projection.project(simulation.summary.support_point_m || [bounds[0][0],center[1],center[2]]);
   context.fillStyle=themeDark?'#41c8d6':'#087f8c';context.beginPath();context.arc(anchor[0],anchor[1],4*pixel,0,2*Math.PI);context.fill();context.fillText(catMode?'NO ZOOMIES':'FIXED',anchor[0]-15*pixel,anchor[1]+25*pixel);
   if(simulation.summary.load_point_m){
     const markers=simulation.summary.load_markers||[{point_m:simulation.summary.load_point_m,displacement_m:simulation.summary.load_point_displacement_m||[0,0,0]}];
@@ -275,5 +279,13 @@ if(isModal){
   document.getElementById('reset').after(animationButton);
 }
 document.getElementById('summary').textContent=JSON.stringify(simulation.summary,null,2);
+if(simulation.von_mises_Pa){
+  const selection=document.createElement('select');selection.id='resultField';
+  for(const [value,label] of [['magnitude','Total displacement'],['x','Ux'],['y','Uy'],['z','Uz'],['stress','Recovered von Mises (MPa)']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;selection.append(option);
+  }
+  selection.onchange=()=>setResultComponent(selection.value);document.getElementById('reset').before(selection);
+  document.querySelector('main>p:last-child').textContent='Recovered nodal stress is available. Peaks at ideal fixed edges may be singular; use mesh refinement and physical support assumptions when interpreting stress.';
+}
 new ResizeObserver(()=>{fitRequested=true;draw();}).observe(canvas);
 draw();

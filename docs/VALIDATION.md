@@ -1,5 +1,7 @@
 # Validation evidence
 
+The selected-region/recovered-stress expansion passed **128 tests in 71.87 seconds** with no skips. Additional focused checks cover the final display/export updates. The custom-region axial bar validates recovered von Mises stress and SI/native-unit conversion; an equivalent modal run checks mass/length conversion invariance. Properties controls remain inside the scroll viewport at three widths in English and Cat mode. See [feature scope](SURFACE_REGIONS.md).
+
 Executed October 26, 2026, on Windows x64 with Python 3.12.14, Gmsh 4.15.2, NumPy 2.3.4 and CalculiX 2.23 (`ccx_static.exe`, SPOOLES).
 
 See the [long cantilever validation](cantilever/REPORT.md) for the C3D10 tip-point-load benchmark, three quadratic meshes, C3D4 failure baseline, curve comparison and force/moment checks. Dark/light rendering and persistent theme toggles were also exercised in a native desktop session.

@@ -10,16 +10,20 @@ import threading
 import time
 import uuid
 from opensim.load_settings import LOAD_KINDS, LOAD_SURFACES
+from opensim.region_settings import validate_region
 
 
 DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
                       "poisson": 0.3, "load_N": 1000.0, "element_order": 1,
-                      "load_axis": "x", "load_kind": "face", "load_surface": "x-max", "density_kg_m3": 7850.0, "mode_count": 6}
+                      "load_axis": "x", "load_kind": "face", "load_surface": "x-max", "density_kg_m3": 7850.0, "mode_count": 6,
+                      "support_region": {}, "load_region": {}}
 CAPABILITIES = [
     {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP"},
     {"name": "Tetrahedral meshing", "enabled": True, "detail": "Gmsh C3D4 or quadratic C3D10"},
     {"name": "Static structural", "enabled": True, "detail": "X-min clamp; point, legacy equal-node end load, or uniform vector traction on a bounding-plane patch"},
     {"name": "Displacement results", "enabled": True, "detail": "Rotatable displacement contour"},
+    {"name": "Stress results", "enabled": True, "detail": "Recovered nodal von Mises, MPa display; support-edge peaks may be singular"},
+    {"name": "Surface regions", "enabled": True, "detail": "CAD face IDs and optional centroid-box filtering; fully fixed support or global vector traction"},
     {"name": "MCP automation", "enabled": True, "detail": "Local stdio tools and shared workspace"},
     {"name": "Modal analysis", "enabled": True, "detail": "Undamped unprestressed modes; X-min face fixed; positive density"},
     *[{"name": name, "enabled": False, "detail": "Planned — not implemented"} for name in
@@ -107,16 +111,20 @@ class Workspace:
             self._assert_idle(connection, project_id)
             target = self.root / project_id / ("input-" + uuid.uuid4().hex + path.suffix.lower())
             shutil.copyfile(path, target)
-            connection.execute("UPDATE projects SET cad=?, revision=revision+1 WHERE id=?",
-                               (str(target), project_id))
+            current = connection.execute("SELECT parameters FROM projects WHERE id=?", (project_id,)).fetchone()
+            parameters = DEFAULT_PARAMETERS | json.loads(current["parameters"])
+            parameters.update({"support_region": {}, "load_region": {}})
+            connection.execute("UPDATE projects SET cad=?, parameters=?, revision=revision+1 WHERE id=?",
+                               (str(target), json.dumps(parameters), project_id))
         return self.get_project(project_id)
 
     def set_parameters(self, project_id: str, parameters: dict) -> dict:
         project = self.get_project(project_id)
+        parameters = {key: {} if key in {"support_region", "load_region"} and value is None else value for key, value in parameters.items()}
         if set(parameters) - set(DEFAULT_PARAMETERS):
             raise ValueError("Unsupported analysis parameter")
         merged = project["parameters"] | parameters
-        numeric = [value for key, value in merged.items() if key not in {"load_axis", "load_kind", "load_surface"}]
+        numeric = [value for key, value in merged.items() if key not in {"load_axis", "load_kind", "load_surface", "support_region", "load_region"}]
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
                for value in numeric):
             raise ValueError("All parameters must be finite numbers")
@@ -127,6 +135,10 @@ class Workspace:
             raise ValueError("Mesh size, CAD scale and Young's modulus must be positive")
         from opensim.modal_parameters import validate_modal_parameters
         validate_modal_parameters(merged["density_kg_m3"], merged["mode_count"])
+        validate_region(merged["support_region"])
+        validate_region(merged["load_region"])
+        if merged["load_region"] and merged["load_kind"] != "traction":
+            raise ValueError("A selected load region requires uniform surface traction")
         if not -1 < merged["poisson"] < 0.5 or merged["load_N"] == 0:
             raise ValueError("Use -1 < Poisson ratio < 0.5 and a nonzero axial load")
         with self.connect() as connection:
@@ -157,7 +169,10 @@ class Workspace:
                 raise ValueError("Import CAD or create a test object first")
             if kind == "example":
                 project["revision"] += 1
-                connection.execute("UPDATE projects SET revision=? WHERE id=?", (project["revision"], project_id))
+                parameters = DEFAULT_PARAMETERS | json.loads(project["parameters"])
+                parameters.update({"support_region": {}, "load_region": {}})
+                project["parameters"] = json.dumps(parameters)
+                connection.execute("UPDATE projects SET revision=?,parameters=? WHERE id=?", (project["revision"], project["parameters"], project_id))
             payload = {"cad": project["cad"], "parameters": DEFAULT_PARAMETERS | json.loads(project["parameters"]), "example": example}
             now = time.time()
             connection.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?)",

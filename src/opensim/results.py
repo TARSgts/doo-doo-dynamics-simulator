@@ -7,7 +7,7 @@ import numpy as np
 from opensim.geometry import Mesh
 
 
-def write_vtk(path: Path, mesh: Mesh, displacement: np.ndarray, quantity="displacement_m"):
+def write_vtk(path: Path, mesh: Mesh, displacement: np.ndarray, quantity="displacement_m", stress=None):
     lines = ["# vtk DataFile Version 3.0", "Open simulation SI results", "ASCII",
              "DATASET UNSTRUCTURED_GRID", f"POINTS {len(mesh.points)} double"]
     lines.extend(" ".join(f"{value:.15g}" for value in point) for point in mesh.points)
@@ -21,12 +21,17 @@ def write_vtk(path: Path, mesh: Mesh, displacement: np.ndarray, quantity="displa
     magnitude = "displacement_magnitude_m" if quantity == "displacement_m" else quantity + "_magnitude"
     lines.extend([f"SCALARS {magnitude} double 1", "LOOKUP_TABLE default"])
     lines.extend(f"{value:.15g}" for value in np.linalg.norm(displacement, axis=1))
+    if stress is not None:
+        lines.extend(["SCALARS von_mises_Pa double 1", "LOOKUP_TABLE default"])
+        lines.extend(f"{value:.15g}" for value in stress)
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
 
 
-def write_viewer(path: Path, mesh: Mesh, displacement: np.ndarray, summary: dict):
+def write_viewer(path: Path, mesh: Mesh, displacement: np.ndarray, summary: dict, stress=None):
     data = {"points": mesh.points.tolist(), "faces": mesh.boundary_faces(),
             "displacement": displacement.tolist(), "summary": summary}
+    if stress is not None:
+        data["von_mises_Pa"] = stress.tolist()
     write_viewer_data(path, data)
 
 

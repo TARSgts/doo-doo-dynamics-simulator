@@ -63,7 +63,9 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
                     shown = await session.call_tool("show_in_desktop", {"project_id": project_id, "view": "modal", "mode": 2})
                     assert shown.structuredContent["modal_mode"] == 2
                     configured_load = await session.call_tool("set_analysis_parameters", {"project_id": project_id, "mesh_size_m": 0.01, "element_order": 2,
-                        "poisson": 0, "load_N": -10, "load_axis": "z", "load_kind": "traction", "load_surface": "z-max"})
+                        "poisson": 0, "load_N": -10, "load_axis": "z", "load_kind": "traction", "load_surface": "z-max",
+                        "support_region": {"box_m": [-0.000001,-0.001,-0.001,0.000001,0.021,0.021]},
+                        "load_region": {"box_m": [-0.001,-0.001,0.019999,0.101,0.021,0.020001]}})
                     assert configured_load.structuredContent["parameters"]["load_surface"] == "z-max"
                     load_job = await session.call_tool("solve_project", {"project_id": project_id})
                     while True:
