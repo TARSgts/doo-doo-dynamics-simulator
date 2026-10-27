@@ -11,7 +11,7 @@ from PySide6.QtGui import QAction, QFont, QIcon, QTextDocument, QWheelEvent
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QDoubleSpinBox,
                                QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLineEdit,
-                               QLabel, QMainWindow, QMenuBar, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
+                               QLabel, QMainWindow, QMenu, QMenuBar, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
                                QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -22,6 +22,7 @@ from opensim.app_identity import ICON_PATH, set_process_identity
 from opensim.job_progress import STAGE_LABELS, elapsed_label
 from opensim.hover_help import FIELD_HELP, BUTTON_HELP
 from opensim.load_settings import NORMAL_AXES
+from opensim.project_dialogs import FileLocationsDialog, ProjectLibraryDialog, ask_project_name, open_folder
 
 
 STYLE = """
@@ -48,6 +49,8 @@ QTreeWidget { border: 0; background: #fbfcfe; outline: 0; }
 QTreeWidget::item { padding: 5px 2px; }
 QTreeWidget::item:selected { background: #dceafa; color: #163f6b; }
 QDoubleSpinBox, QComboBox { padding: 5px; border: 1px solid #cbd4df; background: white; border-radius: 3px; }
+QLineEdit, QListWidget { padding:5px; border:1px solid #cbd4df; background:white; border-radius:3px; }
+QLineEdit:focus { border-color:#d99530; }
 QPlainTextEdit { border: 0; background: #f9fbfd; font-family: Consolas; font-size: 11px; }
 QStatusBar { background: #172b43; color: #e2edf7; }
 QStatusBar QLabel { color: #e2edf7; padding: 3px 10px; }
@@ -85,6 +88,9 @@ QDockWidget::title { background:#1c2a3f; color:#cfdbed; }
 QTreeWidget { background:#121d2e; color:#b9cbe0; }
 QTreeWidget::item:selected { background:#264364; color:#eef6ff; }
 QDoubleSpinBox, QComboBox { background:#15243a; color:#e6eefb; border-color:#3a4e68; }
+QLineEdit, QListWidget { background:#15243a; color:#e6eefb; border-color:#3a4e68; }
+QLineEdit:focus { border-color:#dba24a; }
+QListWidget::item:selected { background:#264364; color:#eef6ff; }
 QComboBox QAbstractItemView { background:#1d2e45; color:#e4eefb; selection-background-color:#36567a; }
 QPlainTextEdit { background:#0e1827; color:#9eb6cf; }
 QSplitter::handle { background:#28384e; }
@@ -141,10 +147,12 @@ class SimulatorWindow(QMainWindow):
         self.language = None
         self.presentation_text = {}
         self.analysis_buttons = []
+        self.project_actions = []
         self.stop_buttons = []
         self.opened_at = time.time()
         self.shown_convergence = set()
         self.reference_dialogs = {}
+        self.file_dialogs = []
         self.face_pick_session = None
         self.selection_preview = None
         self.setWindowTitle("Doo Doo Dynamics Simulator — Structural Workbench")
@@ -216,8 +224,20 @@ class SimulatorWindow(QMainWindow):
         header_row.addWidget(self.theme_button)
         self.setMenuWidget(header)
         file_menu = self.application_menu.addMenu("File")
-        for title, handler in (("New project", self.new_project), ("Import CAD…", self.import_cad)):
+        for title, handler in (("New project", self.new_project), ("Open project…", self.open_project),
+                               ("Rename project…", self.rename_project), ("Close project", self.close_project),
+                               ("Import CAD…", self.import_cad), ("File locations…", self.show_file_locations),
+                               ("Open project folder", self.open_project_folder), ("Open latest run folder", self.open_run_folder)):
             action = QAction(title, self)
+            if handler not in (self.new_project, self.open_project):
+                self.project_actions.append(action)
+            if handler == self.open_project:
+                action.setShortcut("Ctrl+O")
+            elif handler == self.close_project:
+                action.setShortcut("Ctrl+W")
+            elif handler == self.rename_project:
+                action.setShortcut("F2")
+            action.setToolTip(BUTTON_HELP.get(title.rstrip("…"), title))
             action.triggered.connect(lambda checked=False, callback=handler: self.safe(callback))
             file_menu.addAction(action)
         file_menu.addSeparator()
@@ -289,7 +309,8 @@ class SimulatorWindow(QMainWindow):
         self.ribbon.setObjectName("CommandRibbon")
         self.ribbon.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         groups = {
-            "Home": [("New project", "Workspace", self.new_project), ("Import CAD", "STEP / STL / OBJ / 3MF", self.import_cad),
+            "Home": [("New project", "Workspace", self.new_project), ("Open project", "Saved projects", self.open_project),
+                     ("Import CAD", "STEP / STL / OBJ / 3MF", self.import_cad),
                      ("Generate mesh", "Gmsh tetrahedra", self.mesh),
                      ("Solve", "Static structural", self.solve), ("Results", "Displacement", lambda: self.change_view("results"))],
             "Geometry": [("Import CAD", "One closed solid", self.import_cad),
@@ -437,7 +458,23 @@ class SimulatorWindow(QMainWindow):
         self.tree.setMinimumHeight(80)
         self.tree.setHeaderHidden(True)
         self.tree.itemClicked.connect(self.select_tree_item)
-        splitter.addWidget(self.tree)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.project_context_menu)
+        tree_panel = QWidget()
+        tree_layout = QVBoxLayout(tree_panel)
+        tree_layout.setContentsMargins(4, 2, 4, 0)
+        tree_layout.setSpacing(2)
+        tree_tools = QHBoxLayout()
+        for title, handler in (("Open project…", self.open_project), ("Close project", self.close_project)):
+            button = QPushButton(title)
+            button.setToolTip(BUTTON_HELP[title.rstrip("…")])
+            button.clicked.connect(lambda checked=False, action=handler: self.safe(action))
+            tree_tools.addWidget(button)
+            if handler == self.close_project:
+                self.close_project_button = button
+        tree_layout.addLayout(tree_tools)
+        tree_layout.addWidget(self.tree)
+        splitter.addWidget(tree_panel)
         details = QWidget()
         details.setObjectName("DetailsPanel")
         details.setMinimumWidth(0)
@@ -626,6 +663,69 @@ class SimulatorWindow(QMainWindow):
             raise ValueError("Create or select a project first")
         return self.project_id
 
+    def save_before_project_change(self):
+        if self.project_id and self.dirty:
+            self.save_parameters()
+
+    def open_project(self):
+        dialog = ProjectLibraryDialog(self.workspace, self)
+        if dialog.exec() and dialog.selected_project_id:
+            self.save_before_project_change()
+            self.workspace.show_project(dialog.selected_project_id)
+            self.dirty = False
+
+    def rename_project(self, project_id=None):
+        project_id = project_id or self.require_project()
+        name = ask_project_name(self, "Rename project", self.workspace.get_project(project_id)["name"])
+        if name:
+            self.workspace.rename_project(project_id, name)
+
+    def close_project(self, project_id=None):
+        project_id = project_id or self.require_project()
+        if project_id == self.project_id:
+            self.save_before_project_change()
+        self.workspace.close_project(project_id)
+        self.refresh()
+
+    def close_other_projects(self, project_id):
+        self.save_before_project_change()
+        self.workspace.show_project(project_id)
+        for project in self.workspace.list_open_projects():
+            if project["id"] != project_id:
+                self.workspace.close_project(project["id"])
+        self.refresh()
+
+    def show_file_locations(self, project_id=None):
+        dialog = FileLocationsDialog(self.workspace, project_id or self.require_project(), self)
+        self.file_dialogs.append(dialog)
+        dialog.show()
+        return dialog
+
+    def open_project_folder(self, project_id=None):
+        open_folder(self.workspace.project_locations(project_id or self.require_project())["project_folder"])
+
+    def open_run_folder(self):
+        path = self.workspace.project_locations(self.require_project())["latest_run"]
+        if not path:
+            raise ValueError("This project has no runs yet")
+        open_folder(path)
+
+    def project_context_menu(self, position):
+        item = self.tree.itemAt(position)
+        if not item:
+            return
+        project_id = item.data(0, Qt.ItemDataRole.UserRole)[0]
+        menu = QMenu(self)
+        for title, callback in (("Rename project…", lambda: self.rename_project(project_id)),
+                                ("Open project folder", lambda: self.open_project_folder(project_id)),
+                                ("File locations…", lambda: self.show_file_locations(project_id)),
+                                ("Close project", lambda: self.close_project(project_id)),
+                                ("Close other projects", lambda: self.close_other_projects(project_id))):
+            action = menu.addAction(title)
+            action.setToolTip(BUTTON_HELP[title.rstrip("…")])
+            action.triggered.connect(lambda checked=False, handler=callback: self.safe(handler))
+        menu.exec(self.tree.viewport().mapToGlobal(position))
+
     def new_project(self):
         dialog = QInputDialog(self)
         dialog.setWindowTitle("New simulation project")
@@ -637,17 +737,20 @@ class SimulatorWindow(QMainWindow):
         accepted = dialog.exec()
         name = dialog.textValue()
         if accepted and name.strip():
+            self.save_before_project_change()
             project = self.workspace.create_project(name)
             self.workspace.show_project(project["id"])
             self.dirty = False
 
     def create_demo(self):
+        self.save_before_project_change()
         project = self.workspace.create_project("Perforated plate / " + datetime.now().strftime("%H:%M:%S"))
         self.workspace.show_project(project["id"], "mesh")
         self.workspace.start_job(project["id"], "example")
         self.dirty = False
 
     def create_beam(self):
+        self.save_before_project_change()
         from opensim.validation import BEAM_PARAMETERS
         project = self.workspace.create_project("Cantilever beam / " + datetime.now().strftime("%H:%M:%S"))
         self.workspace.set_parameters(project["id"], BEAM_PARAMETERS)
@@ -998,13 +1101,17 @@ class SimulatorWindow(QMainWindow):
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if data:
             if data[0] != self.project_id:
-                self.dirty = False
+                try:
+                    self.save_before_project_change()
+                except Exception as error:
+                    QMessageBox.warning(self, "Project settings", str(error))
+                    return
             self.workspace.show_project(*data)
             self.refresh()
 
     def show_mcp(self):
         QMessageBox.information(self, "Local MCP automation",
-                                "16 stdio MCP tools share this desktop workspace.\n\n"
+                                "19 stdio MCP tools share this desktop workspace.\n\n"
                                 "Create/import projects, set inputs, mesh, solve, inspect jobs/results and select views.\n\n"
                                 "Workspace: " + str(self.workspace.root) + "\n\n"
                                 "Server: python -m opensim.mcp_server\nSee docs/DESKTOP_AND_MCP.md for client setup.")
@@ -1112,9 +1219,7 @@ class SimulatorWindow(QMainWindow):
             del blocker
         if state["theme"] != self.theme:
             self.apply_theme()
-        projects = self.workspace.list_projects()
-        if not state["project_id"] and projects:
-            state = self.workspace.show_project(projects[0]["id"])
+        projects = self.workspace.list_open_projects()
         selected = state["project_id"]
         project_changed = selected != self.project_id
         if selected != self.project_id:
@@ -1137,6 +1242,7 @@ class SimulatorWindow(QMainWindow):
             self.tree.clear()
             for entry in projects:
                 root = QTreeWidgetItem([entry["name"]])
+                root.setToolTip(0, str(self.workspace.root / entry["id"]) + "\nRight-click to rename, close or find files.")
                 root.setData(0, Qt.ItemDataRole.UserRole, (entry["id"], "geometry"))
                 self.tree.addTopLevelItem(root)
                 element = "C3D10" if entry["parameters"]["element_order"] == 2 else "C3D4"
@@ -1182,6 +1288,9 @@ class SimulatorWindow(QMainWindow):
         matching = next((job for job in jobs if project and job["revision"] == project["revision"]), None)
         self.update_job_progress(active or matching)
         self.apply_button.setEnabled(bool(project) and not active)
+        self.close_project_button.setEnabled(bool(project))
+        for action in self.project_actions:
+            action.setEnabled(bool(project))
         for field in self.fields.values():
             field.setEnabled(bool(project) and not active)
         for selector in self.selectors.values():
@@ -1299,6 +1408,17 @@ class SimulatorWindow(QMainWindow):
                     card.setText(title + "\n—")
                 label = "No solved result for current settings" if state["view"] in {"results", "modal"} else "Undeformed geometry / mesh preview"
                 self.legend.setText(f"  {label}   ·   Drag to rotate")
+        if not project:
+            self.loaded_view = None
+            if project_changed:
+                self.view.setHtml(self.empty_view())
+            self.modal_tools.hide()
+            self.viewport_title.setText("NO PROJECT OPEN")
+            self.status_label.setText("Open a saved project or create a new one")
+            self.messages.clear()
+            self.legend.setText("  Open project… shows your saved project library.")
+            for card, title in zip(self.result_cards, ("Maximum |U|", "Tip displacement", "Force balance")):
+                card.setText(title + "\n—")
         self.apply_language()
 
     def update_job_progress(self, job):

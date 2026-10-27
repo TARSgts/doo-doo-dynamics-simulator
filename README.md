@@ -28,6 +28,7 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 ## Working now
 
+- Open only the projects you need, search the saved library, rename projects and locate their model/run files from the desktop. See [project navigation](docs/PROJECT_NAVIGATION.md).
 - Import one closed STEP, IGES or BREP solid using Gmsh's OpenCASCADE kernel, or a watertight STL, OBJ or 3MF mesh (rebuilt into a solid with pickable face patches).
 - Generate linear C3D4 or quadratic C3D10 tetrahedra, check corner-element orientation and export a mesh.
 - Clamp the X-minimum face and apply an X/Y/Z force at a tip-center node, through the legacy equal-node X-max load, or as uniform traction integrated over a selected X/Y/Z min/max boundary surface.

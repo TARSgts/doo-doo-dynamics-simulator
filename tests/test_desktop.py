@@ -12,6 +12,73 @@ from opensim.desktop import SimulatorWindow
 from opensim.workspace import Workspace
 
 
+def test_outline_only_open_projects_close_saves_draft_and_empty_stays_empty(tmp_path):
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    first = workspace.create_project("Open first")
+    second = workspace.create_project("Open second")
+    closed = workspace.create_project("Saved but closed")
+    workspace.show_project(first["id"])
+    workspace.show_project(second["id"])
+    window = SimulatorWindow(workspace)
+    try:
+        assert window.tree.topLevelItemCount() == 2
+        window.fields["load_N"].setValue(42)
+        window.close_project()
+        assert workspace.get_project(second["id"])["parameters"]["load_N"] == 42
+        assert window.project_id == first["id"]
+        assert window.tree.topLevelItemCount() == 1
+        window.close_project()
+        window.refresh()
+        assert window.tree.topLevelItemCount() == 0
+        assert window.project_id is None
+        assert window.loaded_view is None
+        assert "NO PROJECT" in window.viewport_title.text()
+        assert not window.close_project_button.isEnabled()
+        assert len(workspace.list_projects()) == 3
+        workspace.show_project(closed["id"])
+        window.refresh()
+        assert window.project_id == closed["id"]
+        assert window.tree.topLevelItemCount() == 1
+        assert window.tree.topLevelItem(0).text(0) == "Saved but closed"
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
+def test_project_library_search_and_locations_keep_user_names_and_exact_paths(tmp_path):
+    from opensim.project_dialogs import FileLocationsDialog, ProjectLibraryDialog
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path / "workspace")
+    project = workspace.create_project("Home / my own project name")
+    workspace.create_project("Other project")
+    source = tmp_path / "tail model.step"
+    source.write_text("model")
+    workspace.import_cad(project["id"], source)
+    library = ProjectLibraryDialog(workspace)
+    locations = FileLocationsDialog(workspace, project["id"])
+    try:
+        assert library.projects.count() == 2
+        library.search.setText("TAIL MODEL")
+        assert library.projects.count() == 1
+        assert library.current_id() == project["id"]
+        assert not workspace.list_open_projects()
+        library.accept_project()
+        assert library.selected_project_id == project["id"]
+        assert locations.path_fields["source_file"].text() == str(source)
+        assert Path(locations.path_fields["cad_file"].text()).read_text() == "model"
+        assert all(field.isReadOnly() for field in locations.path_fields.values())
+        library.search.setText("does not exist")
+        assert not library.open_button.isEnabled()
+        assert not library.rename_button.isEnabled()
+    finally:
+        library.close()
+        locations.close()
+        application.processEvents()
+
+
 def test_perpendicular_direction_selects_surface_loading_and_saves_without_unit_changes(tmp_path):
     from opensim.hover_help import FIELD_HELP
     application = QApplication.instance() or QApplication([])
@@ -94,6 +161,7 @@ def test_face_picking_saves_both_regions_cancels_and_rejects_stale_drafts(tmp_pa
             window.commit_picked_faces(window.face_pick_session, selection | {"load": []})
         window.cancel_face_picking()
     finally:
+        monkeypatch.undo()  # Restore the Qt page method before its C++ object is deleted.
         window.close()
         window.view.setPage(None)
         window.deleteLater()

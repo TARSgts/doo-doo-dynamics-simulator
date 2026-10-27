@@ -2,6 +2,8 @@ import re
 
 
 PHRASES = {
+    "Open project": "Open cardboard box", "Close project": "Put box away", "Rename project": "Rename da box",
+    "File locations": "Where da files live", "Open project folder": "Find da box", "Open latest run folder": "Find latest science",
     "Waiting to start": "Waiting for science", "Starting job": "Waking up da cat", "Creating geometry": "Making da shape",
     "Generating mesh": "Making tiny triangles", "Preparing solver input": "Arranging da beans",
     "CalculiX solving": "Doing a science, meow", "Reading solver results": "Inspecting science loot",

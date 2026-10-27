@@ -50,7 +50,11 @@ class Workspace:
         self.root.mkdir(parents=True, exist_ok=True)
         self.database = self.root / "workspace.sqlite3"
         with self.connect() as connection:
+            had_open_projects = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='open_projects'").fetchone()
             connection.executescript("""
+                CREATE TABLE IF NOT EXISTS open_projects (project_id TEXT PRIMARY KEY, opened REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS project_sources (
+                    project_id TEXT PRIMARY KEY, cad_path TEXT NOT NULL, source_path TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS projects (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, cad TEXT,
                     parameters TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0,
@@ -73,6 +77,8 @@ class Workspace:
                 connection.execute("ALTER TABLE ui ADD COLUMN modal_mode INTEGER NOT NULL DEFAULT 1")
             if "language" not in {row["name"] for row in connection.execute("PRAGMA table_info(ui)")}:
                 connection.execute("ALTER TABLE ui ADD COLUMN language TEXT NOT NULL DEFAULT 'en'")
+            if not had_open_projects:
+                connection.execute("INSERT OR IGNORE INTO open_projects SELECT project_id,? FROM ui WHERE project_id IN (SELECT id FROM projects)", (time.time(),))
 
     def connect(self):
         connection = sqlite3.connect(self.database, timeout=10)
@@ -104,6 +110,45 @@ class Workspace:
         project["parameters"] = DEFAULT_PARAMETERS | json.loads(project["parameters"])
         return project
 
+    def list_open_projects(self) -> list[dict]:
+        with self.connect() as connection:
+            ids = [row["project_id"] for row in connection.execute(
+                "SELECT o.project_id FROM open_projects o JOIN projects p ON p.id=o.project_id ORDER BY o.opened DESC")]
+        return [self.get_project(project_id) for project_id in ids]
+
+    def rename_project(self, project_id: str, name: str) -> dict:
+        self.get_project(project_id)
+        name = name.strip()
+        if not name or len(name) > 120:
+            raise ValueError("Project name must contain 1–120 characters")
+        with self.connect() as connection:
+            connection.execute("UPDATE projects SET name=? WHERE id=?", (name, project_id))
+        return self.get_project(project_id)
+
+    def close_project(self, project_id: str):
+        """Remove a project from the outline; retain its model, jobs and settings."""
+        self.get_project(project_id)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM open_projects WHERE project_id=?", (project_id,))
+            selected = connection.execute("SELECT project_id FROM ui WHERE id=1").fetchone()["project_id"]
+            if selected == project_id:
+                replacement = connection.execute("SELECT project_id FROM open_projects ORDER BY opened DESC LIMIT 1").fetchone()
+                connection.execute("UPDATE ui SET project_id=?,view='geometry',modal_mode=1 WHERE id=1",
+                                   (replacement["project_id"] if replacement else None,))
+        return self.ui_state()
+
+    def project_locations(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        with self.connect() as connection:
+            source = connection.execute("SELECT source_path FROM project_sources WHERE project_id=? AND cad_path=?",
+                                        (project_id, project["cad"])).fetchone()
+            latest = connection.execute("SELECT id FROM jobs WHERE project_id=? ORDER BY created DESC LIMIT 1", (project_id,)).fetchone()
+        return {"project_folder": str(self.root / project_id), "library_file": str(self.database),
+                "cad_file": project["cad"], "source_file": source["source_path"] if source else None,
+                "jobs_folder": str(self.root / project_id / "jobs"),
+                "latest_run": str(self.root / project_id / "jobs" / latest["id"]) if latest else None}
+
     def _assert_idle(self, connection, project_id):
         if connection.execute("SELECT id FROM jobs WHERE project_id=? AND status IN ('queued','running')",
                               (project_id,)).fetchone():
@@ -127,6 +172,8 @@ class Workspace:
             parameters.update({"support_region": {}, "load_region": {}})
             connection.execute("UPDATE projects SET cad=?, parameters=?, revision=revision+1 WHERE id=?",
                                (str(target), json.dumps(parameters), project_id))
+            connection.execute("INSERT INTO project_sources VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET cad_path=excluded.cad_path,source_path=excluded.source_path",
+                               (project_id, str(target), str(path)))
         return self.get_project(project_id)
 
     def set_parameters(self, project_id: str, parameters: dict) -> dict:
@@ -338,6 +385,7 @@ class Workspace:
         if view == "modal":
             self.current_artifact(project_id, view, mode)
         with self.connect() as connection:
+            connection.execute("INSERT OR IGNORE INTO open_projects VALUES(?,?)", (project_id, time.time()))
             connection.execute("UPDATE ui SET project_id=?,view=?,modal_mode=? WHERE id=1", (project_id, view, mode))
         return self.ui_state()
 

@@ -19,6 +19,13 @@ FIELD_HELP = {
 }
 
 BUTTON_HELP = {
+    "Open project": "Search saved projects and open only the ones you want in the outline.",
+    "Rename project": "Change the project's name without moving or deleting its model and results.",
+    "Close project": "Save unapplied settings and remove this project from the outline. Reopen it from Open project; its files and running jobs are kept.",
+    "Close other projects": "Keep this project open and close the others in the outline. Saved files and background jobs are kept.",
+    "File locations": "See and copy the actual paths for the model, project library and run folders.",
+    "Open project folder": "Show this project's saved files in the system file manager.",
+    "Open latest run folder": "Show the newest run's input files, logs and results, including any partial files if it failed or stopped.",
     "Pick fixed support": "Click CAD faces in the model to choose a fully fixed support. Drag to rotate; click again to deselect. Save picked faces to apply.",
     "Pick force faces": "Click CAD faces to receive a uniformly distributed force. Set total force and X/Y/Z direction separately, then save and solve.",
     "Save picked faces": "Save both edited face selections. Load faces use uniform traction; edited selections replace any box filters.",
