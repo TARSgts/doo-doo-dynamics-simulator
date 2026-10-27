@@ -2,6 +2,8 @@ import re
 
 
 PHRASES = {
+    "Run static study": "Do sit-still science", "Run modal study": "Find da wiggles", "Run convergence study": "Do triangle taste test",
+    "DETAILS OF CONVERGENCE STUDY": "DETAILS OF TRIANGLE TASTE TEST",
     "Open project": "Open cardboard box", "Close project": "Put box away", "Rename project": "Rename da box",
     "File locations": "Where da files live", "Open project folder": "Find da box", "Open latest run folder": "Find latest science",
     "Waiting to start": "Waiting for science", "Starting job": "Waking up da cat", "Creating geometry": "Making da shape",

@@ -24,6 +24,7 @@ DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
                       "convergence_levels": 4, "convergence_ratio": 1.4, "convergence_tolerance_percent": 2.0,
                       "convergence_target": "displacement"}
 TEXT_PARAMETERS = {"load_axis", "load_kind", "load_surface", "support_region", "load_region", "convergence_target"}
+STUDY_TYPES = ("static", "modal", "convergence")
 CAPABILITIES = [
     {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP; closed STL, OBJ or 3MF surface meshes"},
     {"name": "Tetrahedral meshing", "enabled": True, "detail": "Gmsh C3D4 or quadratic C3D10"},
@@ -53,6 +54,7 @@ class Workspace:
             had_open_projects = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='open_projects'").fetchone()
             connection.executescript("""
                 CREATE TABLE IF NOT EXISTS open_projects (project_id TEXT PRIMARY KEY, opened REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS project_studies (project_id TEXT PRIMARY KEY, study TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS project_sources (
                     project_id TEXT PRIMARY KEY, cad_path TEXT NOT NULL, source_path TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS projects (
@@ -79,6 +81,7 @@ class Workspace:
                 connection.execute("ALTER TABLE ui ADD COLUMN language TEXT NOT NULL DEFAULT 'en'")
             if not had_open_projects:
                 connection.execute("INSERT OR IGNORE INTO open_projects SELECT project_id,? FROM ui WHERE project_id IN (SELECT id FROM projects)", (time.time(),))
+            connection.execute("INSERT OR IGNORE INTO project_studies SELECT project_id,CASE WHEN view='modal' THEN 'modal' ELSE 'static' END FROM ui WHERE project_id IN (SELECT id FROM projects)")
 
     def connect(self):
         connection = sqlite3.connect(self.database, timeout=10)
@@ -246,6 +249,9 @@ class Workspace:
                                (job_id, project_id, kind, "queued", project["revision"],
                                 json.dumps(payload), None, None, now, now))
             connection.execute("INSERT INTO job_progress VALUES(?,?,?)", (job_id, "queued", now))
+            study = {"solve": "static", "modal": "modal", "convergence": "convergence"}.get(kind)
+            if study:
+                connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))
         directory = self.job_directory(job_id)
         directory.mkdir(parents=True)
         try:
@@ -386,12 +392,26 @@ class Workspace:
             self.current_artifact(project_id, view, mode)
         with self.connect() as connection:
             connection.execute("INSERT OR IGNORE INTO open_projects VALUES(?,?)", (project_id, time.time()))
+            if view in {"modal", "results"}:
+                study = "modal" if view == "modal" else "static"
+                connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))
             connection.execute("UPDATE ui SET project_id=?,view=?,modal_mode=? WHERE id=1", (project_id, view, mode))
+        return self.ui_state()
+
+    def select_study(self, project_id: str, study: str) -> dict:
+        """Select a study's settings without solving or changing numerical inputs."""
+        if study not in STUDY_TYPES:
+            raise ValueError("Choose static, modal or convergence study")
+        self.get_project(project_id)
+        with self.connect() as connection:
+            connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))
+            connection.execute("INSERT OR IGNORE INTO open_projects VALUES(?,?)", (project_id, time.time()))
+            connection.execute("UPDATE ui SET project_id=?,view='geometry',modal_mode=1 WHERE id=1", (project_id,))
         return self.ui_state()
 
     def ui_state(self) -> dict:
         with self.connect() as connection:
-            state = dict(connection.execute("SELECT * FROM ui WHERE id=1").fetchone())
+            state = dict(connection.execute("SELECT ui.*,COALESCE(s.study,'static') AS study FROM ui LEFT JOIN project_studies s ON s.project_id=ui.project_id WHERE ui.id=1").fetchone())
         state["desktop_connected"] = time.time() - state["heartbeat"] < 5
         return state
 

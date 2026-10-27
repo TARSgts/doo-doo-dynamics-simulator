@@ -48,7 +48,7 @@ QDockWidget::title { background: #dce4ee; padding: 8px; }
 QTreeWidget { border: 0; background: #fbfcfe; outline: 0; }
 QTreeWidget::item { padding: 5px 2px; }
 QTreeWidget::item:selected { background: #dceafa; color: #163f6b; }
-QDoubleSpinBox, QComboBox { padding: 5px; border: 1px solid #cbd4df; background: white; border-radius: 3px; }
+QDoubleSpinBox, QSpinBox, QComboBox { padding: 5px; border: 1px solid #cbd4df; background: white; border-radius: 3px; }
 QLineEdit, QListWidget { padding:5px; border:1px solid #cbd4df; background:white; border-radius:3px; }
 QLineEdit:focus { border-color:#d99530; }
 QPlainTextEdit { border: 0; background: #f9fbfd; font-family: Consolas; font-size: 11px; }
@@ -87,7 +87,7 @@ QPushButton:hover { background:#304a6a; }
 QDockWidget::title { background:#1c2a3f; color:#cfdbed; }
 QTreeWidget { background:#121d2e; color:#b9cbe0; }
 QTreeWidget::item:selected { background:#264364; color:#eef6ff; }
-QDoubleSpinBox, QComboBox { background:#15243a; color:#e6eefb; border-color:#3a4e68; }
+QDoubleSpinBox, QSpinBox, QComboBox { background:#15243a; color:#e6eefb; border-color:#3a4e68; }
 QLineEdit, QListWidget { background:#15243a; color:#e6eefb; border-color:#3a4e68; }
 QLineEdit:focus { border-color:#dba24a; }
 QListWidget::item:selected { background:#264364; color:#eef6ff; }
@@ -147,6 +147,7 @@ class SimulatorWindow(QMainWindow):
         self.language = None
         self.presentation_text = {}
         self.analysis_buttons = []
+        self.force_pick_buttons = []
         self.project_actions = []
         self.stop_buttons = []
         self.opened_at = time.time()
@@ -154,6 +155,7 @@ class SimulatorWindow(QMainWindow):
         self.reference_dialogs = {}
         self.file_dialogs = []
         self.face_pick_session = None
+        self.panel_context = None
         self.selection_preview = None
         self.setWindowTitle("Doo Doo Dynamics Simulator — Structural Workbench")
         self.setMinimumSize(1100, 720)
@@ -282,6 +284,8 @@ class SimulatorWindow(QMainWindow):
             button.setEnabled(False)
             button.setToolTip("Planned — not implemented")
         layout.addWidget(button)
+        if title == "Pick force faces":
+            self.force_pick_buttons.append(button)
         return button
 
     def install_hover_help(self):
@@ -484,7 +488,13 @@ class SimulatorWindow(QMainWindow):
         heading.setObjectName("DetailsHeading")
         heading.setWordWrap(True)
         layout.addWidget(heading)
+        self.run_study_button = QPushButton("Run static study")
+        self.run_study_button.setToolTip("Save settings and solve the selected static structural study.")
+        self.run_study_button.clicked.connect(lambda checked=False: self.safe(self.run_selected_study))
+        self.analysis_buttons.append(self.run_study_button)
+        layout.addWidget(self.run_study_button)
         form = QFormLayout()
+        self.properties_form = form
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.fields = {}
@@ -563,6 +573,7 @@ class SimulatorWindow(QMainWindow):
         note = QLabel("Default support: X-min face. Selected regions override defaults.\nTraction: total force (N) spread uniformly over the selected surface.\nBounding-plane selector is used when no load region is set.\nModal: no loads or prestress.")
         note.setWordWrap(True)
         note.setStyleSheet("color:#6f8094;padding:6px")
+        self.study_note = note
         layout.addWidget(note)
         self.apply_button = QPushButton("Apply settings")
         self.normal_load_note = QLabel("Perpendicular loading follows each surface's local normal. Positive force follows inward/outward; negative reverses it. On curved or multiple faces, the entered force is the sum of local magnitudes, not the net force.")
@@ -576,6 +587,8 @@ class SimulatorWindow(QMainWindow):
             button.clicked.connect(lambda checked=False, role=mode: self.safe(lambda: self.begin_face_picking(role)))
             button.setToolTip(BUTTON_HELP[title])
             self.analysis_buttons.append(button)
+            if mode == "load":
+                self.force_pick_buttons.append(button)
             layout.addWidget(button)
         self.pick_note = QLabel("Pick faces on the model, or enter face IDs in Support / load regions.")
         self.pick_note.setWordWrap(True)
@@ -838,6 +851,7 @@ class SimulatorWindow(QMainWindow):
 
     def mark_dirty(self):
         self.sync_force_direction()
+        self.update_study_panel()
         self.dirty = True
         self.details_note.setText("Settings changed. Apply settings or Solve to use them.")
         if "load_surface" in self.selectors:
@@ -856,6 +870,57 @@ class SimulatorWindow(QMainWindow):
         self.fields["load_N"].setToolTip(
             "Force magnitude summed over the selected surface in newtons. Positive follows inward/outward; negative reverses it. On curved faces the net force can be smaller or zero."
             if normal else FIELD_HELP["load_N"])
+
+    def update_study_panel(self):
+        state = self.workspace.ui_state()
+        study = state["study"]
+        modal = study == "modal"
+        common = {"mesh_size_m", "cad_scale", "young_Pa", "poisson", "element_order"}
+        loads = {"load_N", "load_axis", "load_kind", "load_surface"}
+        visible = common | ({"density_kg_m3", "mode_count"} if modal else loads)
+        if study == "convergence":
+            visible |= {"convergence_levels", "convergence_ratio", "convergence_tolerance_percent", "convergence_target"}
+        if self.selectors["load_kind"].currentData() != "traction":
+            visible.discard("load_surface")
+        for key, control in {**self.fields, **self.selectors}.items():
+            self.properties_form.setRowVisible(control, bool(self.project_id) and key in visible)
+        headings = {"static": "DETAILS OF STATIC STRUCTURAL", "modal": "DETAILS OF MODAL ANALYSIS", "convergence": "DETAILS OF CONVERGENCE STUDY"}
+        self.details_heading.setText(headings[study] if self.project_id else "NO STUDY SELECTED")
+        self.study_note.setText({
+            "static": "Static deformation and stress. Enter total force in N and its direction. Geometry, material and fixed supports are shared between study types.",
+            "modal": "Natural frequencies and vibration shapes. Uses density and fixed supports; ignores static loads and prestress. Geometry, material and supports are shared.",
+            "convergence": "Refine the static setup across several meshes. Choose a target and tolerance. Geometry, material, fixed supports and forces are shared with Static Structural."
+        }[study])
+        self.study_note.setVisible(bool(self.project_id))
+        self.normal_load_note.setVisible(bool(self.project_id) and not modal and self.selectors["load_axis"].currentData() in NORMAL_AXES)
+        # Only the properties-panel force button is hidden; ribbon commands remain
+        # discoverable but are disabled for a modal study.
+        for button in self.force_pick_buttons:
+            if isinstance(button, QPushButton):
+                button.setVisible(not modal and bool(self.project_id))
+            if modal:
+                button.setEnabled(False)
+        self.region_button.setText("Support region…" if modal else "Support / load regions…")
+        self.region_button.setToolTip("Choose fully fixed support faces. Modal analysis ignores static loads." if modal else BUTTON_HELP["Support / load regions…"])
+        self.run_study_button.setText({"static": "Run static study", "modal": "Run modal study", "convergence": "Run convergence study"}[study])
+        self.run_study_button.setToolTip({"static": "Save settings and solve static deformation and stress.", "modal": "Save settings and calculate natural frequencies and mode shapes.", "convergence": "Save settings and run the static mesh convergence study."}[study])
+        if self.project_id:
+            parameters = self.workspace.get_project(self.project_id)["parameters"]
+            def region_text(region, default):
+                if region.get("faces"):
+                    return "Faces " + ", ".join(map(str, region["faces"])) + (" · box filter" if region.get("box_m") else "")
+                return "Box selection" if region.get("box_m") else default
+            self.region_note.setText("Support: " + region_text(parameters["support_region"], "X-min face")
+                                     + ("" if modal else "\nLoad: " + region_text(parameters["load_region"], parameters["load_surface"] if parameters["load_kind"] == "traction" else parameters["load_kind"])))
+        context = self.project_id, study
+        if not self.face_pick_session and context != self.panel_context:
+            self.pick_note.setText("Pick a fixed support on the model, or enter its face IDs in Support region." if modal else "Pick faces on the model, or enter face IDs in Support / load regions.")
+        if context != self.panel_context:
+            self.findChild(QScrollArea, "PropertiesScroll").verticalScrollBar().setValue(0)
+        self.panel_context = context
+
+    def run_selected_study(self):
+        {"static": self.solve, "modal": self.modal, "convergence": self.convergence}[self.workspace.ui_state()["study"]]()
 
     def save_parameters(self):
         parameters = {key: field.value() for key, field in self.fields.items()}
@@ -898,6 +963,7 @@ class SimulatorWindow(QMainWindow):
 
     def convergence(self):
         self.save_parameters()
+        self.workspace.select_study(self.require_project(), "convergence")
         self.workspace.start_job(self.require_project(), "convergence")
         self.status_label.setText("Convergence study started: each mesh is finer than the last. Stop computing ends it early.")
 
@@ -958,7 +1024,11 @@ class SimulatorWindow(QMainWindow):
         form = QFormLayout()
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         entries = {}
-        for key, caption in (("support_region", "Fixed support"), ("load_region", "Uniform traction")):
+        roles = (("support_region", "Fixed support"),) if self.workspace.ui_state()["study"] == "modal" else (("support_region", "Fixed support"), ("load_region", "Uniform traction"))
+        if len(roles) == 1:
+            dialog.setWindowTitle("Modal fixed support region")
+            note.setText("Choose fully fixed support faces, optionally filtered by a box in mm. Empty support uses X-min. Geometry and supports are shared with other studies; modal analysis ignores static forces.")
+        for key, caption in roles:
             region = project["parameters"][key]
             face_input = QLineEdit(", ".join(str(value) for value in region.get("faces", [])))
             box_input = QLineEdit(", ".join(f"{value * 1000:g}" for value in region.get("box_m", [])))
@@ -998,7 +1068,7 @@ class SimulatorWindow(QMainWindow):
                     if box_input.text().strip():
                         region["box_m"] = [value / 1000 for value in json.loads("[" + box_input.text() + "]")]
                     parameters[key] = region
-                if parameters["load_region"]:
+                if parameters.get("load_region"):
                     parameters["load_kind"] = "traction"
                 self.workspace.set_parameters(project["id"], parameters)
                 self.project_revision = None
@@ -1013,6 +1083,8 @@ class SimulatorWindow(QMainWindow):
         if mode not in {"support", "load"}:
             raise ValueError("Choose support or load faces")
         project = self.workspace.get_project(self.require_project())
+        if mode == "load" and self.workspace.ui_state()["study"] == "modal":
+            raise ValueError("Modal studies use fixed supports only. Select Static Structural or Convergence to apply forces")
         if self.dirty:
             raise ValueError("Apply settings and generate a mesh before picking faces")
         if any(job["status"] in {"queued", "running"} for job in self.workspace.list_jobs(project["id"])):
@@ -1021,12 +1093,13 @@ class SimulatorWindow(QMainWindow):
             self.view.page().runJavaScript(f"switchFacePicking({json.dumps(mode)})")
             self.pick_note.setText("Click faces to toggle. Switch between support and force faces, then Save picked faces. Drag to rotate.")
             return
-        session = {"project_id": project["id"], "revision": project["revision"], "view": self.loaded_view}
+        session = {"project_id": project["id"], "revision": project["revision"], "view": self.loaded_view,
+                   "study": self.workspace.ui_state()["study"]}
         self.face_pick_session = session
         parameters = project["parameters"]
         script = ("typeof setFacePicking==='function' && "
                   f"setFacePicking('support',{json.dumps(parameters['support_region'].get('faces', []))}) && "
-                  f"setFacePicking('load',{json.dumps(parameters['load_region'].get('faces', []))}) && "
+                  f"setFacePicking('load',{json.dumps([] if session['study'] == 'modal' else parameters['load_region'].get('faces', []))}) && "
                   f"switchFacePicking({json.dumps(mode)})")
         def started(ready):
             if self.face_pick_session is not session:
@@ -1036,7 +1109,7 @@ class SimulatorWindow(QMainWindow):
                 self.pick_note.setText("Generate a new mesh once to enable clickable CAD faces for this model.")
                 return
             self.pick_actions.show()
-            self.pick_note.setText("Click to toggle whole faces. Cyan = fixed support; orange = force. Switch roles, then Save picked faces. Edited regions replace box filters.")
+            self.pick_note.setText("Click fixed support faces (cyan), then Save picked faces. Edited support faces replace box filters." if session["study"] == "modal" else "Click to toggle whole faces. Cyan = fixed support; orange = force. Switch roles, then Save picked faces. Edited regions replace box filters.")
         self.view.page().runJavaScript(script, started)
 
     def clear_picked_faces(self):
@@ -1047,7 +1120,7 @@ class SimulatorWindow(QMainWindow):
         self.face_pick_session = None
         self.pick_actions.hide()
         self.view.page().runJavaScript("if(typeof setFacePicking==='function')setFacePicking(null)")
-        self.pick_note.setText("Pick faces on the model, or enter face IDs in Support / load regions.")
+        self.pick_note.setText("Pick fixed support faces or use Support region." if self.workspace.ui_state()["study"] == "modal" else "Pick faces on the model, or enter face IDs in Support / load regions.")
 
     def save_picked_faces(self):
         session = self.face_pick_session
@@ -1061,7 +1134,8 @@ class SimulatorWindow(QMainWindow):
     def commit_picked_faces(self, session, selection):
         project = self.workspace.get_project(self.require_project())
         if (self.face_pick_session is not session or project["id"] != session["project_id"]
-                or project["revision"] != session["revision"] or self.loaded_view != session["view"] or self.dirty):
+                or project["revision"] != session["revision"] or self.loaded_view != session["view"] or self.dirty
+                or self.workspace.ui_state()["study"] != session["study"]):
             self.cancel_face_picking()
             raise ValueError("The project changed. Generate a mesh and pick faces again")
         if not isinstance(selection, dict) or selection.get("mode") not in {"support", "load"}:
@@ -1097,6 +1171,39 @@ class SimulatorWindow(QMainWindow):
     def change_view(self, view):
         self.workspace.show_project(self.require_project(), view)
 
+    def add_study_tree(self, root, project, state):
+        project_id = project["id"]
+        parameters = project["parameters"]
+        def node(parent, title, view="geometry", study=None, action=None):
+            item = QTreeWidgetItem([title])
+            item.setData(0, Qt.ItemDataRole.UserRole, (project_id, view))
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, study)
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, action)
+            parent.addChild(item)
+            return item
+        node(root, "Geometry (shared)")
+        element = "C3D10" if parameters["element_order"] == 2 else "C3D4"
+        node(root, "Mesh / " + element + " (shared)", "mesh")
+        support = "Selected region" if parameters["support_region"] else "X-min"
+        force = parameters["load_axis"].upper() + " · " + ("selected faces" if parameters["load_region"] else parameters["load_kind"])
+        for study, title in (("static", "Static Structural"), ("modal", "Modal Analysis"), ("convergence", "Convergence Study")):
+            branch = node(root, title, study=study)
+            node(branch, "Fixed support / " + support, study=study)
+            if study == "static":
+                node(branch, "Force / " + force, study=study)
+                solution = node(branch, "Solution / Displacement and stress", "results", study)
+            elif study == "modal":
+                node(branch, "Density and requested modes", study=study)
+                solution = node(branch, "Solution / Natural frequencies", "modal", study)
+            else:
+                node(branch, "Static force / " + force, study=study)
+                node(branch, "Mesh refinement settings", study=study)
+                solution = node(branch, "Convergence report", study=study, action="convergence-report")
+            active = project_id == state["project_id"] and study == state["study"]
+            branch.setExpanded(active)
+            if active:
+                self.tree.setCurrentItem(solution if state["view"] in {"results", "modal"} else branch)
+
     def select_tree_item(self, item, column):
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if data:
@@ -1106,7 +1213,12 @@ class SimulatorWindow(QMainWindow):
                 except Exception as error:
                     QMessageBox.warning(self, "Project settings", str(error))
                     return
+            study = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            if study:
+                self.workspace.select_study(data[0], study)
             self.workspace.show_project(*data)
+            if item.data(0, Qt.ItemDataRole.UserRole + 2) == "convergence-report":
+                self.safe(self.show_convergence_report)
             self.refresh()
 
     def show_mcp(self):
@@ -1190,11 +1302,15 @@ class SimulatorWindow(QMainWindow):
             for index in range(combo.count()):
                 self.present_text((combo, index), combo.itemText(index), lambda value, item=index, control=combo: control.setItemText(item, value))
             del blocker
+        def translate_children(parent, path):
+            for index in range(parent.childCount()):
+                child = parent.child(index)
+                identity = (self.tree, "study", *path, index)
+                self.present_text(identity, child.text(0), lambda value, item=child: item.setText(0, value))
+                translate_children(child, (*path, index))
         for index in range(self.tree.topLevelItemCount()):
             root = self.tree.topLevelItem(index)
-            for child_index in range(root.childCount()):
-                child = root.child(child_index)
-                self.present_text((self.tree, index, child_index), child.text(0), lambda value, item=child: item.setText(0, value))
+            translate_children(root, (root.data(0, Qt.ItemDataRole.UserRole)[0],))
         self.update_ribbon_height()
         if previous != self.language:
             self.apply_view_options()
@@ -1228,7 +1344,7 @@ class SimulatorWindow(QMainWindow):
             self.dirty = False
         project = self.workspace.get_project(selected) if selected else None
         if self.face_pick_session and (not project or selected != self.face_pick_session["project_id"]
-                or project["revision"] != self.face_pick_session["revision"]):
+                or project["revision"] != self.face_pick_session["revision"] or state["study"] != self.face_pick_session["study"]):
             self.cancel_face_picking()
         if project:
             self.region_note.setText("Support region: " + json.dumps(project["parameters"]["support_region"]) + "\nLoad region: " + json.dumps(project["parameters"]["load_region"]))
@@ -1236,7 +1352,8 @@ class SimulatorWindow(QMainWindow):
             transverse_point = project["parameters"]["load_kind"] == "point" and project["parameters"]["load_axis"] == "z"
             self.camera.setCurrentIndex(1 if transverse_point else 0)
         jobs = self.workspace.list_jobs(selected) if selected else []
-        signature = [(entry["id"], entry["name"], entry["revision"]) for entry in projects], [(job["id"], job["status"]) for job in jobs], selected
+        signature = ([(entry["id"], entry["name"], entry["revision"]) for entry in projects],
+                     [(job["id"], job["status"]) for job in jobs], selected, state["study"], state["view"])
         if signature != self.tree_signature:
             self.tree_signature = signature
             self.tree.clear()
@@ -1245,21 +1362,8 @@ class SimulatorWindow(QMainWindow):
                 root.setToolTip(0, str(self.workspace.root / entry["id"]) + "\nRight-click to rename, close or find files.")
                 root.setData(0, Qt.ItemDataRole.UserRole, (entry["id"], "geometry"))
                 self.tree.addTopLevelItem(root)
-                element = "C3D10" if entry["parameters"]["element_order"] == 2 else "C3D4"
-                axis = entry["parameters"]["load_axis"].upper()
-                application = ("selected load region" if entry["parameters"]["load_region"] else "uniform traction / " + entry["parameters"]["load_surface"] if entry["parameters"]["load_kind"] == "traction"
-                               else "tip point" if entry["parameters"]["load_kind"] == "point" else "end face (equal nodes)")
-                support_caption = "Selected region" if entry["parameters"]["support_region"] else "X-min"
-                for label, view in (("Geometry (single solid)", "geometry"), (f"Mesh / {element}", "mesh"),
-                                    ("Static Structural", "geometry"), ("  Fixed Support / " + support_caption, "geometry"),
-                                    (f"  Static force / {axis} · {application}", "geometry"), ("Solution / Displacement", "results"),
-                                    ("Modal / Natural frequencies", "modal")):
-                    child = QTreeWidgetItem([label])
-                    child.setData(0, Qt.ItemDataRole.UserRole, (entry["id"], view))
-                    root.addChild(child)
+                self.add_study_tree(root, entry, state)
                 root.setExpanded(entry["id"] == selected)
-                if entry["id"] == selected:
-                    self.tree.setCurrentItem(root)
         if project and not self.dirty and self.project_revision != project["revision"]:
             for key, field in self.fields.items():
                 value = project["parameters"][key]
@@ -1296,14 +1400,14 @@ class SimulatorWindow(QMainWindow):
         for selector in self.selectors.values():
             selector.setEnabled(bool(project) and not active)
         self.selectors["load_surface"].setEnabled(bool(project) and not active and self.selectors["load_kind"].currentData() == "traction")
-        self.details_heading.setText("DETAILS OF MODAL ANALYSIS" if state["view"] == "modal" else "DETAILS OF STATIC STRUCTURAL")
-        if state["view"] == "modal":
+        if state["study"] == "modal":
             self.fields["load_N"].setEnabled(False)
             self.selectors["load_axis"].setEnabled(False)
             self.selectors["load_kind"].setEnabled(False)
             self.selectors["load_surface"].setEnabled(False)
         for button in self.analysis_buttons:
             button.setEnabled(bool(project) and not active)
+        self.update_study_panel()
         for button in self.stop_buttons:
             button.setEnabled(bool(active))
         if project:

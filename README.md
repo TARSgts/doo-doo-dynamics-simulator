@@ -28,6 +28,7 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 ## Working now
 
+- Study branches for static, modal and convergence analysis, with a lower settings panel that follows the selected study. See [study panels](docs/STUDY_PANELS.md).
 - Open only the projects you need, search the saved library, rename projects and locate their model/run files from the desktop. See [project navigation](docs/PROJECT_NAVIGATION.md).
 - Import one closed STEP, IGES or BREP solid using Gmsh's OpenCASCADE kernel, or a watertight STL, OBJ or 3MF mesh (rebuilt into a solid with pickable face patches).
 - Generate linear C3D4 or quadratic C3D10 tetrahedra, check corner-element orientation and export a mesh.

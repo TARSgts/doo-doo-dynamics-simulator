@@ -12,6 +12,109 @@ from opensim.desktop import SimulatorWindow
 from opensim.workspace import Workspace
 
 
+def test_study_tree_switches_properties_without_solving_or_losing_hidden_inputs(tmp_path, monkeypatch):
+    from PySide6.QtCore import Qt
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Study settings")
+    workspace.show_project(project["id"])
+    window = SimulatorWindow(workspace)
+    def select(study):
+        root = window.tree.topLevelItem(0)
+        branch = next(root.child(index) for index in range(root.childCount())
+                      if root.child(index).data(0, Qt.ItemDataRole.UserRole + 1) == study)
+        window.select_tree_item(branch, 0)
+    def visible(key):
+        control = (window.fields | window.selectors)[key]
+        assert control.isHidden() == window.properties_form.labelForField(control).isHidden()
+        return not control.isHidden()
+    try:
+        root = window.tree.topLevelItem(0)
+        assert root.childCount() == 5
+        assert [root.child(i).text(0) for i in (2, 3, 4)] == ["Static Structural", "Modal Analysis", "Convergence Study"]
+        assert visible("load_N") and not visible("density_kg_m3") and not visible("convergence_levels")
+        window.fields["load_N"].setValue(23.4)
+        select("modal")
+        assert workspace.ui_state()["study"] == "modal"
+        assert "MODAL" in window.details_heading.text()
+        assert visible("density_kg_m3") and visible("mode_count")
+        assert not visible("load_N") and not visible("load_axis") and not visible("convergence_target")
+        assert window.region_button.text() == "Support region…"
+        assert window.run_study_button.text() == "Run modal study"
+        assert all(not button.isEnabled() for button in window.force_pick_buttons)
+        assert window.fields["load_N"].value() == 23.4
+        window.fields["density_kg_m3"].setValue(1040)
+        select("convergence")
+        assert visible("convergence_levels") and visible("convergence_target") and visible("load_N")
+        assert not visible("mode_count")
+        assert window.run_study_button.text() == "Run convergence study"
+        select("static")
+        assert visible("load_N") and not visible("convergence_levels")
+        assert window.fields["density_kg_m3"].value() == 1040
+        assert window.fields["load_N"].value() == 23.4
+        assert workspace.get_project(project["id"]) == project
+        assert workspace.list_jobs(project["id"]) == []
+        select("modal")
+        calls = []
+        monkeypatch.setattr(window, "modal", lambda: calls.append("modal"))
+        window.run_selected_study()
+        assert calls == ["modal"]
+        window.save_parameters()
+        assert workspace.get_project(project["id"])["parameters"]["load_N"] == 23.4
+        assert workspace.get_project(project["id"])["parameters"]["density_kg_m3"] == 1040
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
+def test_modal_region_dialog_only_edits_support(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QDialog, QLineEdit
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Modal support")
+    workspace.select_study(project["id"], "modal")
+    window = SimulatorWindow(workspace)
+    before = workspace.get_project(project["id"])
+    checked = []
+    def inspect(dialog):
+        assert dialog.windowTitle() == "Modal fixed support region"
+        assert len(dialog.findChildren(QLineEdit)) == 2
+        checked.append(True)
+        return QDialog.DialogCode.Rejected
+    monkeypatch.setattr(QDialog, "exec", inspect)
+    try:
+        window.edit_regions()
+        assert checked
+        assert workspace.get_project(project["id"]) == before
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
+def test_switching_study_cancels_face_picking_without_saving_draft(tmp_path):
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project("Draft face selection")
+    workspace.show_project(project["id"])
+    window = SimulatorWindow(workspace)
+    try:
+        window.face_pick_session = {"project_id": project["id"], "revision": project["revision"],
+                                   "view": window.loaded_view, "study": "static"}
+        workspace.select_study(project["id"], "modal")
+        window.refresh()
+        assert window.face_pick_session is None
+        assert workspace.get_project(project["id"]) == project
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
 def test_outline_only_open_projects_close_saves_draft_and_empty_stays_empty(tmp_path):
     application = QApplication.instance() or QApplication([])
     workspace = Workspace(tmp_path)
@@ -332,6 +435,8 @@ def test_property_fields_stay_inside_narrow_and_wide_dock_in_both_languages(tmp_
                     application.processEvents()
                 assert scroll.widget().width() <= scroll.viewport().width()
                 for control in list(window.fields.values()) + list(window.selectors.values()):
+                    if control.isHidden():
+                        continue  # Other study types retain values without occupying layout space.
                     location = control.mapTo(scroll.widget(), control.rect().topLeft())
                     assert location.x() >= 0
                     assert location.x() + control.width() <= scroll.widget().width()

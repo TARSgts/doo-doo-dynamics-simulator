@@ -94,6 +94,8 @@ Typical sequence: create project → set parameters → create/import CAD → wa
 
 ## Verified behavior
 
+**Study-specific settings.** Open projects contain Static Structural, Modal Analysis and Convergence Study branches. Clicking a study changes the lower settings panel and its Run button. Modal shows density/modes and support-only selection; static shows force controls; convergence adds refinement controls. Hidden values persist. Shared geometry/material/support scope and tests are documented in [study panels](STUDY_PANELS.md).
+
 **Project navigation.** The outline contains only open projects. **Open project…** (Ctrl+O) searches the saved library; closing a project (Ctrl+W) retains all files and jobs. File and right-click menus provide Rename (F2), Close other projects, File locations, and folder shortcuts. The file-locations dialog shows the model copy, recorded import source, run folders and library database, with copy/open buttons. Open projects persist, including an empty session. See [project navigation and checks](PROJECT_NAVIGATION.md).
 
 **Mesh convergence study.** **Solution → Convergence** (or **Convergence study** in the Analysis Toolbox) re-runs the current static setup on progressively finer meshes. The first mesh uses your mesh size and each later one divides it by the refinement ratio (default 1.4, about 3× the elements per step). It runs up to the chosen number of meshes (3–6, default 4). It stops early once the target changes less than the tolerance (default 2%) between the last two meshes, with at least three meshes solved. Targets are maximum displacement, loaded-area mean displacement along the force, or maximum von Mises stress. All three are always reported. For each quantity the report shows:
