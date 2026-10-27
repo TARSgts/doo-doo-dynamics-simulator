@@ -23,6 +23,7 @@ from opensim.job_progress import STAGE_LABELS, elapsed_label
 from opensim.hover_help import FIELD_HELP, BUTTON_HELP
 from opensim.load_settings import NORMAL_AXES
 from opensim.project_dialogs import FileLocationsDialog, ProjectLibraryDialog, ask_project_name, open_folder
+from opensim.discord_presence import DEFAULT_APPLICATION_ID, DiscordPresence, activity_for, presence_settings
 
 
 STYLE = """
@@ -151,6 +152,14 @@ class SimulatorWindow(QMainWindow):
         self.project_actions = []
         self.stop_buttons = []
         self.opened_at = time.time()
+        self.discord = DiscordPresence(self)
+        settings = presence_settings()
+        try:
+            self.discord.configure(settings.value("discord/enabled", False, type=bool),
+                                   settings.value("discord/application_id", DEFAULT_APPLICATION_ID, type=str))
+        except ValueError:
+            self.discord._status("Invalid Application ID — open Discord Rich Presence settings")
+        QApplication.instance().aboutToQuit.connect(self.discord.stop)
         self.shown_convergence = set()
         self.reference_dialogs = {}
         self.file_dialogs = []
@@ -256,11 +265,24 @@ class SimulatorWindow(QMainWindow):
         self.cat_action.setCheckable(True)
         self.cat_action.toggled.connect(lambda checked: self.set_language("cat" if checked else "en"))
         view_menu.addAction(self.cat_action)
+        integrations_menu = self.application_menu.addMenu("Integrations")
+        discord_action = integrations_menu.addAction("Discord Rich Presence…", self.show_discord_settings)
+        discord_action.setToolTip("Show basic simulator activity in Discord. Configure or disable sharing here; project names and file paths stay private.")
         help_menu.addAction("About", lambda: QMessageBox.information(
             self, "Doo Doo Dynamics Simulator",
             "Independent open-source structural workbench\nGPL-2.0-or-later\n\n"
             "Single-solid linear static and modal prototype. Grey controls are planned and unavailable.\n"
             "Built with Gmsh, CalculiX and Qt for Python. Independent of Ansys."))
+
+    def show_discord_settings(self):
+        from opensim.discord_dialog import DiscordPresenceDialog
+        dialog = DiscordPresenceDialog(self.discord, self)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def closeEvent(self, event):
+        self.discord.stop()
+        super().closeEvent(event)
 
     def make_stop_button(self):
         button = QPushButton("Stop computing")
@@ -1413,6 +1435,7 @@ class SimulatorWindow(QMainWindow):
                 del blocker
             self.project_revision = project["revision"]
         active = next((job for job in jobs if job["status"] in {"queued", "running"}), None)
+        self.discord.set_activity(activity_for(state, active, self.opened_at, has_project=bool(project)))
         for job in jobs:
             if (job["kind"] == "convergence" and job["status"] == "completed" and job["id"] not in self.shown_convergence
                     and job["updated"] >= self.opened_at and project and job["revision"] == project["revision"]):
