@@ -54,8 +54,9 @@ class SimulatorWindow(QMainWindow):
         self.project_revision = None
         self.dirty = False
         self.setWindowTitle("Doo Doo Dynamics Simulator — Structural Workbench")
-        self.resize(1520, 980)
         self.setMinimumSize(1100, 760)
+        available = QApplication.primaryScreen().availableGeometry()
+        self.resize(min(1520, available.width() - 40), min(980, available.height() - 50))
         self.setStyleSheet(STYLE)
         self.build_menu()
         self.build_center()
