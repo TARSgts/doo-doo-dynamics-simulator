@@ -1,6 +1,8 @@
 from pathlib import Path
 import struct
 import zipfile
+import json
+import hashlib
 
 import gmsh
 import numpy as np
@@ -45,6 +47,93 @@ def write_3mf(path, points, faces, transform=None, unit="millimeter"):
 def tet_volume(mesh):
     corners = mesh.points[mesh.tetrahedra[:, :4]]
     return float(np.abs(np.linalg.det(corners[:, 1:] - corners[:, :1])).sum() / 6)
+
+
+def test_automatic_surface_cleanup_preserves_shape_and_reports_changes():
+    triangles = box_triangles()
+    triangles[2] = triangles[2][[0, 2, 1]]
+    damaged = np.concatenate([triangles, triangles[:1], np.zeros((1, 3, 3))])
+    original = damaged.copy()
+    report = {}
+    points, faces = clean_surface(damaged, repair=True, report=report)
+    np.testing.assert_array_equal(damaged, original)
+    assert len(faces) == 12
+    assert report['removed_duplicate_triangles'] == 1
+    assert report['removed_degenerate_triangles'] == 1
+    assert report['reoriented_triangles'] > 0
+    assert report['enclosed_volume_m3'] == pytest.approx(1)
+    # Repaired output passes the strict validator, including oriented edges.
+    clean_surface(points[faces])
+    np.testing.assert_allclose(points.min(axis=0), [0, 0, 0])
+    np.testing.assert_allclose(points.max(axis=0), [2, 1, 0.5])
+
+
+def test_automatic_cleanup_does_not_fill_holes_or_join_shells():
+    with pytest.raises(ValueError, match='open edge'):
+        clean_surface(box_triangles()[:-1], repair=True)
+    with pytest.raises(ValueError, match='disconnected'):
+        clean_surface(np.concatenate([box_triangles(), box_triangles() + [5, 0, 0]]), repair=True)
+    with pytest.raises(ValueError, match='shared by more than two'):
+        clean_surface(np.concatenate([box_triangles(), box_triangles() + [2, 0, 0]]), repair=True)
+
+
+def test_damaged_stl_is_automatically_repaired_and_meshed_without_overwrite(tmp_path):
+    triangles = box_triangles((100, 20, 20))
+    triangles[3] = triangles[3][[0, 2, 1]]
+    source = tmp_path / 'damaged.stl'
+    write_stl(source, np.concatenate([triangles, triangles[:1]]))
+    before = hashlib.sha256(source.read_bytes()).hexdigest()
+    mesh = import_and_mesh(source, 0.01, 0.001, tmp_path / 'mesh.msh', order=2)
+    assert mesh.element_type == 'C3D10'
+    assert tet_volume(mesh) == pytest.approx(0.1 * 0.02 * 0.02, rel=1e-6)
+    report = json.loads((tmp_path / 'mesh.repair.json').read_text())
+    assert report == mesh.repair_report
+    assert report['removed_duplicate_triangles'] == 1
+    assert report['reoriented_triangles'] > 0
+    assert report['status'] == 'completed' and report['source_unchanged']
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == before
+
+
+def test_parametrization_failure_retries_clean_model_and_preserves_volume(tmp_path, monkeypatch):
+    source = tmp_path / 'patches.stl'
+    write_stl(source, box_triangles())
+    create_geometry = gmsh.model.mesh.createGeometry
+    attempts = []
+    def fail_first(*args, **kwargs):
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise Exception('Wrong topology of boundary mesh for parametrization')
+        return create_geometry(*args, **kwargs)
+    monkeypatch.setattr(gmsh.model.mesh, 'createGeometry', fail_first)
+    mesh = import_and_mesh(source, 0.3, 1, tmp_path / 'mesh.msh')
+    assert tet_volume(mesh) == pytest.approx(1, rel=1e-6)
+    report = mesh.repair_report
+    assert report['patch_retry_used']
+    assert [a['patch_angle_degrees'] for a in report['attempts']] == [40, 25]
+    assert [a['status'] for a in report['attempts']] == ['failed', 'completed']
+    assert len(mesh.surface_catalog()) >= 6
+
+
+def test_unrepairable_patch_geometry_stops_after_bounded_retries_and_saves_report(tmp_path, monkeypatch):
+    source = tmp_path / 'unrepairable.stl'
+    write_stl(source, box_triangles())
+    def fail(*args, **kwargs):
+        raise Exception('Wrong topology of boundary mesh for parametrization')
+    monkeypatch.setattr(gmsh.model.mesh, 'createGeometry', fail)
+    with pytest.raises(ValueError, match='after 3 attempts'):
+        import_and_mesh(source, 0.3, 1, tmp_path / 'mesh.msh')
+    report = json.loads((tmp_path / 'mesh.repair.json').read_text())
+    assert len(report['attempts']) == 3 and report['status'] == 'failed'
+    assert not (tmp_path / 'mesh.msh').exists()
+
+
+def test_open_surface_failure_records_actionable_report(tmp_path):
+    source = tmp_path / 'hole.stl'
+    write_stl(source, box_triangles()[:-1])
+    with pytest.raises(ValueError, match='open edge'):
+        import_and_mesh(source, 0.3, 1, tmp_path / 'mesh.msh')
+    report = json.loads((tmp_path / 'mesh.repair.json').read_text())
+    assert report['status'] == 'failed' and report['attempts'] == []
 
 
 def test_readers_agree_for_binary_ascii_stl_obj_quads_and_3mf_transform(tmp_path):
@@ -207,8 +296,11 @@ def test_stl_cantilever_matches_step_solution(tmp_path):
     make_box(tmp_path / "beam.step", (0.3, 0.02, 0.02))
     triangles = box_triangles((300, 20, 20))
     write_stl(tmp_path / "beam.stl", triangles)
+    damaged = triangles.copy()
+    damaged[2] = damaged[2][[0, 2, 1]]
+    write_stl(tmp_path / "damaged.stl", np.concatenate([damaged, damaged[:1]]))
     results = {}
-    for name, scale in (("beam.step", 1.0), ("beam.stl", 0.001)):
+    for name, scale in (("beam.step", 1.0), ("beam.stl", 0.001), ("damaged.stl", 0.001)):
         results[name] = solve(tmp_path / name, tmp_path / name.replace(".", "-"), size=0.004, scale=scale, young=210e9,
                               poisson=0.3, load=-50, order=2, load_axis="z", load_kind="traction", load_surface="x-max")
     step, stl = results["beam.step"], results["beam.stl"]
@@ -218,3 +310,8 @@ def test_stl_cantilever_matches_step_solution(tmp_path):
     assert stl_tip == pytest.approx(step_tip, rel=0.01)
     theory = -50 * 0.3 ** 3 / (3 * 210e9 * 0.02 ** 4 / 12)
     assert stl_tip == pytest.approx(theory, rel=0.05)
+    repaired = results['damaged.stl']
+    assert repaired['mesh_repair']['removed_duplicate_triangles'] == 1
+    assert repaired['mesh_repair']['reoriented_triangles'] > 0
+    assert repaired['relative_force_imbalance'] < 1e-6
+    assert repaired['loaded_surface_mean_displacement_m'][2] == pytest.approx(stl_tip, rel=0.01)

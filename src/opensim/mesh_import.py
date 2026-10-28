@@ -1,7 +1,8 @@
 """Read triangle-surface files (STL, OBJ, 3MF) into a clean, closed surface.
 
 These formats store only triangles, not exact CAD faces. The importer merges
-duplicate vertices, rejects open or non-manifold surfaces with a clear message,
+duplicate vertices, optionally removes duplicate triangles and fixes orientation,
+rejects open or non-manifold surfaces with a clear message,
 and writes a clean binary STL that Gmsh can rebuild into a meshable solid.
 """
 from pathlib import Path
@@ -150,8 +151,13 @@ def _read_3mf(path: Path):
     return np.asarray(triangles) * THREEMF_TO_MM[unit]
 
 
-def clean_surface(triangles: np.ndarray, name="mesh"):
-    """Merge coincident vertices, drop zero-area triangles and verify a closed, consistently oriented surface."""
+def clean_surface(triangles: np.ndarray, name="mesh", *, repair=False, report=None):
+    """Verify a closed surface, optionally removing duplicate facets and repairing winding.
+
+    No hole filling, surface smoothing or joining of separate shells is performed.
+    The caller's triangle coordinates are never mutated. Report lengths use the
+    caller's coordinate units (meters in the import pipeline).
+    """
     size = float(np.ptp(triangles.reshape(-1, 3), axis=0).max())
     if size <= 0:
         raise ValueError(f"{name} has zero size")
@@ -166,12 +172,19 @@ def clean_surface(triangles: np.ndarray, name="mesh"):
     corners = points[faces]
     area = np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1) / 2
     faces = faces[area > size * size * 1e-14]
+    if report is not None:
+        report.update(input_triangles=len(triangles), removed_degenerate_triangles=len(triangles) - len(faces),
+                      weld_tolerance_m=tolerance)
     _, unique_faces = np.unique(np.sort(faces, axis=1), axis=0, return_index=True)
     duplicates = len(faces) - len(unique_faces)
-    if duplicates:
+    if duplicates and not repair:
         raise ValueError(f"{name} has {duplicates} duplicated triangle(s). {REPAIR_HINT}")
+    if duplicates:
+        faces = faces[np.sort(unique_faces)]
+    if report is not None:
+        report["removed_duplicate_triangles"] = duplicates
     directed = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
-    undirected, counts = np.unique(np.sort(directed, axis=1), axis=0, return_counts=True)
+    undirected, edge_ids, counts = np.unique(np.sort(directed, axis=1), axis=0, return_inverse=True, return_counts=True)
     open_edges, shared = int(np.sum(counts == 1)), int(np.sum(counts > 2))
     if open_edges or shared:
         problems = ([f"{open_edges} open edge(s) (holes in the surface)"] if open_edges else []) + \
@@ -179,7 +192,34 @@ def clean_surface(triangles: np.ndarray, name="mesh"):
         raise ValueError(f"{name} is not a single closed solid: it has " + " and ".join(problems) + f". {REPAIR_HINT}")
     _, directed_counts = np.unique(directed, axis=0, return_counts=True)
     if np.any(directed_counts > 1):
-        raise ValueError(f"{name} has inconsistently oriented (flipped) triangles. {REPAIR_HINT}")
+        if not repair:
+            raise ValueError(f"{name} has inconsistently oriented (flipped) triangles. {REPAIR_HINT}")
+        pairs = np.argsort(edge_ids).reshape(-1, 2)
+        neighbors = [[] for _ in faces]
+        for first, second in pairs:
+            a, b = int(first % len(faces)), int(second % len(faces))
+            flip = bool(directed[first, 0] == directed[second, 0])
+            neighbors[a].append((b, flip))
+            neighbors[b].append((a, flip))
+        orientation = np.full(len(faces), -1, dtype=np.int8)
+        for seed in range(len(faces)):
+            if orientation[seed] != -1:
+                continue
+            orientation[seed] = 0
+            pending = [seed]
+            while pending:
+                first = pending.pop()
+                for second, flip in neighbors[first]:
+                    expected = int(orientation[first]) ^ flip
+                    if orientation[second] == -1:
+                        orientation[second] = expected
+                        pending.append(second)
+                    elif orientation[second] != expected:
+                        raise ValueError(f"{name} has a non-orientable surface; automatic repair cannot determine a solid")
+        flipped = orientation == 1
+        faces[flipped] = faces[flipped][:, [0, 2, 1]]
+        if report is not None:
+            report["reoriented_triangles"] = int(flipped.sum())
     parent = list(range(len(points)))
     def root(node):
         while parent[node] != node:
@@ -196,6 +236,9 @@ def clean_surface(triangles: np.ndarray, name="mesh"):
         raise ValueError(f"{name} encloses no volume")
     if volume < 0:
         faces = faces[:, [0, 2, 1]]
+    if report is not None:
+        report.update(output_triangles=len(faces), reversed_inside_out_shell=volume < 0,
+                      enclosed_volume_m3=abs(volume))
     return points, faces
 
 

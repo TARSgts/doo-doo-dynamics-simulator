@@ -33,6 +33,7 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 - Study branches for static, modal and convergence analysis, with a lower settings panel that follows the selected study. See [study panels](docs/STUDY_PANELS.md).
 - Open only the projects you need, search the saved library, rename projects and locate their model/run files from the desktop. See [project navigation](docs/PROJECT_NAVIGATION.md).
 - Import one closed STEP, IGES or BREP solid using Gmsh's OpenCASCADE kernel, or a watertight STL, OBJ or 3MF mesh (rebuilt into a solid with pickable face patches).
+- Automatically prepare STL/OBJ/3MF surfaces by removing duplicate/degenerate triangles, fixing winding and retrying failed face-patch construction. Original files stay untouched; [repair details and limits](docs/MESH_REPAIR.md).
 - Generate linear C3D4 or quadratic C3D10 tetrahedra, check corner-element orientation and export a mesh.
 - Clamp the X-minimum face and apply an X/Y/Z force at a tip-center node, through the legacy equal-node X-max load, or as uniform traction integrated over a selected X/Y/Z min/max boundary surface.
 - Solve isotropic linear elasticity through CalculiX; verify completion, displacement completeness, force balance and moment balance.

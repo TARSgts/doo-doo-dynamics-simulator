@@ -1519,6 +1519,14 @@ class SimulatorWindow(QMainWindow):
                 if job["result"]:
                     result = job["result"]
                     output.append(f"  {result['nodes']:,} nodes · {result['tetrahedra']:,} tetrahedra")
+                    repair = result.get("mesh_repair") or {}
+                    if repair:
+                        changes = [f"{repair.get('removed_duplicate_triangles', 0)} duplicate triangles removed",
+                                   f"{repair.get('reoriented_triangles', 0)} triangles reoriented",
+                                   f"{repair.get('removed_degenerate_triangles', 0)} degenerate triangles removed"]
+                        if repair.get("patch_retry_used"):
+                            changes.append("face patches automatically rebuilt; review picked support/load faces")
+                        output.append("  Automatic surface preparation: " + "; ".join(changes) + ". Original file unchanged.")
                     if "maximum_displacement_m" in result:
                         direction = result.get("load_axis", "x")
                         reaction = ("Reaction XYZ: " + ", ".join(f"{value:.4f}" for value in result["reaction_N"]) + " N"

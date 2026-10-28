@@ -101,6 +101,7 @@ def execute(workspace: Workspace, job_id: str):
             mesh = import_and_mesh(cad, parameters["mesh_size_m"], parameters["cad_scale"], directory / "mesh.msh",
                                    order=parameters["element_order"], tip_point=parameters["load_kind"] == "point")
             result = {"nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra), "view": "mesh",
+                      "mesh_repair": mesh.repair_report,
                       "cad_faces": mesh.surface_catalog(),
                       "element_type": mesh.element_type,
                       "bounds_m": [mesh.points.min(axis=0).tolist(), mesh.points.max(axis=0).tolist()]}

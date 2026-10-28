@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import math
+import json
 import tempfile
 
 import gmsh
@@ -23,6 +24,7 @@ class Mesh:
     points: np.ndarray
     tetrahedra: np.ndarray
     surface_groups: dict = field(default_factory=dict)
+    repair_report: dict = field(default_factory=dict)
 
     @property
     def element_type(self) -> str:
@@ -143,12 +145,27 @@ def import_and_mesh(path: Path, size: float, scale: float, output: Path, order=1
         raise ValueError("A tip-center point load needs exact CAD (STEP, IGES or BREP). For STL/OBJ/3MF parts, "
                          "use uniform surface traction on picked faces or the end-face load")
     if surface_mesh:
-        points, faces = clean_surface(read_triangles(path) * scale, path.name)
+        repair_report = {"source_unchanged": True, "status": "preparing", "attempts": []}
+        try:
+            points, faces = clean_surface(read_triangles(path) * scale, path.name, repair=True, report=repair_report)
+        except ValueError as error:
+            repair_report.update(status="failed", error=str(error))
+            _write_repair_report(output, repair_report)
+            raise
     with gmsh_session(), tempfile.TemporaryDirectory() as scratch:
         gmsh.model.add("solid")
         if surface_mesh:
-            _rebuild_solid_from_surface(points, faces, Path(scratch) / "surface.stl", size)
-            return _mesh_volume(size, order, output)
+            try:
+                _rebuild_solid_from_surface(points, faces, Path(scratch) / "surface.stl", size, repair_report)
+                mesh = _mesh_volume(size, order, output)
+                repair_report["status"] = "completed"
+                mesh.repair_report = repair_report
+                return mesh
+            except Exception as error:
+                repair_report.update(status="failed", error=str(error))
+                raise
+            finally:
+                _write_repair_report(output, repair_report)
         gmsh.model.occ.importShapes(str(path.resolve()))
         gmsh.model.occ.synchronize()
         volumes = gmsh.model.getEntities(3)
@@ -178,7 +195,13 @@ def import_and_mesh(path: Path, size: float, scale: float, output: Path, order=1
         return _mesh_volume(size, order, output)
 
 
-def _rebuild_solid_from_surface(points, faces, stl_path: Path, size: float):
+def _write_repair_report(output, report):
+    path = Path(output).with_suffix(".repair.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, allow_nan=False), encoding="utf-8")
+
+
+def _rebuild_solid_from_surface(points, faces, stl_path: Path, size: float, report=None):
     """Split a closed triangle surface into smooth face patches and close them into one volume.
 
     Each patch becomes a pickable "face" (edges sharper than FACE_PATCH_ANGLE_DEG separate patches),
@@ -186,18 +209,32 @@ def _rebuild_solid_from_surface(points, faces, stl_path: Path, size: float):
     triangles the exporter happened to write.
     """
     write_binary_stl(stl_path, points, faces)
-    gmsh.merge(str(stl_path))
-    try:
-        gmsh.model.mesh.classifySurfaces(math.radians(FACE_PATCH_ANGLE_DEG), True, True, math.pi)
-        gmsh.model.mesh.createGeometry()
-        surfaces = [tag for _, tag in gmsh.model.getEntities(2)]
-        loop = gmsh.model.geo.addSurfaceLoop(surfaces)
-        gmsh.model.geo.addVolume([loop])
-        gmsh.model.geo.synchronize()
-    except Exception as error:
-        raise ValueError(f"Could not rebuild a solid from this surface mesh ({error}). Try repairing or re-exporting it") from error
-    if len(gmsh.model.getEntities(3)) != 1:
-        raise ValueError("The surface mesh did not form exactly one closed solid")
+    for attempt, angle in enumerate((FACE_PATCH_ANGLE_DEG, 25, 10)):
+        if attempt:
+            # Discard partially created geometry, then retry from the same cleaned
+            # triangles. Smaller patches change partitioning, not model shape.
+            gmsh.clear()
+            gmsh.model.add("solid")
+        gmsh.merge(str(stl_path))
+        try:
+            gmsh.model.mesh.classifySurfaces(math.radians(angle), True, True, math.pi if not attempt else math.pi / 2)
+            gmsh.model.mesh.createGeometry()
+            surfaces = [tag for _, tag in gmsh.model.getEntities(2)]
+            loop = gmsh.model.geo.addSurfaceLoop(surfaces)
+            gmsh.model.geo.addVolume([loop])
+            gmsh.model.geo.synchronize()
+            if len(gmsh.model.getEntities(3)) != 1:
+                raise ValueError("The surface mesh did not form exactly one closed solid")
+            if report is not None:
+                report["attempts"].append({"patch_angle_degrees": angle, "status": "completed"})
+                report["patch_retry_used"] = bool(attempt)
+            return
+        except Exception as error:
+            if report is not None:
+                report["attempts"].append({"patch_angle_degrees": angle, "status": "failed", "error": str(error)})
+            last_error = error
+    raise ValueError(f"Automatic surface repair could not create meshable face patches after 3 attempts ({last_error}). "
+                     "Export STEP from the original CAD, or repair the mesh in your modeling tool and re-import it") from last_error
 
 
 def _mesh_volume(size, order, output: Path) -> "Mesh":

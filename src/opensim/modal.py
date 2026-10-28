@@ -112,6 +112,7 @@ def solve_modal(cad: Path, output: Path, size=0.01, scale=1.0, young=210e9,
     if clamp_residual > 1e-8:
         raise ValueError("Mode shapes violate the fixed support")
     summary = {"analysis": "modal", "nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra),
+               "mesh_repair": mesh.repair_report,
                "element_type": mesh.element_type, "mode_count": mode_count, "frequencies_Hz": frequencies.tolist(),
                "eigenvalues_rad2_s2": eigenvalues.tolist(), "young_Pa": young, "poisson": poisson,
                "density_kg_m3": density, "boundary_condition": "Selected surface fully fixed; all other boundaries free" if support_region else "X-min face fully fixed; all other boundaries free",

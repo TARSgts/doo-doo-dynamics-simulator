@@ -71,6 +71,7 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
             raise
         tip_mean = None
     summary = {"nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra), "element_type": mesh.element_type,
+               "mesh_repair": mesh.repair_report,
                "maximum_displacement_m": float(np.linalg.norm(displacement, axis=1).max()),
                "mean_loaded_ux_m": float(displacement[mesh.end_nodes("max"), 0].mean()),
                "tip_mean_displacement_m": tip_mean,
