@@ -198,7 +198,32 @@ def main():
     modal_validation.add_argument("--out", type=Path, required=True)
     distributed = commands.add_parser("validate-distributed", help="Validate uniform surface traction with axial and uniformly loaded beam studies")
     distributed.add_argument("--out", type=Path, required=True)
+    cfd = commands.add_parser('cfd', help='Run a numerical cylinder, laminar-pipe or flat-plate CFD benchmark')
+    cfd.add_argument('--case', choices=['cylinder','pipe','flat_plate'], default='cylinder')
+    cfd.add_argument('--out', type=Path, required=True)
+    cfd.add_argument('--resolution', type=int, default=64)
+    cfd.add_argument('--parameters', type=Path, help='JSON containing cfd_* overrides (SI; angles in degrees)')
+    cfd_validation = commands.add_parser('validate-cfd', help='Verify all three numerical flow models against independent theory')
+    cfd_validation.add_argument('--out', type=Path, required=True)
     arguments = parser.parse_args()
+    if arguments.command in {'cfd','validate-cfd'}:
+        try:
+            if arguments.command == 'validate-cfd':
+                from opensim.cfd_validation import run_cfd_validation
+                result = run_cfd_validation(arguments.out)
+            else:
+                from opensim.cfd import run_cfd
+                from opensim.cfd_parameters import CFD_DEFAULTS
+                parameters = json.loads(arguments.parameters.read_text(encoding='utf-8')) if arguments.parameters else {}
+                if not isinstance(parameters, dict) or set(parameters) - set(CFD_DEFAULTS):
+                    raise ValueError('CFD JSON accepts only cfd_* settings')
+                parameters = {'cfd_case':arguments.case, 'cfd_resolution':arguments.resolution} | parameters
+                result = run_cfd(arguments.out, parameters)
+            print(json.dumps(result, indent=2))
+            if result.get('result') == 'FAIL': parser.exit(1, 'CFD verification failed\n')
+        except (ValueError, FileNotFoundError, FileExistsError, RuntimeError) as error:
+            parser.exit(1, f'open-sim: {error}\n')
+        return
     if arguments.command == 'thermal':
         try:
             from opensim.thermal import solve_thermal

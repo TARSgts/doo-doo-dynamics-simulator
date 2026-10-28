@@ -24,6 +24,9 @@ FIELD_HELP = {
 }
 
 BUTTON_HELP = {
+    "CFD": "Open the numerical flow workbench: cylinder pressure/streamlines, laminar pipe velocity, and a flat-plate CL versus angle sweep. Benchmark geometries only.",
+    "CFD checks": "Run cylinder, laminar pipe and flat-plate theory comparisons at three spatial resolutions, with a saved verification report.",
+    "Fluid dynamics": "Open CFD benchmark studies and their theory comparisons. External flow is inviscid; pipe flow is fully developed and laminar.",
     "Heat sink": "Create a separate six-fin heat sink with a 20 W heated base and 20 °C fin tips. This demonstrates conduction to fixed-temperature tips, not air convection.",
     "Thermal bar": "Open the independent Fourier-conduction verification report. It does not change your project.",
     "Thermal": "Run steady isotropic heat conduction. Configure conductivity and thermal boundary temperatures or power first.",

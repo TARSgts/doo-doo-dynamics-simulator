@@ -388,7 +388,8 @@ class SimulatorWindow(QMainWindow):
                          ("Result plots", "Charts and CSV export", self.show_plots),
                          ("Stress contours", "Recovered von Mises", self.show_stress), ("Convergence", "Mesh refinement study", self.convergence),
                          ("Convergence report", "Latest study", self.show_convergence_report),
-                         ("Modal", "Natural frequencies", self.modal), ("Thermal", "Steady temperature and heat flow", self.thermal)],
+                         ("Modal", "Natural frequencies", self.modal), ("Thermal", "Steady temperature and heat flow", self.thermal),
+                         ("CFD", "Cylinder, pipe and flat-plate flow studies", self.show_cfd)],
             "Automation": [("MCP status", "Local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
                            ("Remote access", "Planned", None)],
             "Examples": [("Test plate", "100 × 40 × 5 mm", self.create_demo),
@@ -399,6 +400,7 @@ class SimulatorWindow(QMainWindow):
                            ("Modal beam", "Frequency verification", lambda: self.show_reference_report("modal")),
                            ("Distributed load", "Uniform traction study", lambda: self.show_reference_report("distributed")),
                            ("Thermal bar", "Fourier conduction verification", lambda: self.show_reference_report("thermal")),
+                           ("CFD checks", "Cylinder, pipe and flat-plate verification", self.show_cfd_validation),
                            ("Circular hole", "Kirsch stress study", lambda: self.show_reference_report("hole"))],
         }
         for name, buttons in groups.items():
@@ -706,7 +708,7 @@ class SimulatorWindow(QMainWindow):
         contents = QWidget()
         layout = QVBoxLayout(contents)
         layout.addWidget(QLabel("AVAILABLE NOW"))
-        for label, callback in (("Static Structural", self.solve), ("Convergence study", self.convergence), ("Modal analysis", self.modal), ("Thermal analysis", self.thermal),
+        for label, callback in (("Static Structural", self.solve), ("Convergence study", self.convergence), ("Modal analysis", self.modal), ("Thermal analysis", self.thermal), ("Fluid dynamics", self.show_cfd),
                                 ("Generate Mesh", self.mesh), ("MCP Controls", self.show_mcp)):
             button = QPushButton(label)
             button.clicked.connect(lambda checked=False, handler=callback: self.safe(handler))
@@ -848,6 +850,19 @@ class SimulatorWindow(QMainWindow):
         self.workspace.show_project(project["id"], "mesh")
         self.workspace.start_job(project["id"], "example", example="cantilever_beam")
         self.dirty = False
+
+    def show_cfd_validation(self):
+        self.show_cfd()
+        if not self.cfd_dialog.job_id:
+            self.cfd_dialog.run(validation=True)
+
+    def show_cfd(self):
+        from opensim.cfd_desktop import CFDDialog
+        if not hasattr(self, 'cfd_dialog'):
+            self.cfd_dialog = CFDDialog(self.workspace, self)
+        self.cfd_dialog.show()
+        self.cfd_dialog.raise_()
+        self.cfd_dialog.activateWindow()
 
     def create_heat_sink(self):
         self.save_before_project_change()

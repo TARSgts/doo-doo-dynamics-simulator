@@ -14,6 +14,7 @@ def create_server(workspace: Workspace) -> FastMCP:
         "Optional support_region/load_region dictionaries select CAD face IDs and box_m centroid filters. A selected support is fully fixed, not contact. Static results include recovered nodal von Mises stress. "
         "Undamped unprestressed modal analysis is available with positive density and default or selected fixed support. "
         "Steady thermal conduction is available through set_thermal_parameters/run_thermal_analysis/get_thermal_results; Kelvin, W, W/m/K. No convection, radiation or thermal expansion. "
+        "CFD benchmark studies use set_cfd_parameters/run_cfd_analysis/get_cfd_results: source-panel cylinder, laminar round pipe, discrete-vortex flat-plate CL-alpha sweep. No CAD flow, turbulence, stall or thermal coupling. "
         "run_convergence_study checks whether results depend on mesh size. Use cancel_job to stop a job that is taking too long. Inspect get_capabilities before requesting other physics. The desktop reflects shared workspace changes."))
 
     @server.tool()
@@ -114,6 +115,24 @@ def create_server(workspace: Workspace) -> FastMCP:
     def get_thermal_results(project_id: str) -> dict[str, Any]:
         """Return current temperature/heat-flow summary, energy balance, viewer, VTK, CSV and NPZ in SI (Kelvin, W, W/m²). Desktop display uses Celsius."""
         return workspace.get_thermal_results(project_id)
+
+    @server.tool()
+    def set_cfd_parameters(project_id: str, parameters: dict[str, Any]) -> dict[str, Any]:
+        """Set cfd_* inputs only. cfd_case: cylinder / pipe / flat_plate; resolution 12–256. SI units except alpha_min/max/step_deg (±10°). Inspect the project's defaults. Pipe requires Re<2000, external models Mach≤0.3. CAD is ignored: these are numerical benchmark geometries."""
+        from opensim.cfd_parameters import CFD_DEFAULTS
+        if set(parameters) - set(CFD_DEFAULTS):
+            raise ValueError('Use only cfd_* parameters from the CFD defaults')
+        return workspace.set_parameters(project_id, parameters)
+
+    @server.tool()
+    def run_cfd_analysis(project_id: str, validate_all: bool = False) -> dict[str, Any]:
+        """Start the selected numerical CFD benchmark without CAD. validate_all runs all three reference comparisons at three resolutions. Poll get_job. Models: inviscid 2D cylinder, fully developed laminar pipe, small-angle flat-plate lift sweep. No separation, stall, turbulence, viscous external drag or heat transfer."""
+        return workspace.start_job(project_id, 'cfd_validation' if validate_all else 'cfd')
+
+    @server.tool()
+    def get_cfd_results(project_id: str) -> dict[str, Any]:
+        """Return current CFD results, model assumptions, numerical/reference comparison, report, plotted CSV, full arrays and PNG chart."""
+        return workspace.get_cfd_results(project_id)
 
     @server.tool()
     def get_job(job_id: str) -> dict[str, Any]:

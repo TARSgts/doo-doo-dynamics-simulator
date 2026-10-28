@@ -20,7 +20,21 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
             async with ClientSession(reader, writer) as session:
                 await session.initialize()
                 catalog = await session.list_tools()
-                assert len(catalog.tools) == 22
+                assert len(catalog.tools) == 25
+                cfd_project = await session.call_tool('create_project', {'name':'MCP CFD plate'})
+                cfd_pid = cfd_project.structuredContent['id']
+                configured_cfd = await session.call_tool('set_cfd_parameters', {'project_id':cfd_pid, 'parameters':{'cfd_case':'flat_plate','cfd_alpha_step_deg':1}})
+                assert not configured_cfd.isError
+                cfd_job = await session.call_tool('run_cfd_analysis', {'project_id':cfd_pid})
+                assert not cfd_job.isError
+                while True:
+                    cfd_status = await session.call_tool('get_job', {'job_id':cfd_job.structuredContent['id']})
+                    if cfd_status.structuredContent['status'] not in {'queued','running'}: break
+                    await asyncio.sleep(.05)
+                assert cfd_status.structuredContent['status']=='completed', cfd_status.structuredContent
+                cfd_results = await session.call_tool('get_cfd_results', {'project_id':cfd_pid})
+                assert not cfd_results.isError
+                assert cfd_results.structuredContent['summary']['angle_count']==17
                 assert {"cancel_job", "run_convergence_study", "get_convergence_results"} <= {tool.name for tool in catalog.tools}
                 themed = await session.call_tool("set_desktop_theme", {"theme": "dark"})
                 assert themed.structuredContent["theme"] == "dark"

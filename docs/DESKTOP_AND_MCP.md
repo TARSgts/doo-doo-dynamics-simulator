@@ -37,7 +37,7 @@ Discord Rich Presence starts automatically on fresh installs using the simulator
 
 Project inputs, job statuses and results persist in `workspace/workspace.sqlite3` and per-project folders. The workspace is ignored by Git. Input changes invalidate displayed results without deleting historical job files. Active jobs prevent changes to that project's inputs. Job failure messages and worker/solver logs are retained. Cancelling or recovering interrupted workers is not implemented yet; normal jobs finish independently of the GUI window.
 
-Implemented analysis supports one solid and one isotropic linear material with an X-min clamp and X/Y/Z end forces, using either C3D4 or C3D10. Choose an end-face total nodal force or a single point at the planar tip center. The cantilever preset uses a 1 m × 20 mm × 20 mm beam with −10 N in Z and C3D10. Planned modal, thermal, transient, CFD, electromagnetic, contact, nonlinear, optimization and GPU features remain **disabled controls**. Geometry mode displays undeformed tessellation, not a CAD editor; contour results show total or signed-component displacement only.
+Structural analysis supports one solid and one isotropic linear material, with selectable fixed supports and point or surface loads, using C3D4 or C3D10. Modal analysis, steady thermal conduction and the separate CFD benchmark workbench are also enabled. Transient dynamics, electromagnetic, contact, nonlinear, optimization and GPU features remain **disabled controls**. Geometry mode displays undeformed tessellation, not a CAD editor. Structural results include displacement and recovered stress; each other study has its own supported quantities and limitations.
 
 ## MCP connection
 
@@ -75,7 +75,7 @@ Other MCP clients can launch the same command using a standard stdio configurati
 
 ### Tools
 
-The server now exposes 22 tools, including steady thermal conduction. Restart an existing server after updating so clients can discover the added tools.
+The server now exposes 25 tools, including steady thermal conduction and bounded CFD benchmark studies. Restart an existing server after updating so clients can discover the added tools. See [CFD models, controls and verification](CFD.md).
 
 | Tool | Purpose |
 | --- | --- |
@@ -95,6 +95,9 @@ The server now exposes 22 tools, including steady thermal conduction. Restart an
 | `set_thermal_parameters` | Conductivity, temperatures in K, source power in W, separate thermal face regions |
 | `run_thermal_analysis` | Start steady isotropic conduction; other surfaces insulated |
 | `get_thermal_results` | Temperature/heat-flux results, energy balance, HTML/VTK/NPZ/CSV artifacts |
+| `set_cfd_parameters` | CFD case and cfd_* inputs; SI except angles in degrees |
+| `run_cfd_analysis` | Run cylinder, pipe or flat-plate benchmark; validate_all runs all three theory checks |
+| `get_cfd_results` | Current CFD summary and report, PNG, CSV, NPZ and manifest paths |
 | `show_in_desktop` | Select project and geometry/mesh/results/modal view and mode number |
 
 Typical sequence: create project → set parameters → create/import CAD → wait for meshing → solve → poll job → get results → show in desktop. Each returned job ID identifies a distinct output folder. The server accepts only the implemented job kinds; it does not expose arbitrary command execution or an executable-path override.

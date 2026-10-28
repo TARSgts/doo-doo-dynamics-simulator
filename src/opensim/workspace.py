@@ -13,6 +13,7 @@ from opensim.load_settings import LOAD_AXES, LOAD_KINDS, LOAD_SURFACES, NORMAL_A
 from opensim.region_settings import validate_region
 from opensim.job_progress import STAGE_LABELS
 from opensim.thermal_parameters import THERMAL_DEFAULTS, validate_thermal_parameters
+from opensim.cfd_parameters import CFD_DEFAULTS, validate_cfd_parameters
 
 
 ACTIVE_STATUSES = ("queued", "running")
@@ -23,9 +24,9 @@ DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
                       "load_axis": "x", "load_kind": "face", "load_surface": "x-max", "density_kg_m3": 7850.0, "mode_count": 6,
                       "support_region": {}, "load_region": {},
                       "convergence_levels": 4, "convergence_ratio": 1.4, "convergence_tolerance_percent": 2.0,
-                      "convergence_target": "displacement"} | THERMAL_DEFAULTS
+                      "convergence_target": "displacement"} | THERMAL_DEFAULTS | CFD_DEFAULTS
 TEXT_PARAMETERS = {"load_axis", "load_kind", "load_surface", "support_region", "load_region", "convergence_target",
-                   "thermal_boundary_mode", "thermal_fixed_region", "thermal_source_region"}
+                   "thermal_boundary_mode", "thermal_fixed_region", "thermal_source_region", "cfd_case"}
 STUDY_TYPES = ("static", "modal", "convergence", "thermal")
 CAPABILITIES = [
     {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP; closed STL, OBJ or 3MF surface meshes"},
@@ -38,8 +39,9 @@ CAPABILITIES = [
     {"name": "Convergence study", "enabled": True, "detail": "Static solve on 3–6 successively finer meshes; change, verdict, Richardson extrapolation and GCI per quantity"},
     {"name": "Modal analysis", "enabled": True, "detail": "Undamped unprestressed modes; X-min face fixed; positive density"},
     {"name": "Thermal analysis", "enabled": True, "detail": "Steady isotropic conduction; fixed temperature plus second temperature or total surface heat input; other surfaces insulated"},
+    {"name": "Fluid dynamics", "enabled": True, "detail": "CFD workbench: 2D inviscid cylinder and flat-plate lift sweep; fully developed laminar round pipe. Benchmark geometries only; not a general CAD Navier–Stokes solver"},
     *[{"name": name, "enabled": False, "detail": "Planned — not implemented"} for name in
-      ("Transient dynamics", "Fluid dynamics",
+      ("Transient dynamics",
        "Electromagnetics", "Contact", "Nonlinear materials", "Optimization", "GPU solve")],
 ]
 
@@ -189,6 +191,7 @@ class Workspace:
             raise ValueError("Unsupported analysis parameter")
         merged = project["parameters"] | parameters
         validate_thermal_parameters(merged)
+        validate_cfd_parameters(merged)
         numeric = [value for key, value in merged.items() if key not in TEXT_PARAMETERS]
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
                for value in numeric):
@@ -227,7 +230,7 @@ class Workspace:
         return self.get_project(project_id)
 
     def start_job(self, project_id: str, kind: str, example="perforated_plate") -> dict:
-        if kind not in {"example", "mesh", "solve", "modal", "convergence", "thermal"}:
+        if kind not in {"example", "mesh", "solve", "modal", "convergence", "thermal", "cfd", "cfd_validation"}:
             raise ValueError("Unsupported job kind")
         if example not in {"perforated_plate", "axial_bar", "cantilever_beam", "heat_sink"}:
             raise ValueError("Unsupported test object")
@@ -239,7 +242,7 @@ class Workspace:
             if row is None:
                 raise ValueError("Unknown project")
             project = dict(row)
-            if kind != "example" and not project["cad"]:
+            if kind not in {"example", "cfd", "cfd_validation"} and not project["cad"]:
                 raise ValueError("Import CAD or create a test object first")
             if kind == "example":
                 project["revision"] += 1
@@ -384,6 +387,16 @@ class Workspace:
                         "meshes": [{"mesh": level["level"], "tetrahedra": level["tetrahedra"], "viewer": str(directory / level["viewer"])}
                                    for level in job["result"]["levels"]]}
         raise ValueError("No completed convergence study for the current project inputs")
+
+    def get_cfd_results(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        for job in self.list_jobs(project_id):
+            if job['revision'] == project['revision'] and job['kind'] in {'cfd', 'cfd_validation'} and job['status'] == 'completed':
+                directory = self.job_directory(job['id']) / job['kind']
+                return {'job_id': job['id'], 'summary': job['result'], 'artifacts': {
+                    name: str(directory/name) for name in ('report.html', 'plot.png', 'data.csv', 'flow.npz', 'manifest.json', 'report.json') if (directory/name).is_file()
+                }}
+        raise ValueError('No completed CFD study for the current project inputs')
 
     def get_thermal_results(self, project_id: str) -> dict:
         project = self.get_project(project_id)

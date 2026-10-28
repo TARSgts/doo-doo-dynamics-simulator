@@ -77,7 +77,13 @@ def execute(workspace: Workspace, job_id: str):
                     (str(cad), job["project_id"], job["revision"], job_id)).rowcount
             if not updated:
                 return  # A stopped example must not overwrite a newly imported model.
-        if job["kind"] == "thermal":
+        if job['kind'] == 'cfd_validation':
+            from opensim.cfd_validation import run_cfd_validation
+            result = run_cfd_validation(directory / 'cfd_validation', progress=progress)
+        elif job['kind'] == 'cfd':
+            from opensim.cfd import run_cfd
+            result = run_cfd(directory / 'cfd', parameters, progress=progress)
+        elif job["kind"] == "thermal":
             from opensim.thermal import solve_thermal
             result = solve_thermal(cad, directory / "thermal", size=parameters["mesh_size_m"], scale=parameters["cad_scale"],
                                    order=parameters["element_order"], parameters=parameters, progress=progress)
