@@ -229,7 +229,7 @@ class Workspace:
     def start_job(self, project_id: str, kind: str, example="perforated_plate") -> dict:
         if kind not in {"example", "mesh", "solve", "modal", "convergence", "thermal"}:
             raise ValueError("Unsupported job kind")
-        if example not in {"perforated_plate", "axial_bar", "cantilever_beam"}:
+        if example not in {"perforated_plate", "axial_bar", "cantilever_beam", "heat_sink"}:
             raise ValueError("Unsupported test object")
         job_id = uuid.uuid4().hex
         with self.connect() as connection:
@@ -245,6 +245,9 @@ class Workspace:
                 project["revision"] += 1
                 parameters = DEFAULT_PARAMETERS | json.loads(project["parameters"])
                 parameters.update({"support_region": {}, "load_region": {}, "thermal_fixed_region": {}, "thermal_source_region": {}})
+                if example == 'heat_sink':
+                    from opensim.heat_sink import HEAT_SINK_PARAMETERS
+                    parameters.update(HEAT_SINK_PARAMETERS)
                 project["parameters"] = json.dumps(parameters)
                 connection.execute("UPDATE projects SET revision=?,parameters=? WHERE id=?", (project["revision"], project["parameters"], project_id))
             payload = {"cad": project["cad"], "parameters": DEFAULT_PARAMETERS | json.loads(project["parameters"]), "example": example}
@@ -256,6 +259,10 @@ class Workspace:
                                 json.dumps(payload), None, None, now, now))
             connection.execute("INSERT INTO job_progress VALUES(?,?,?)", (job_id, "queued", now))
             study = {"solve": "static", "modal": "modal", "convergence": "convergence", "thermal": "thermal"}.get(kind)
+            if kind == 'example' and example == 'heat_sink':
+                study = 'thermal'
+                payload['study'] = 'thermal'
+                connection.execute('UPDATE jobs SET payload=? WHERE id=?', (json.dumps(payload), job_id))
             if study:
                 connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))
         directory = self.job_directory(job_id)

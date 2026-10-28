@@ -55,8 +55,11 @@ def execute(workspace: Workspace, job_id: str):
         cad = Path(job["payload"]["cad"]) if job["payload"]["cad"] else None
         if job["kind"] == "example":
             progress("creating")
-            cad = directory / "test-object.step"
-            if job["payload"]["example"] == "cantilever_beam":
+            cad = directory / ("heat-sink.step" if job['payload']['example'] == 'heat_sink' else "test-object.step")
+            if job['payload']['example'] == 'heat_sink':
+                from opensim.heat_sink import make_heat_sink
+                make_heat_sink(cad)
+            elif job["payload"]["example"] == "cantilever_beam":
                 make_box(cad, (1.0, 0.02, 0.02))
             elif job["payload"]["example"] == "axial_bar":
                 make_box(cad, (0.1, 0.02, 0.02))

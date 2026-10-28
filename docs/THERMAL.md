@@ -1,5 +1,7 @@
 # Steady thermal analysis
 
+For a ready-to-run model, choose **Examples → Heat sink**. See the [sample dimensions, thermal conditions and limitations](HEAT_SINK_EXAMPLE.md).
+
 The thermal study solves **steady, isotropic heat conduction** in one solid using CalculiX. It supports the same CAD import and linear/quadratic tetrahedral meshes as structural analysis. It calculates temperature and recovered heat-flux vectors, with a heat-balance check.
 
 ## Desktop workflow

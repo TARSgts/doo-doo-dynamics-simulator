@@ -81,7 +81,7 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def create_test_object(project_id: str, kind: str = "perforated_plate") -> dict[str, Any]:
-        """Create perforated_plate, axial_bar or cantilever_beam; return its background job ID."""
+        """Create perforated_plate, axial_bar, cantilever_beam or heat_sink; return a background job ID. heat_sink sets a 20 W base, 20 °C fin tips and k=200 W/m/K for a steady-conduction demonstration, not convection."""
         return workspace.start_job(project_id, "example", example=kind)
 
     @server.tool()

@@ -84,7 +84,7 @@ The server now exposes 22 tools, including steady thermal conduction. Restart an
 | `list_projects` / `create_project` / `get_project` | Project discovery and creation |
 | `import_cad` | Copy an explicitly selected local CAD file into the project |
 | `set_analysis_parameters` | Set SI inputs, element order, force direction and face/point application |
-| `create_test_object` | Generate a perforated plate, axial bar or cantilever beam |
+| `create_test_object` | Generate a perforated plate, axial bar, cantilever beam or configured thermal heat sink |
 | `mesh_project` / `solve_project` | Start asynchronous meshing or static structural solve |
 | `get_job` | Poll status, failure or numerical summary |
 | `cancel_job` | Stop a queued or running mesh, static or modal job |

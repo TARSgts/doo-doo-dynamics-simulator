@@ -24,6 +24,7 @@ FIELD_HELP = {
 }
 
 BUTTON_HELP = {
+    "Heat sink": "Create a separate six-fin heat sink with a 20 W heated base and 20 °C fin tips. This demonstrates conduction to fixed-temperature tips, not air convection.",
     "Thermal bar": "Open the independent Fourier-conduction verification report. It does not change your project.",
     "Thermal": "Run steady isotropic heat conduction. Configure conductivity and thermal boundary temperatures or power first.",
     "Thermal analysis": "Run steady isotropic heat conduction with separate thermal boundary selections.",

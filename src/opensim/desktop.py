@@ -392,6 +392,7 @@ class SimulatorWindow(QMainWindow):
             "Automation": [("MCP status", "Local tools", self.show_mcp), ("Refresh", "Shared workspace", self.refresh),
                            ("Remote access", "Planned", None)],
             "Examples": [("Test plate", "100 × 40 × 5 mm", self.create_demo),
+                         ("Heat sink", "Finned thermal conduction example", self.create_heat_sink),
                          ("Cantilever", "1 m tip-loaded beam", self.create_beam)],
             "Validation": [("Reference report", "Euler–Bernoulli study", self.show_validation),
                            ("Timoshenko", "Bending + shear study", lambda: self.show_reference_report("timoshenko")),
@@ -846,6 +847,13 @@ class SimulatorWindow(QMainWindow):
         self.workspace.set_parameters(project["id"], BEAM_PARAMETERS)
         self.workspace.show_project(project["id"], "mesh")
         self.workspace.start_job(project["id"], "example", example="cantilever_beam")
+        self.dirty = False
+
+    def create_heat_sink(self):
+        self.save_before_project_change()
+        project = self.workspace.create_project("Sample heat sink / conduction / " + datetime.now().strftime("%H:%M:%S"))
+        self.workspace.start_job(project['id'], 'example', example='heat_sink')
+        self.workspace.show_project(project['id'], 'mesh')
         self.dirty = False
 
     def show_validation(self):
