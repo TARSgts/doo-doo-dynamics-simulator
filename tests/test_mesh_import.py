@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from opensim.geometry import gmsh_session, import_and_mesh
-from opensim.mesh_import import clean_surface, read_triangles
+from opensim.mesh_import import clean_surface, read_triangles, surface_intersection_pairs
 
 
 def box_triangles(size=(2.0, 1.0, 0.5)):
@@ -66,6 +66,32 @@ def test_automatic_surface_cleanup_preserves_shape_and_reports_changes():
     clean_surface(points[faces])
     np.testing.assert_allclose(points.min(axis=0), [0, 0, 0])
     np.testing.assert_allclose(points.max(axis=0), [2, 1, 0.5])
+
+
+@pytest.mark.parametrize('scale', [0.001, 1, 1000])
+def test_closed_but_self_intersecting_surface_is_diagnosed_at_different_units(scale):
+    points, faces = clean_surface(box_triangles())
+    assert surface_intersection_pairs(points * scale, faces) == []
+    corner = np.flatnonzero(np.all(points == [2, 1, .5], axis=1))[0]
+    points[corner] = [1, .5, -.5]  # Fold one corner through the opposite face.
+    assert surface_intersection_pairs(points * scale, faces)
+    assert surface_intersection_pairs(points * scale, faces, max_pairs=0) == []
+
+
+def test_failed_reconstruction_explains_self_intersection_and_saves_pairs(tmp_path, monkeypatch):
+    points, faces = clean_surface(box_triangles())
+    corner = np.flatnonzero(np.all(points == [2, 1, .5], axis=1))[0]
+    points[corner] = [1, .5, -.5]
+    source = tmp_path / 'folded.stl'
+    write_stl(source, points[faces])
+    def fail(*args, **kwargs):
+        raise Exception('Wrong topology of boundary mesh for parametrization')
+    monkeypatch.setattr(gmsh.model.mesh, 'createGeometry', fail)
+    with pytest.raises(ValueError, match='self-intersections'):
+        import_and_mesh(source, .3, 1, tmp_path / 'mesh.msh')
+    report = json.loads((tmp_path / 'mesh.repair.json').read_text())
+    assert report['intersecting_triangle_pairs']
+    assert report['source_unchanged'] and report['status'] == 'failed'
 
 
 def test_automatic_cleanup_does_not_fill_holes_or_join_shells():

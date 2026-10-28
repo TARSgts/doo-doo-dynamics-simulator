@@ -242,6 +242,55 @@ def clean_surface(triangles: np.ndarray, name="mesh", *, repair=False, report=No
     return points, faces
 
 
+def surface_intersection_pairs(points, faces, max_pairs=2_000_000, max_hits=20):
+    """Find noncoplanar segment/facet intersections for failed-import diagnostics.
+
+    Bounded sweep-and-prune search; an empty result is not a validity certificate.
+    Coplanar overlaps and edge-sharing adjacent facets are outside this check.
+    Returned indices refer to the cleaned triangle array, starting at zero.
+    """
+    triangles = points[faces]
+    lower, upper = triangles.min(axis=1), triangles.max(axis=1)
+    axis = int(np.ptp(points, axis=0).argmax())
+    ordered = np.argsort(lower[:, axis], kind="stable")
+    ends = np.searchsorted(lower[ordered, axis], upper[:, axis], side="right")
+    tested, hits = 0, []
+    for rank, first in enumerate(ordered):
+        candidates = ordered[rank + 1:ends[first]]
+        tested += len(candidates)
+        if tested > max_pairs:
+            break
+        candidates = candidates[np.all(upper[candidates] >= lower[first], axis=1)
+                                & np.all(lower[candidates] <= upper[first], axis=1)]
+        shared = (faces[candidates, :, None] == faces[first, None, :]).sum(axis=(1, 2))
+        candidates = candidates[shared < 2]
+        if not len(candidates):
+            continue
+        found = np.zeros(len(candidates), dtype=bool)
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            for reverse in (False, True):
+                targets = triangles[candidates] if not reverse else np.broadcast_to(triangles[first], (len(candidates), 3, 3))
+                start = triangles[first, a] if not reverse else triangles[candidates, a]
+                direction = triangles[first, b] - triangles[first, a] if not reverse else triangles[candidates, b] - triangles[candidates, a]
+                edge1, edge2 = targets[:, 1] - targets[:, 0], targets[:, 2] - targets[:, 0]
+                cross = np.cross(direction, edge2)
+                det = np.einsum("ij,ij->i", edge1, cross)
+                tolerance = 64 * np.finfo(float).eps * np.linalg.norm(edge1, axis=1) * np.linalg.norm(edge2, axis=1) * np.linalg.norm(direction, axis=-1)
+                valid = np.abs(det) > tolerance
+                inv = np.divide(1., det, out=np.zeros_like(det), where=valid)
+                offset = start - targets[:, 0]
+                u = np.einsum("ij,ij->i", offset, cross) * inv
+                q = np.cross(offset, edge1)
+                v = np.sum(direction * q, axis=1) * inv
+                distance = np.einsum("ij,ij->i", edge2, q) * inv
+                found |= valid & (u >= -1e-9) & (v >= -1e-9) & (u + v <= 1 + 1e-9) & (distance > 1e-8) & (distance < 1 - 1e-8)
+        for second in candidates[found]:
+            hits.append([int(first), int(second)])
+            if len(hits) >= max_hits:
+                return hits
+    return hits
+
+
 def write_binary_stl(path: Path, points: np.ndarray, faces: np.ndarray):
     corners = points[faces]
     normals = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])

@@ -9,7 +9,7 @@ import tempfile
 import gmsh
 import numpy as np
 
-from opensim.mesh_import import MESH_SUFFIXES, clean_surface, read_triangles, write_binary_stl
+from opensim.mesh_import import MESH_SUFFIXES, clean_surface, read_triangles, surface_intersection_pairs, write_binary_stl
 from opensim.file_formats import CAD_SUFFIXES, SUPPORTED_SUFFIXES
 
 FACE_PATCH_ANGLE_DEG = 40
@@ -233,6 +233,14 @@ def _rebuild_solid_from_surface(points, faces, stl_path: Path, size: float, repo
             if report is not None:
                 report["attempts"].append({"patch_angle_degrees": angle, "status": "failed", "error": str(error)})
             last_error = error
+    intersections = surface_intersection_pairs(points, faces)
+    if intersections:
+        if report is not None:
+            report["intersecting_triangle_pairs"] = intersections
+        raise ValueError("This surface has self-intersections: triangles cross or touch away from shared edges. "
+                         "Being closed does not make it a valid solid. Duplicate removal and flipped-face repair cannot resolve this. "
+                         "Resolve the overlapping surfaces in the source model and re-export, preferably as STEP. "
+                         "The original file was not changed") from last_error
     raise ValueError(f"Automatic surface repair could not create meshable face patches after 3 attempts ({last_error}). "
                      "Export STEP from the original CAD, or repair the mesh in your modeling tool and re-import it") from last_error
 

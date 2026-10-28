@@ -10,7 +10,9 @@ This message occurs during Gmsh's construction of parametrized face patches; it 
 
 After the initial 40° face classification fails, the importer discards the partially constructed Gmsh model and retries the same cleaned surface at 25°, then 10°, also allowing sharper curve splits. This follows Gmsh's [discrete-surface classification and parametrization workflow](https://gmsh.info/doc/texinfo/#t13). There are at most three construction attempts. Exhausting them produces an actionable error recommending STEP export from the original CAD or external mesh repair.
 
-These retries recover some patch-construction failures, not every possible topology error. The particular source file in the user's screenshot was not available in the current workspace's job history, so recovery of that exact model has not been verified.
+These retries recover some patch-construction failures, not every possible topology error. When all retries fail, a bounded diagnostic search checks for noncoplanar segment/facet intersections. Detected crossings produce a specific self-intersection error and up to 20 cleaned-triangle index pairs in `mesh.repair.json`. The search has a fixed candidate-pair budget, skips shared-edge neighbors and does not test coplanar overlaps; finding no crossings is not a certificate of validity.
+
+A private user-supplied STL reproduced the original parametrization failure: it had closed triangle connectivity but geometric crossings near its base. Direct tetrahedralization also reported a segment/facet intersection. It is correctly rejected with the clearer diagnostic rather than silently changing its shape. The private file and diagnostic images are not distributed with the repository.
 
 ## Seeing what happened
 
@@ -24,4 +26,4 @@ Smaller patches can change pickable face IDs. After a repair/re-import, inspect 
 
 Automatic preparation does not fill holes, bridge gaps, join separate shells, smooth/decimate the model, reconstruct missing geometry or resolve self-intersections. Non-manifold edges, inconsistent non-orientable topology and multiple shells remain errors. This is not a general mesh-repair or geometric-validity certification tool.
 
-Tests cover duplicate/flipped/degenerate facets, original-file hashes, corrected closed-shell orientation, unchanged box bounds and volume, holes/non-manifold/disconnected surfaces, successful retry after an injected parametrization failure, and bounded failure/reporting. Existing STL/OBJ/3MF versus STEP meshing comparisons remain in place. A CalculiX integration test compares both pristine and automatically repaired STL cantilevers with an exact STEP solve, checking displacement and force balance.
+Tests cover duplicate/flipped/degenerate facets, original-file hashes, corrected closed-shell orientation, unchanged box bounds and volume, holes/non-manifold/disconnected surfaces, successful retry after an injected parametrization failure, and bounded failure/reporting. A folded closed box verifies intersection diagnostics across three coordinate scales, plus budget limits and saved diagnostic pairs. Existing STL/OBJ/3MF versus STEP meshing comparisons remain in place. A CalculiX integration test compares both pristine and automatically repaired STL cantilevers with an exact STEP solve, checking displacement and force balance.
