@@ -20,7 +20,7 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
             async with ClientSession(reader, writer) as session:
                 await session.initialize()
                 catalog = await session.list_tools()
-                assert len(catalog.tools) == 19
+                assert len(catalog.tools) == 22
                 assert {"cancel_job", "run_convergence_study", "get_convergence_results"} <= {tool.name for tool in catalog.tools}
                 themed = await session.call_tool("set_desktop_theme", {"theme": "dark"})
                 assert themed.structuredContent["theme"] == "dark"
@@ -29,7 +29,8 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
                 capabilities = await session.call_tool("get_capabilities", {})
                 assert not capabilities.isError
                 data = capabilities.structuredContent
-                assert not next(feature for feature in data["features"] if feature["name"] == "Thermal analysis")["enabled"]
+                assert next(feature for feature in data["features"] if feature["name"] == "Thermal analysis")["enabled"]
+                assert {'set_thermal_parameters','run_thermal_analysis','get_thermal_results'} <= {tool.name for tool in catalog.tools}
                 created = await session.call_tool("create_project", {"name": "MCP project"})
                 project_id = created.structuredContent["id"]
                 configured = await session.call_tool("set_analysis_parameters", {"project_id": project_id, "load_N": 1500})
@@ -65,6 +66,21 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
                     assert len(results.structuredContent["modes"]) == 3
                     shown = await session.call_tool("show_in_desktop", {"project_id": project_id, "view": "modal", "mode": 2})
                     assert shown.structuredContent["modal_mode"] == 2
+                    thermal = await session.call_tool('set_thermal_parameters', {'project_id':project_id,'conductivity_W_mK':10})
+                    assert not thermal.isError
+                    assert thermal.structuredContent['parameters']['thermal_fixed_temperature_K']==293.15
+                    thermal_job = await session.call_tool('run_thermal_analysis', {'project_id':project_id})
+                    assert not thermal_job.isError
+                    while True:
+                        thermal_status = await session.call_tool('get_job', {'job_id':thermal_job.structuredContent['id']})
+                        if thermal_status.structuredContent['status'] not in {'queued','running'}:break
+                        await asyncio.sleep(.05)
+                    assert thermal_status.structuredContent['status']=='completed',thermal_status.structuredContent
+                    thermal_result = await session.call_tool('get_thermal_results', {'project_id':project_id})
+                    assert not thermal_result.isError
+                    assert thermal_result.structuredContent['summary']['maximum_temperature_K']==373.15
+                    thermal_shown = await session.call_tool('show_in_desktop', {'project_id':project_id,'view':'thermal'})
+                    assert thermal_shown.structuredContent['study']=='thermal'
                     configured_load = await session.call_tool("set_analysis_parameters", {"project_id": project_id, "mesh_size_m": 0.01, "element_order": 2,
                         "poisson": 0, "load_N": -10, "load_axis": "z", "load_kind": "traction", "load_surface": "z-max",
                         "support_region": {"box_m": [-0.000001,-0.001,-0.001,0.000001,0.021,0.021]},

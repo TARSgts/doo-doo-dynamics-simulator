@@ -13,6 +13,7 @@ def create_server(workspace: Workspace) -> FastMCP:
         "All quantities are SI. Static structural supports X-min clamped and X/Y/Z point, legacy equal-node face, or uniform vector traction loads, using C3D4 or C3D10. Traction takes total force in N, not pressure, and load_surface selects an X/Y/Z min/max bounding-plane patch. "
         "Optional support_region/load_region dictionaries select CAD face IDs and box_m centroid filters. A selected support is fully fixed, not contact. Static results include recovered nodal von Mises stress. "
         "Undamped unprestressed modal analysis is available with positive density and default or selected fixed support. "
+        "Steady thermal conduction is available through set_thermal_parameters/run_thermal_analysis/get_thermal_results; Kelvin, W, W/m/K. No convection, radiation or thermal expansion. "
         "run_convergence_study checks whether results depend on mesh size. Use cancel_job to stop a job that is taking too long. Inspect get_capabilities before requesting other physics. The desktop reflects shared workspace changes."))
 
     @server.tool()
@@ -90,8 +91,29 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def solve_project(project_id: str) -> dict[str, Any]:
-        """Start a real CalculiX static structural solve. Poll get_job; no other physics is available."""
+        """Start a real CalculiX static structural solve. Poll get_job. Use run_thermal_analysis for conduction."""
         return workspace.start_job(project_id, "solve")
+
+    @server.tool()
+    def set_thermal_parameters(project_id: str, conductivity_W_mK: float = 1., fixed_temperature_K: float = 293.15,
+                               source_temperature_K: float = 373.15, boundary_mode: str = "temperature", power_W: float = 10.,
+                               fixed_region: dict[str, Any] | None = None, source_region: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Set steady isotropic thermal inputs, SI (Kelvin, W, W/m/K). Choose temperature or power on the source faces. Defaults: X-min fixed temperature, X-max source, other surfaces insulated. Thermal selections are independent of structural supports/loads. No convection/radiation/transients/expansion."""
+        parameters = {"thermal_conductivity_W_mK": conductivity_W_mK, "thermal_fixed_temperature_K": fixed_temperature_K,
+                      "thermal_source_temperature_K": source_temperature_K, "thermal_boundary_mode": boundary_mode, "thermal_power_W": power_W}
+        if fixed_region is not None: parameters['thermal_fixed_region'] = fixed_region
+        if source_region is not None: parameters['thermal_source_region'] = source_region
+        return workspace.set_parameters(project_id, parameters)
+
+    @server.tool()
+    def run_thermal_analysis(project_id: str) -> dict[str, Any]:
+        """Start steady conduction with CalculiX. Poll get_job, then get_thermal_results. Temperatures and heat flux, not thermal stress."""
+        return workspace.start_job(project_id, 'thermal')
+
+    @server.tool()
+    def get_thermal_results(project_id: str) -> dict[str, Any]:
+        """Return current temperature/heat-flow summary, energy balance, viewer, VTK, CSV and NPZ in SI (Kelvin, W, W/m²). Desktop display uses Celsius."""
+        return workspace.get_thermal_results(project_id)
 
     @server.tool()
     def get_job(job_id: str) -> dict[str, Any]:
@@ -113,7 +135,7 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def cancel_job(job_id: str) -> dict[str, Any]:
-        """Stop a queued or running mesh, static or modal job. Its CalculiX process is ended and the job is marked cancelled; partial files stay in the job folder."""
+        """Stop a queued or running mesh, static, modal, convergence or thermal job. Its CalculiX process is ended; partial files stay in the job folder."""
         return workspace.cancel_job(job_id)
 
     @server.tool()
@@ -123,7 +145,7 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def show_in_desktop(project_id: str, view: str = "results", mode: int = 1) -> dict[str, Any]:
-        """Select geometry, mesh, static results or modal view and mode number in the running desktop app."""
+        """Select geometry, mesh, static results, modal or thermal view in the running desktop app. Mode selects a vibration mode only."""
         return workspace.show_project(project_id, view, mode)
 
     return server

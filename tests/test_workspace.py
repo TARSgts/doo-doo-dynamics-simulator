@@ -40,7 +40,8 @@ def test_legacy_project_parameters_receive_defaults(tmp_path):
 
 def test_capabilities_distinguish_planned_features():
     planned = {feature["name"] for feature in CAPABILITIES if not feature["enabled"]}
-    assert {"Contact", "Thermal analysis", "GPU solve"}.issubset(planned)
+    assert {"Contact", "GPU solve"}.issubset(planned)
+    assert "Thermal analysis" not in planned
     assert next(feature for feature in CAPABILITIES if feature["name"] == "Modal analysis")["enabled"]
 
 

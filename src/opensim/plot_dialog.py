@@ -99,7 +99,7 @@ class PlotDialog(QDialog):
     def redraw(self):
         key = self.plot_type.currentData()
         self.axis.setVisible(key.endswith("position"))
-        self.component.setVisible(key.startswith("displacement") or key == "mode-position")
+        self.component.setVisible(key.startswith(("displacement", "heat-flux")) or key == "mode-position")
         tensor = key.startswith(("normal-", "shear-"))
         self.stress_component.setVisible(tensor)
         if tensor:
@@ -130,7 +130,7 @@ class PlotDialog(QDialog):
         key = self.plot_type.currentData()
         if key.endswith("position"):
             key += "-" + "xyz"[self.axis.currentIndex()]
-        if key.startswith("displacement") or key.startswith("mode-"):
+        if key.startswith(("displacement", "heat-flux")) or key.startswith("mode-"):
             key += "-" + self.component.currentData()
         if key.startswith(("normal-", "shear-")):
             key += "-" + self.stress_component.currentData()

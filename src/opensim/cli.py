@@ -136,8 +136,21 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="CAD to linear static structural simulation (SI units)")
+    parser = argparse.ArgumentParser(description="CAD to structural, modal and steady thermal simulation (SI units)")
     commands = parser.add_subparsers(dest="command", required=True)
+    thermal = commands.add_parser('thermal', help='Steady isotropic thermal conduction; SI inputs (Kelvin, W, W/m/K)')
+    thermal.add_argument('cad', type=Path)
+    thermal.add_argument('--out', type=Path, required=True)
+    thermal.add_argument('--mesh-size', type=float, default=.004)
+    thermal.add_argument('--cad-scale', type=float, default=1.)
+    thermal.add_argument('--order', type=int, choices=[1,2], default=2)
+    thermal.add_argument('--conductivity', type=float, default=1., help='W/(m·K)')
+    thermal.add_argument('--fixed-temperature', type=float, default=293.15, help='Kelvin')
+    thermal.add_argument('--source-temperature', type=float, default=373.15, help='Kelvin')
+    thermal.add_argument('--boundary-mode', choices=['temperature','power'], default='temperature')
+    thermal.add_argument('--power', type=float, default=10., help='Total W, positive into solid')
+    thermal.add_argument('--regions', type=Path, help='JSON: thermal_fixed_region and thermal_source_region')
+    thermal.add_argument('--ccx')
     example = commands.add_parser("example", help="Generate an independently defined STEP bar")
     example.add_argument("path", type=Path)
     def add_static_arguments(command):
@@ -186,6 +199,23 @@ def main():
     distributed = commands.add_parser("validate-distributed", help="Validate uniform surface traction with axial and uniformly loaded beam studies")
     distributed.add_argument("--out", type=Path, required=True)
     arguments = parser.parse_args()
+    if arguments.command == 'thermal':
+        try:
+            from opensim.thermal import solve_thermal
+            parameters = {'thermal_conductivity_W_mK': arguments.conductivity,
+                          'thermal_fixed_temperature_K': arguments.fixed_temperature,
+                          'thermal_source_temperature_K': arguments.source_temperature,
+                          'thermal_boundary_mode': arguments.boundary_mode, 'thermal_power_W': arguments.power}
+            if arguments.regions:
+                regions = json.loads(arguments.regions.read_text(encoding='utf-8'))
+                if not isinstance(regions, dict) or set(regions) - {'thermal_fixed_region','thermal_source_region'}:
+                    parser.error('Thermal regions JSON must contain thermal_fixed_region and/or thermal_source_region')
+                parameters.update(regions)
+            print(json.dumps(solve_thermal(arguments.cad, arguments.out, size=arguments.mesh_size, scale=arguments.cad_scale,
+                                          order=arguments.order, parameters=parameters, ccx=arguments.ccx), indent=2))
+        except (ValueError, FileNotFoundError, FileExistsError, RuntimeError) as error:
+            parser.exit(1, f'open-sim: {error}\n')
+        return
     try:
         if arguments.command == "validate-distributed":
             from opensim.distributed_validation import run_distributed_validation

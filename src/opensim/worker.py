@@ -74,7 +74,11 @@ def execute(workspace: Workspace, job_id: str):
                     (str(cad), job["project_id"], job["revision"], job_id)).rowcount
             if not updated:
                 return  # A stopped example must not overwrite a newly imported model.
-        if job["kind"] == "modal":
+        if job["kind"] == "thermal":
+            from opensim.thermal import solve_thermal
+            result = solve_thermal(cad, directory / "thermal", size=parameters["mesh_size_m"], scale=parameters["cad_scale"],
+                                   order=parameters["element_order"], parameters=parameters, progress=progress)
+        elif job["kind"] == "modal":
             from opensim.modal import solve_modal
             result = solve_modal(cad, directory / "modal", size=parameters["mesh_size_m"],
                                  scale=parameters["cad_scale"], young=parameters["young_Pa"],
@@ -99,7 +103,7 @@ def execute(workspace: Workspace, job_id: str):
         else:
             progress("meshing")
             mesh = import_and_mesh(cad, parameters["mesh_size_m"], parameters["cad_scale"], directory / "mesh.msh",
-                                   order=parameters["element_order"], tip_point=parameters["load_kind"] == "point")
+                                   order=parameters["element_order"], tip_point=parameters["load_kind"] == "point" and job['payload'].get('study') != 'thermal')
             result = {"nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra), "view": "mesh",
                       "mesh_repair": mesh.repair_report,
                       "cad_faces": mesh.surface_catalog(),

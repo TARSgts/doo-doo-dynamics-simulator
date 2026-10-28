@@ -30,7 +30,7 @@ def test_study_tree_switches_properties_without_solving_or_losing_hidden_inputs(
         return not control.isHidden()
     try:
         root = window.tree.topLevelItem(0)
-        assert root.childCount() == 5
+        assert root.childCount() == 6
         assert [root.child(i).text(0) for i in (2, 3, 4)] == ["Static Structural", "Modal Analysis", "Convergence Study"]
         assert visible("load_N") and not visible("density_kg_m3") and not visible("convergence_levels")
         window.fields["load_N"].setValue(23.4)
@@ -492,7 +492,8 @@ def test_desktop_has_real_actions_disabled_roadmap_and_shared_state(tmp_path):
     window = SimulatorWindow(workspace)
     try:
         disabled = {button.text() for button in window.findChildren(QPushButton) if not button.isEnabled()}
-        assert {"Thermal analysis", "Contact", "GPU solve"}.issubset(disabled)
+        assert {"Contact", "GPU solve"}.issubset(disabled)
+        assert "Thermal analysis" not in disabled
         actions = [button for button in window.findChildren(QToolButton) if button.text().startswith("Solve")]
         assert actions and all(button.isEnabled() for button in actions)
         modal_actions = [button for button in window.findChildren(QPushButton) if button.text() == "Modal analysis"]

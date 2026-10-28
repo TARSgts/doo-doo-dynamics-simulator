@@ -75,6 +75,8 @@ Other MCP clients can launch the same command using a standard stdio configurati
 
 ### Tools
 
+The server now exposes 22 tools, including steady thermal conduction. Restart an existing server after updating so clients can discover the added tools.
+
 | Tool | Purpose |
 | --- | --- |
 | `get_capabilities` | Available/planned features, workspace and desktop heartbeat |
@@ -90,11 +92,16 @@ Other MCP clients can launch the same command using a standard stdio configurati
 | `set_modal_parameters` | Set positive density and 1–30 requested modes |
 | `run_modal_analysis` | Start unprestressed frequency extraction with X-min fixed |
 | `get_modal_results` | Frequencies, raw data and per-mode HTML/VTK artifacts |
+| `set_thermal_parameters` | Conductivity, temperatures in K, source power in W, separate thermal face regions |
+| `run_thermal_analysis` | Start steady isotropic conduction; other surfaces insulated |
+| `get_thermal_results` | Temperature/heat-flux results, energy balance, HTML/VTK/NPZ/CSV artifacts |
 | `show_in_desktop` | Select project and geometry/mesh/results/modal view and mode number |
 
 Typical sequence: create project → set parameters → create/import CAD → wait for meshing → solve → poll job → get results → show in desktop. Each returned job ID identifies a distinct output folder. The server accepts only the implemented job kinds; it does not expose arbitrary command execution or an executable-path override.
 
 ## Verified behavior
+
+**Thermal analysis.** Thermal Analysis has its own tree branch, settings panel and thermal face picks. The desktop shows temperature in °C and flux in W/m², with min/max temperature cards and an energy residual. Prescribed temperatures or fixed temperature plus total surface power are supported; convection/radiation/transients/expansion are not. Home Solve/Results follow the selected study. See [thermal setup and units](THERMAL.md) and [Fourier verification](thermal/REPORT.md).
 
 **Result plots.** Each study has a Result plots entry, plus a settings-panel button and Solution ribbon command. Static plots show nodal displacement/stress versus position and histograms; modal plots show frequencies and normalized shapes; convergence plots show saved values against element count. Charts support pan/zoom, dark/light backgrounds, PNG/SVG export and full-data CSV with run/unit metadata. See [plot usage, interpretation and checks](RESULT_PLOTS.md).
 

@@ -12,6 +12,7 @@ import uuid
 from opensim.load_settings import LOAD_AXES, LOAD_KINDS, LOAD_SURFACES, NORMAL_AXES
 from opensim.region_settings import validate_region
 from opensim.job_progress import STAGE_LABELS
+from opensim.thermal_parameters import THERMAL_DEFAULTS, validate_thermal_parameters
 
 
 ACTIVE_STATUSES = ("queued", "running")
@@ -22,9 +23,10 @@ DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
                       "load_axis": "x", "load_kind": "face", "load_surface": "x-max", "density_kg_m3": 7850.0, "mode_count": 6,
                       "support_region": {}, "load_region": {},
                       "convergence_levels": 4, "convergence_ratio": 1.4, "convergence_tolerance_percent": 2.0,
-                      "convergence_target": "displacement"}
-TEXT_PARAMETERS = {"load_axis", "load_kind", "load_surface", "support_region", "load_region", "convergence_target"}
-STUDY_TYPES = ("static", "modal", "convergence")
+                      "convergence_target": "displacement"} | THERMAL_DEFAULTS
+TEXT_PARAMETERS = {"load_axis", "load_kind", "load_surface", "support_region", "load_region", "convergence_target",
+                   "thermal_boundary_mode", "thermal_fixed_region", "thermal_source_region"}
+STUDY_TYPES = ("static", "modal", "convergence", "thermal")
 CAPABILITIES = [
     {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP; closed STL, OBJ or 3MF surface meshes"},
     {"name": "Tetrahedral meshing", "enabled": True, "detail": "Gmsh C3D4 or quadratic C3D10"},
@@ -35,8 +37,9 @@ CAPABILITIES = [
     {"name": "MCP automation", "enabled": True, "detail": "Local stdio tools and shared workspace"},
     {"name": "Convergence study", "enabled": True, "detail": "Static solve on 3–6 successively finer meshes; change, verdict, Richardson extrapolation and GCI per quantity"},
     {"name": "Modal analysis", "enabled": True, "detail": "Undamped unprestressed modes; X-min face fixed; positive density"},
+    {"name": "Thermal analysis", "enabled": True, "detail": "Steady isotropic conduction; fixed temperature plus second temperature or total surface heat input; other surfaces insulated"},
     *[{"name": name, "enabled": False, "detail": "Planned — not implemented"} for name in
-      ("Thermal analysis", "Transient dynamics", "Fluid dynamics",
+      ("Transient dynamics", "Fluid dynamics",
        "Electromagnetics", "Contact", "Nonlinear materials", "Optimization", "GPU solve")],
 ]
 
@@ -172,7 +175,7 @@ class Workspace:
             shutil.copyfile(path, target)
             current = connection.execute("SELECT parameters FROM projects WHERE id=?", (project_id,)).fetchone()
             parameters = DEFAULT_PARAMETERS | json.loads(current["parameters"])
-            parameters.update({"support_region": {}, "load_region": {}})
+            parameters.update({"support_region": {}, "load_region": {}, "thermal_fixed_region": {}, "thermal_source_region": {}})
             connection.execute("UPDATE projects SET cad=?, parameters=?, revision=revision+1 WHERE id=?",
                                (str(target), json.dumps(parameters), project_id))
             connection.execute("INSERT INTO project_sources VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET cad_path=excluded.cad_path,source_path=excluded.source_path",
@@ -185,6 +188,7 @@ class Workspace:
         if set(parameters) - set(DEFAULT_PARAMETERS):
             raise ValueError("Unsupported analysis parameter")
         merged = project["parameters"] | parameters
+        validate_thermal_parameters(merged)
         numeric = [value for key, value in merged.items() if key not in TEXT_PARAMETERS]
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
                for value in numeric):
@@ -223,7 +227,7 @@ class Workspace:
         return self.get_project(project_id)
 
     def start_job(self, project_id: str, kind: str, example="perforated_plate") -> dict:
-        if kind not in {"example", "mesh", "solve", "modal", "convergence"}:
+        if kind not in {"example", "mesh", "solve", "modal", "convergence", "thermal"}:
             raise ValueError("Unsupported job kind")
         if example not in {"perforated_plate", "axial_bar", "cantilever_beam"}:
             raise ValueError("Unsupported test object")
@@ -240,16 +244,18 @@ class Workspace:
             if kind == "example":
                 project["revision"] += 1
                 parameters = DEFAULT_PARAMETERS | json.loads(project["parameters"])
-                parameters.update({"support_region": {}, "load_region": {}})
+                parameters.update({"support_region": {}, "load_region": {}, "thermal_fixed_region": {}, "thermal_source_region": {}})
                 project["parameters"] = json.dumps(parameters)
                 connection.execute("UPDATE projects SET revision=?,parameters=? WHERE id=?", (project["revision"], project["parameters"], project_id))
             payload = {"cad": project["cad"], "parameters": DEFAULT_PARAMETERS | json.loads(project["parameters"]), "example": example}
+            selected_study = connection.execute("SELECT study FROM project_studies WHERE project_id=?", (project_id,)).fetchone()
+            payload['study'] = selected_study['study'] if selected_study else 'static'
             now = time.time()
             connection.execute("INSERT INTO jobs(id,project_id,kind,status,revision,payload,result,error,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)",
                                (job_id, project_id, kind, "queued", project["revision"],
                                 json.dumps(payload), None, None, now, now))
             connection.execute("INSERT INTO job_progress VALUES(?,?,?)", (job_id, "queued", now))
-            study = {"solve": "static", "modal": "modal", "convergence": "convergence"}.get(kind)
+            study = {"solve": "static", "modal": "modal", "convergence": "convergence", "thermal": "thermal"}.get(kind)
             if study:
                 connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))
         directory = self.job_directory(job_id)
@@ -343,8 +349,10 @@ class Workspace:
                 return directory / "modal" / f"mode-{mode}.html"
             if view == "results" and job["kind"] == "solve":
                 return directory / "solve" / "results.html"
+            if view == "thermal" and job["kind"] == "thermal":
+                return directory / "thermal" / "results.html"
             if view in {"geometry", "mesh"}:
-                relative = "modal/mode-1.html" if job["kind"] == "modal" else "solve/results.html" if job["kind"] == "solve" else "preview.html"
+                relative = "modal/mode-1.html" if job["kind"] == "modal" else "thermal/results.html" if job["kind"] == "thermal" else "solve/results.html" if job["kind"] == "solve" else "preview.html"
                 candidate = directory / relative
                 if candidate.is_file():
                     return candidate
@@ -370,6 +378,15 @@ class Workspace:
                                    for level in job["result"]["levels"]]}
         raise ValueError("No completed convergence study for the current project inputs")
 
+    def get_thermal_results(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        for job in self.list_jobs(project_id):
+            if job["revision"] == project["revision"] and job["kind"] == "thermal" and job["status"] == "completed":
+                directory = self.job_directory(job["id"]) / "thermal"
+                return {"job_id": job["id"], "summary": job["result"], "artifacts": {name: str(directory / name)
+                        for name in ("thermal.npz", "results.html", "results.vtk", "temperatures.csv", "model.frd", "manifest.json")}}
+        raise ValueError("No completed thermal solve for the current project inputs")
+
     def get_modal_results(self, project_id: str) -> dict:
         project = self.get_project(project_id)
         for job in self.list_jobs(project_id):
@@ -384,16 +401,16 @@ class Workspace:
 
     def show_project(self, project_id: str, view="geometry", mode=1) -> dict:
         self.get_project(project_id)
-        if view not in {"geometry", "mesh", "results", "modal"}:
-            raise ValueError("View must be geometry, mesh, results or modal")
+        if view not in {"geometry", "mesh", "results", "modal", "thermal"}:
+            raise ValueError("View must be geometry, mesh, results, modal or thermal")
         if isinstance(mode, bool) or not isinstance(mode, int) or not 1 <= mode <= 30:
             raise ValueError("Mode must be an integer from 1 to 30")
         if view == "modal":
             self.current_artifact(project_id, view, mode)
         with self.connect() as connection:
             connection.execute("INSERT OR IGNORE INTO open_projects VALUES(?,?)", (project_id, time.time()))
-            if view in {"modal", "results"}:
-                study = "modal" if view == "modal" else "static"
+            if view in {"modal", "results", "thermal"}:
+                study = "thermal" if view == "thermal" else "modal" if view == "modal" else "static"
                 connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))
             connection.execute("UPDATE ui SET project_id=?,view=?,modal_mode=? WHERE id=1", (project_id, view, mode))
         return self.ui_state()
@@ -401,7 +418,7 @@ class Workspace:
     def select_study(self, project_id: str, study: str) -> dict:
         """Select a study's settings without solving or changing numerical inputs."""
         if study not in STUDY_TYPES:
-            raise ValueError("Choose static, modal or convergence study")
+            raise ValueError("Choose static, modal, convergence or thermal study")
         self.get_project(project_id)
         with self.connect() as connection:
             connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))

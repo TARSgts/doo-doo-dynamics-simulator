@@ -8,7 +8,7 @@ def test_study_selection_is_per_project_persistent_and_does_not_change_physics(t
     first = workspace.create_project("First")
     second = workspace.create_project("Second")
     workspace.show_project(first["id"])
-    for study in ("static", "modal", "convergence"):
+    for study in ("static", "modal", "thermal", "convergence"):
         state = workspace.select_study(first["id"], study)
         assert state["study"] == study and state["view"] == "geometry"
         assert workspace.get_project(first["id"]) == first
@@ -22,7 +22,7 @@ def test_study_selection_is_per_project_persistent_and_does_not_change_physics(t
     workspace.close_project(first["id"])
     assert workspace.show_project(first["id"])["study"] == "modal"
     with pytest.raises(ValueError):
-        workspace.select_study(first["id"], "thermal")
+        workspace.select_study(first["id"], "fluid")
 
 
 def test_legacy_modal_view_seeds_modal_study_on_migration(tmp_path):

@@ -6,6 +6,9 @@ const slider = document.getElementById('scale');
 const nodeCount = simulation.points.length;
 const faceCount = simulation.faces.length;
 const isModal = simulation.summary.analysis === 'modal';
+const isThermal = simulation.summary.analysis === 'thermal';
+let thermalPicking=isThermal;
+function setThermalStudyMode(active){thermalPicking=!!active;draw();}
 let modeAnimation = false, modePhase = 1, phaseOverride = null, exportingGif = false;
 let catMode = false;
 const coordinates = new Float64Array(nodeCount * 3);
@@ -13,19 +16,20 @@ const deformation = new Float64Array(nodeCount * 3);
 const deformed = new Float64Array(nodeCount * 3);
 const magnitudes = new Float64Array(nodeCount);
 const scalarRanges = [[0,0],[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];
-const stressValues = new Float32Array(simulation.von_mises_Pa || nodeCount);
-scalarRanges.push([0,stressValues.reduce((maximum,value)=>Math.max(maximum,value),0)]);
+const stressValues = new Float32Array(isThermal ? simulation.temperature_K.map(value=>value-273.15) : simulation.von_mises_Pa || nodeCount);
+scalarRanges.push(isThermal ? [stressValues.reduce((m,v)=>Math.min(m,v),Infinity),stressValues.reduce((m,v)=>Math.max(m,v),-Infinity)] : [0,stressValues.reduce((maximum,value)=>Math.max(maximum,value),0)]);
 const bounds = [[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];
 for(let node=0;node<nodeCount;node++){
-  magnitudes[node] = Math.hypot(...simulation.displacement[node]);
+  const scalarVector=isThermal?simulation.heat_flux_W_m2[node]:simulation.displacement[node];
+  magnitudes[node] = Math.hypot(...scalarVector);
   scalarRanges[0][1] = Math.max(scalarRanges[0][1],magnitudes[node]);
   for(let axis=0;axis<3;axis++){
     coordinates[node*3+axis] = simulation.points[node][axis];
     deformation[node*3+axis] = simulation.displacement[node][axis];
     bounds[axis][0] = Math.min(bounds[axis][0],coordinates[node*3+axis]);
     bounds[axis][1] = Math.max(bounds[axis][1],coordinates[node*3+axis]);
-    scalarRanges[axis+1][0] = Math.min(scalarRanges[axis+1][0],deformation[node*3+axis]);
-    scalarRanges[axis+1][1] = Math.max(scalarRanges[axis+1][1],deformation[node*3+axis]);
+    scalarRanges[axis+1][0] = Math.min(scalarRanges[axis+1][0],scalarVector[axis]);
+    scalarRanges[axis+1][1] = Math.max(scalarRanges[axis+1][1],scalarVector[axis]);
   }
 }
 const maximum = scalarRanges[0][1];
@@ -34,12 +38,12 @@ const span = Math.max(...bounds.map(bound=>bound[1]-bound[0]));
 const faceIndices = new Uint32Array(simulation.faces.flat());
 const scalarBuffer = new Float32Array(nodeCount*4);
 for(let node=0;node<nodeCount;node++){
-  scalarBuffer.set([magnitudes[node],...simulation.displacement[node]],node*4);
+  scalarBuffer.set([magnitudes[node],...(isThermal?simulation.heat_flux_W_m2[node]:simulation.displacement[node])],node*4);
 }
 let yaw=-0.45, pitch=-0.5, drag=null;
 let viewportMode=simulation.summary.view==='mesh'?'mesh':'results';
 let edgeVisibility=true, themeDark=!document.body.classList.contains('desktop');
-let deformationOverride=isModal && maximum ? span*0.1/maximum : null, resultComponent='magnitude';
+let deformationOverride=isThermal?0:isModal && maximum ? span*0.1/maximum : null, resultComponent=isThermal?'stress':'magnitude';
 let framePending=false, deformationDirty=true, fitRequested=true, colorDirty=true;
 let factor=0, cameraZoom=1, panX=0, panY=0, depthScale=1;
 let target=center.slice(), deformedBounds=bounds.map(bound=>bound.slice());
@@ -195,11 +199,11 @@ meshCanvas.addEventListener('webglcontextrestored',()=>{gpuRenderer=createGpuRen
 function componentIndex(){return resultComponent==='stress'?4:resultComponent==='magnitude'?0:'xyz'.indexOf(resultComponent)+1;}
 function setTheme(theme){themeDark=theme==='dark'||theme==='midnight';document.body.classList.toggle('dark',themeDark);document.body.classList.toggle('midnight',theme==='midnight');draw();}
 function setCatMode(value){catMode=Boolean(value);draw();}
-function setResultComponent(component){if(!['magnitude','x','y','z','stress'].includes(component))return;resultComponent=component==='stress'&&!simulation.von_mises_Pa?'magnitude':component;colorDirty=true;draw();}
+function setResultComponent(component){if(!['magnitude','x','y','z','stress'].includes(component))return;resultComponent=component==='stress'&&!simulation.von_mises_Pa&&!isThermal?'magnitude':component;colorDirty=true;draw();}
 function setViewportMode(mode){if(mode==='modal')mode='results';if(viewportMode!==mode){viewportMode=mode;deformationDirty=true;fitRequested=true;}draw();}
 function setModeAnimation(value){modeAnimation=isModal && Boolean(value);if(!modeAnimation)modePhase=1;draw();}
 function setEdgeVisibility(value){edgeVisibility=Boolean(value);draw();}
-function setDeformationScale(value){deformationOverride=value==='auto'?(maximum?span*0.1/maximum:0):Number(value);deformationDirty=true;fitRequested=true;draw();}
+function setDeformationScale(value){deformationOverride=isThermal?0:value==='auto'?(maximum?span*0.1/maximum:0):Number(value);deformationDirty=true;fitRequested=true;draw();}
 function resetViewport(){panX=panY=0;fitRequested=true;draw();}
 function setViewOrientation(orientation){yaw=orientation==='flipped-front'?Math.PI:orientation==='isometric'?-0.45:0;pitch=orientation==='flipped-front'?Math.PI:orientation==='front'?0:orientation==='top'?-Math.PI/2:-0.5;panX=panY=0;fitRequested=true;draw();}
 function draw(){
@@ -322,19 +326,20 @@ function drawOverlay(){
   context.fillText(`${simulation.summary.element_type||'Tetrahedra'} · ${faceCount.toLocaleString()} ${catMode?'tiny triangle beans':'surface triangles'}${exportingGif?'':' · '+(gpuRenderer?'WebGL':'Canvas fallback')}`,20*pixel,27*pixel);
   if(facePickMode){
     context.fillStyle=facePickMode==='support'?'#1ad9e6':'#ffa61f';
-    context.fillText(`Pick ${facePickMode==='support'?'fixed support (cyan)':'force faces (orange)'} · ${selectedFaces.size} face(s) · click to toggle`,20*pixel,48*pixel);
+    context.fillText(`Pick ${thermalPicking?(facePickMode==='support'?'fixed temperature (cyan)':'temperature / heat input (orange)'):(facePickMode==='support'?'fixed support (cyan)':'force faces (orange)')} · ${selectedFaces.size} face(s) · click to toggle`,20*pixel,48*pixel);
     context.fillText(`Draft: ${facePickSets.support.size} support / ${facePickSets.load.size} load faces · drag to rotate · Save picked faces to apply`,20*pixel,68*pixel);
     return;
   }
   if(viewportMode==='results'){
-    context.fillText(isModal?`${catMode?'Wiggle':'Mode'} ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · ${catMode?'purr shape · dance speed':'normalized shape · playback'} ${exportingGif?'slowed to about 1 cycle per second':'1 Hz'}`:`${catMode?'Wiggle exaggeration':'Deformation display'}: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
+    context.fillText(isThermal?'Steady thermal conduction · undeformed geometry':isModal?`${catMode?'Wiggle':'Mode'} ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · ${catMode?'purr shape · dance speed':'normalized shape · playback'} ${exportingGif?'slowed to about 1 cycle per second':'1 Hz'}`:`${catMode?'Wiggle exaggeration':'Deformation display'}: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
     const gradient=context.createLinearGradient(0,75*pixel,0,210*pixel);
     for(let stop=0;stop<=6;stop++)gradient.addColorStop(stop/6,`hsl(${225*stop/6} 75% 57%)`);
     context.fillStyle=gradient;context.fillRect(canvas.width-112*pixel,75*pixel,14*pixel,135*pixel);
-    const units=resultComponent==='stress'?'(MPa)':isModal?'(norm.)':'(mm)',unitScale=resultComponent==='stress'?1e-6:isModal?1:1000;
-    context.fillStyle=themeDark?'#c6d7ec':'#34485f';context.fillText((resultComponent==='stress'?'von Mises':resultComponent==='magnitude'?'|U|':`U${resultComponent}`)+' '+units,canvas.width-150*pixel,58*pixel);
+    const units=isThermal?(resultComponent==='stress'?'(°C)':'(W/m²)'):resultComponent==='stress'?'(MPa)':isModal?'(norm.)':'(mm)',unitScale=isThermal?1:resultComponent==='stress'?1e-6:isModal?1:1000;
+    context.fillStyle=themeDark?'#c6d7ec':'#34485f';context.fillText((isThermal?(resultComponent==='stress'?'Temperature':resultComponent==='magnitude'?'|q|':`q${resultComponent}`):resultComponent==='stress'?'von Mises':resultComponent==='magnitude'?'|U|':`U${resultComponent}`)+' '+units,canvas.width-150*pixel,58*pixel);
     context.fillText((range[1]*unitScale).toPrecision(4),canvas.width-92*pixel,85*pixel);context.fillText((range[0]*unitScale).toPrecision(4),canvas.width-92*pixel,210*pixel);
   }
+  if(isThermal)return;
   const anchor=projection.project(simulation.summary.support_point_m || [bounds[0][0],center[1],center[2]]);
   context.fillStyle=themeDark?'#41c8d6':'#087f8c';context.beginPath();context.arc(anchor[0],anchor[1],4*pixel,0,2*Math.PI);context.fill();context.fillText(catMode?'NO ZOOMIES':'FIXED',anchor[0]-15*pixel,anchor[1]+25*pixel);
   if(simulation.summary.load_point_m){
@@ -516,7 +521,8 @@ canvas.addEventListener('wheel',event=>{
   panX=mouse[0]-origin[0]-(mouse[0]-origin[0]-panX)*ratio;panY=mouse[1]-origin[1]-(mouse[1]-origin[1]-panY)*ratio;draw();
 },{passive:false});
 document.getElementById('reset').onclick=resetViewport;
-document.getElementById('range').textContent=isModal?'Normalized mode shape: 0 → 1 (dimensionless); amplitude is arbitrary':`0 m → ${maximum.toExponential(5)} m`;
+document.getElementById('range').textContent=isThermal?`Temperature: ${scalarRanges[4][0].toPrecision(5)} → ${scalarRanges[4][1].toPrecision(5)} °C`:isModal?'Normalized mode shape: 0 → 1 (dimensionless); amplitude is arbitrary':`0 m → ${maximum.toExponential(5)} m`;
+if(isThermal){document.querySelector('h1').textContent='Steady thermal analysis';document.querySelector('main>p').textContent='Temperature and heat flux · SI solver units · Celsius display';slider.parentElement.style.display='none';document.querySelector('main>p:last-child').textContent='Steady conduction only; unassigned surfaces are insulated. No thermal expansion is calculated.';}
 if(isModal){
   document.querySelector('main>p').textContent=`Modal analysis · Mode ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · undamped, unprestressed`;
   slider.parentElement.style.display='none';
@@ -536,7 +542,7 @@ if(isModal){
 document.getElementById('summary').textContent=JSON.stringify(simulation.summary,null,2);
 if(simulation.von_mises_Pa){
   const selection=document.createElement('select');selection.id='resultField';
-  for(const [value,label] of [['magnitude','Total displacement'],['x','Ux'],['y','Uy'],['z','Uz'],['stress','Recovered von Mises (MPa)']]){
+  for(const [value,label] of (isThermal?[['stress','Temperature (°C)'],['magnitude','Heat flux magnitude (W/m²)'],['x','Heat flux X'],['y','Heat flux Y'],['z','Heat flux Z']]:[['magnitude','Total displacement'],['x','Ux'],['y','Uy'],['z','Uz'],['stress','Recovered von Mises (MPa)']])){
     const option=document.createElement('option');option.value=value;option.textContent=label;selection.append(option);
   }
   selection.onchange=()=>setResultComponent(selection.value);document.getElementById('reset').before(selection);

@@ -35,6 +35,10 @@ class PlotData:
 
 
 PLOT_NAMES = {
+    "temperature-position": "Temperature vs position",
+    "temperature-distribution": "Temperature distribution",
+    "heat-flux-position": "Heat flux vs position",
+    "heat-flux-distribution": "Heat flux distribution",
     "displacement-position": "Displacement vs position",
     "stress-position": "Von Mises stress vs position",
     "displacement-distribution": "Displacement distribution",
@@ -57,7 +61,7 @@ STRESS_COMPONENTS = {"xx": "Normal X · Sxx", "yy": "Normal Y · Syy", "zz": "No
 def load_plot_source(workspace, project_id, study=None):
     project = workspace.get_project(project_id)
     study = study or workspace.ui_state()["study"]
-    kind = {"static": "solve", "modal": "modal", "convergence": "convergence"}.get(study)
+    kind = {"static": "solve", "modal": "modal", "convergence": "convergence", "thermal": "thermal"}.get(study)
     if kind is None:
         raise ValueError("Choose static, modal or convergence study")
     job = next((job for job in workspace.list_jobs(project_id)
@@ -67,11 +71,11 @@ def load_plot_source(workspace, project_id, study=None):
     directory = workspace.job_directory(job["id"]) / kind
     arrays = {}
     if study != "convergence":
-        filename = "fields.npz" if study == "static" else "modes.npz"
+        filename = "thermal.npz" if study == "thermal" else "fields.npz" if study == "static" else "modes.npz"
         path = directory / filename
         if not path.is_file():
             raise ValueError("This saved run has no plot data. Solve this study again to generate it")
-        keys = ("points", "displacement", "von_mises_Pa", "stress") if study == "static" else ("points", "normalized_modes", "frequencies_Hz")
+        keys = ("points", "temperature_K", "heat_flux_W_m2") if study == "thermal" else ("points", "displacement", "von_mises_Pa", "stress") if study == "static" else ("points", "normalized_modes", "frequencies_Hz")
         with np.load(path, allow_pickle=False) as saved:
             arrays = {key: saved[key].copy() for key in keys if key in saved}
         points = arrays.get("points")
@@ -86,6 +90,11 @@ def load_plot_source(workspace, project_id, study=None):
                 raise ValueError("Saved stress data does not match the nodes")
             if "stress" in arrays and arrays["stress"].shape != (len(points), 6):
                 raise ValueError("Saved stress tensor must have six components per node")
+        elif study == 'thermal':
+            if arrays.get('temperature_K', np.empty(0)).shape != (len(points),) or arrays.get('heat_flux_W_m2', np.empty(0)).shape != points.shape:
+                raise ValueError('Saved thermal fields do not match the nodes')
+            if np.any(arrays['temperature_K'] < 0):
+                raise ValueError('Saved temperatures are below absolute zero')
         else:
             frequencies = arrays.get("frequencies_Hz", np.empty(0))
             if frequencies.ndim != 1 or not len(frequencies) or np.any(frequencies <= 0):
@@ -96,6 +105,8 @@ def load_plot_source(workspace, project_id, study=None):
 
 
 def available_plots(source):
+    if source.study == 'thermal':
+        return ['temperature-position', 'temperature-distribution', 'heat-flux-position', 'heat-flux-distribution']
     if source.study == "static":
         result = ["displacement-position", "displacement-distribution"]
         if "von_mises_Pa" in source.arrays:
@@ -136,7 +147,10 @@ def make_plot_data(source, plot, axis="x", component="magnitude", mode=1, bins=3
         return PlotData("Natural frequencies", "Mode number", "Natural frequency (Hz)", "bar", x, y,
                         {"mode_number": x, "frequency_Hz": y}, "Undamped, unprestressed eigenfrequencies.")
     modal = source.study == "modal"
-    if modal:
+    if source.study == 'thermal':
+        vectors = source.arrays['heat_flux_W_m2']
+        unit, scale = 'W/m²', 1
+    elif modal:
         count = len(source.arrays["normalized_modes"])
         if type(mode) is not int or not 1 <= mode <= count:
             raise ValueError(f"Choose a mode between 1 and {count}")
@@ -147,7 +161,10 @@ def make_plot_data(source, plot, axis="x", component="magnitude", mode=1, bins=3
         unit, scale = "mm", 1000
     tensor = plot.startswith(("normal-", "shear-"))
     stress = plot.startswith("stress-")
-    if tensor:
+    if plot.startswith('temperature-'):
+        values = source.arrays['temperature_K'] - 273.15
+        label, unit = 'Temperature', '°C'
+    elif tensor:
         allowed = ("xx", "yy", "zz") if plot.startswith("normal-") else ("xy", "yz", "zx")
         stress_component = stress_component or allowed[0]
         if stress_component not in allowed:
@@ -159,7 +176,7 @@ def make_plot_data(source, plot, axis="x", component="magnitude", mode=1, bins=3
         label, unit = "Recovered von Mises stress", "MPa"
     else:
         values = (np.linalg.norm(vectors, axis=1) if component == "magnitude" else vectors[:, "xyz".index(component)]) * scale
-        label = ("Normalized mode shape" if modal else "Displacement") + " · " + COMPONENTS[component]
+        label = ("Heat flux" if source.study == 'thermal' else "Normalized mode shape" if modal else "Displacement") + " · " + COMPONENTS[component]
     if plot.endswith("distribution"):
         if type(bins) is not int or not 5 <= bins <= 200:
             raise ValueError("Choose 5–200 histogram bins")

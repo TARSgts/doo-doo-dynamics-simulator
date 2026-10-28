@@ -30,6 +30,7 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 ## Working now
 
+- [Steady thermal conduction](docs/THERMAL.md): independent temperature/heat-input face selections, conductivity, temperature/heat-flux contours, plots, heat balance and SI exports. [Fourier verification](docs/thermal/REPORT.md).
 - Automatic [Discord Rich Presence](docs/DISCORD_PRESENCE.md) on fresh installs using the shared simulator identity, with an on/off switch and no project names or file paths.
 - Plot static displacement/stress, modal frequencies/shapes and mesh-convergence results, with PNG/SVG figures and CSV export. See [result plots](docs/RESULT_PLOTS.md).
 - Study branches for static, modal and convergence analysis, with a lower settings panel that follows the selected study. See [study panels](docs/STUDY_PANELS.md).

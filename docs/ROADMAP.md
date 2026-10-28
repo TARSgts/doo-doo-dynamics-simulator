@@ -1,5 +1,7 @@
 # Roadmap
 
+Current thermal milestone: steady isotropic conduction is implemented, with conductivity, independent prescribed-temperature/heat-input faces, energy balance, temperature/flux contours and plots, SI exports and three MCP tools. See [scope](THERMAL.md) and [eight analytical comparisons](thermal/REPORT.md). Transient thermal, convection, radiation and thermoelastic coupling remain future stages.
+
 ## Stage 0 — foundation (implemented)
 
 Independent source tree, dependency pins and hashes, licensing records, explicit SI quantities, separate tool adapters and automated validation. REA identified and installed locally as a separate research tool, with no role in simulation execution.
@@ -34,7 +36,7 @@ Quadratic tetrahedra and convergence automation are implemented (global-refineme
 
 ## Stage 4 — more physics
 
-Expand modal analysis to named supports, free-free modes and independently validated prestress before adding modal forced response. Add steady/transient thermal and thermoelastic analysis through documented open-source solver interfaces. Each capability requires an analytical or independently published benchmark, a mesh/time-step study and a documented validity range. Contact, plasticity and geometric nonlinearity follow only after those validation foundations.
+Expand modal analysis to named supports, free-free modes and independently validated prestress before adding modal forced response. Steady thermal conduction is implemented; add convection, radiation, transient thermal and thermoelastic analysis through documented open-source solver interfaces next. Each capability requires an analytical or independently published benchmark, a mesh/time-step study and a documented validity range. Contact, plasticity and geometric nonlinearity follow only after those validation foundations.
 
 ## Stage 5 — extensible platform
 

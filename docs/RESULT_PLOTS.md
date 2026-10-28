@@ -8,6 +8,7 @@ Run a study, then click **Result plots…** below its settings heading, **Soluti
 | --- | --- |
 | Static Structural | Displacement, axial/normal stress, shear stress and von Mises stress against X/Y/Z position, plus histograms of each quantity |
 | Modal Analysis | Natural frequency by mode number, selected normalized mode shape against X/Y/Z position |
+| Thermal Analysis | Temperature against X/Y/Z position and distribution in °C; heat-flux magnitude or signed components against position and distributions in W/m² |
 | Convergence Study | Maximum displacement, loaded-area response, or maximum stress against actual element count |
 
 Displacement plots support total magnitude and signed X/Y/Z components. Coordinates and static displacement use **mm**, stress uses **MPa**, frequencies use **Hz**, and normalized mode amplitudes are **dimensionless**. Coordinates are undeformed; the viewport's deformation exaggeration is not applied to the data.

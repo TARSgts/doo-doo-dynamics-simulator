@@ -1,6 +1,11 @@
 """Short, beginner-facing explanations shared by desktop controls."""
 
 FIELD_HELP = {
+    "thermal_conductivity_W_mK": "How readily heat conducts through the solid, in W/(m·K). Use a measured value for your material. Steady thermal analysis only.",
+    "thermal_fixed_temperature_K": "Prescribed temperature in °C on the cyan thermal faces (X-min by default). Stored internally in Kelvin.",
+    "thermal_source_temperature_K": "Prescribed temperature in °C on the orange thermal faces (X-max by default). Choose faces separate from the fixed-temperature surface.",
+    "thermal_power_W": "Total heat input in watts, distributed over the orange faces. Positive adds heat; negative extracts heat. Other surfaces are insulated.",
+    "thermal_boundary_mode": "Choose a prescribed temperature or total heat input for the orange surface. The cyan surface always has a fixed temperature.",
     "mesh_size_m": "Approximate element size in millimeters. Smaller values add detail but take longer to mesh and solve.",
     "cad_scale": "Convert CAD coordinates to meters. Use 0.001 for a model drawn in millimeters, or 1 for meters.",
     "young_Pa": "Material stiffness in GPa. Higher values generally mean less bending under the same force.",
@@ -19,6 +24,9 @@ FIELD_HELP = {
 }
 
 BUTTON_HELP = {
+    "Thermal bar": "Open the independent Fourier-conduction verification report. It does not change your project.",
+    "Thermal": "Run steady isotropic heat conduction. Configure conductivity and thermal boundary temperatures or power first.",
+    "Thermal analysis": "Run steady isotropic heat conduction with separate thermal boundary selections.",
     "Result plots": "Plot saved results for the selected study: displacement/stress, natural frequencies/mode shapes, or mesh convergence. Save PNG/SVG figures and CSV data.",
     "Result plots…": "Plot saved results for the selected study, with figure and CSV export.",
     "Open project": "Search saved projects and open only the ones you want in the outline.",
@@ -37,8 +45,8 @@ BUTTON_HELP = {
     "Import CAD": "Import one solid: exact CAD (STEP, IGES, BREP) or a closed mesh (STL, OBJ, 3MF). STL/OBJ default to mm; 3MF units are converted to mm. Use CAD scale 0.001 for mesh imports unless overriding the unitless file scale.",
     "Test plate": "Create a new project with a built-in perforated plate and generate its mesh.",
     "Generate mesh": "Save the settings and divide the solid into small elements for the solver.",
-    "Solve": "Save the settings and calculate deformation and stress under the applied force and fixed supports.",
-    "Results": "Show the displacement results saved for this project's current settings.",
+    "Solve": "Save the settings and run the selected static, modal, convergence or thermal study.",
+    "Results": "Show results for the selected study and the project's current inputs.",
     "Cantilever": "Create a new project with the 1-meter cantilever beam benchmark preset.",
     "Show mesh": "Show the surface mesh and its element edges.",
     "Apply settings": "Save your material, mesh and force settings. This does not start a solve.",

@@ -74,17 +74,17 @@ class FrameReader:
 
 def activity_for(state, active=None, started=None, has_project=True):
     """Only allowlisted descriptions; never copy project/job strings into presence."""
-    study = {"static": "Static structural", "modal": "Modal analysis", "convergence": "Mesh convergence"}.get(state.get("study"), "Structural simulation")
+    study = {"static": "Static structural", "modal": "Modal analysis", "convergence": "Mesh convergence", "thermal": "Steady thermal analysis"}.get(state.get("study"), "Structural simulation")
     if active and active.get("status") in {"queued", "running"}:
         details = {"mesh": "Generating mesh", "solve": "Solving static structural", "modal": "Calculating natural frequencies",
-                   "convergence": "Checking mesh convergence"}.get(active.get("kind"), "Preparing simulation")
+                   "convergence": "Checking mesh convergence", "thermal": "Solving thermal conduction"}.get(active.get("kind"), "Preparing simulation")
         if active["status"] == "queued":
             details = "Waiting for simulation"
     elif not has_project:
         details = "In the project library"
     else:
         details = {"geometry": "Preparing a model", "mesh": "Inspecting mesh", "results": "Viewing displacement and stress",
-                   "modal": "Viewing vibration modes"}.get(state.get("view"), "Working on a simulation")
+                   "modal": "Viewing vibration modes", "thermal": "Viewing temperature and heat flow"}.get(state.get("view"), "Working on a simulation")
     return {"type": 0, "details": details, "state": study, "timestamps": {"start": int(started or time.time())},
             "assets": {"large_image": PRESENCE_ICON_URL, "large_text": "Doo Doo Dynamics Simulator"}}
 
