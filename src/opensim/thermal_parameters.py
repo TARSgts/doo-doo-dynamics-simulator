@@ -25,4 +25,3 @@ def validate_thermal_parameters(parameters):
         raise ValueError("Choose a second prescribed temperature or total heat input")
     for key in ("thermal_fixed_region", "thermal_source_region"):
         validate_region(p[key])
-
