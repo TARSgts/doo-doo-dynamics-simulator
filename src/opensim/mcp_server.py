@@ -37,7 +37,7 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def set_desktop_theme(theme: str = "dark") -> dict[str, Any]:
-        """Persist dark or light mode and update the running desktop viewport."""
+        """Persist dark, light or midnight mode and update the running desktop viewport."""
         workspace.set_theme(theme)
         return workspace.ui_state()
 

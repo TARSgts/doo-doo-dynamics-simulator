@@ -2,7 +2,7 @@
 
 A deliberately silly feline translation for the native workbench, inspired by joke language options in games. All translation text is original; no Minecraft assets or language files are included.
 
-Use **Cat mode: OFF/ON** in the top bar or **View → Cat mode (joke translation)**. The switch stays labeled in English so you can always find the way back. The preference persists across restarts and synchronizes between current desktop windows sharing the workspace.
+Use **Settings → Cat mode (joke translation)**. The switch stays labeled in English so you can always find the way back. The preference persists across restarts and synchronizes between current desktop windows sharing the workspace. Appearance settings live in the same menu; the former header buttons and View menu have been removed.
 
 | English | Cat mode |
 | --- | --- |

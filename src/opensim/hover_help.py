@@ -65,5 +65,6 @@ BUTTON_HELP = {
     "Convergence": "Solve the static model on finer and finer meshes to check that the answer no longer depends on mesh size. Starts at your mesh size.",
     "Convergence study": "Solve the static model on finer and finer meshes to check that the answer no longer depends on mesh size. Starts at your mesh size.",
     "Convergence report": "Show the latest convergence study for the current settings: values per mesh, charts, verdicts and an extrapolated estimate.",
+    "Export GIF": "Save the selected mode shape as a looping animated GIF, using the current camera, colors and theme.",
     "Back to model": "Close this reference report and return to your model.",
 }

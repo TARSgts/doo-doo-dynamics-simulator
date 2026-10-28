@@ -1,4 +1,5 @@
 import argparse
+import base64
 from datetime import datetime
 import hashlib
 import json
@@ -7,7 +8,7 @@ import sys
 import time
 
 from PySide6.QtCore import Qt, QPointF, QSignalBlocker, QTimer, QUrl
-from PySide6.QtGui import QAction, QFont, QIcon, QTextDocument, QWheelEvent
+from PySide6.QtGui import QAction, QActionGroup, QFont, QIcon, QTextDocument, QWheelEvent
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDockWidget, QDoubleSpinBox,
                                QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLineEdit,
@@ -107,6 +108,35 @@ QWidget#ApplicationHeader { background:#0d1420; }
 """
 
 
+MIDNIGHT_STYLE = """
+QMainWindow, QWidget { background:#080b12; color:#dce5f3; }
+QMenuBar, QStatusBar, QWidget#ApplicationHeader { background:#03050a; }
+QMenu { background:#0d1320; border:1px solid #2c3850; }
+QMenu::item:selected { background:#263653; }
+QToolTip { background:#131d30; color:#edf3ff; border-color:#506489; }
+QTabWidget::pane, QTabBar::tab { background:#0c111c; }
+QTabBar::tab:selected { background:#182238; color:#c4d5ff; border-top-color:#91aeed; }
+QPushButton, QToolButton { background:#111a2b; border-color:#2c3b55; }
+QPushButton:hover, QToolButton:hover { background:#1d2b45; border-color:#4b6591; }
+QPushButton:disabled, QToolButton:disabled { background:#0c111c; color:#66738a; border-color:#202a3c; }
+QDockWidget::title, QLabel#DetailsHeading { background:#0e1625; color:#c8d7ee; }
+QTreeWidget { background:#080d16; }
+QTreeWidget::item:selected { background:#203252; color:#eef4ff; }
+QDoubleSpinBox, QSpinBox, QComboBox, QLineEdit, QListWidget { background:#0c1422; border-color:#2d3c57; }
+QComboBox QAbstractItemView { background:#101a2c; selection-background-color:#2b4065; }
+QPlainTextEdit { background:#05080e; color:#a9bbd7; }
+QWidget#DetailsPanel, QScrollArea#PropertiesScroll { background:#080b12; }
+QWidget#ViewportTools { background:#0b1220; }
+QLabel#ResultCard { background:#0e1727; border-color:#283853; color:#d0e2ff; }
+QSplitter::handle { background:#202b40; }
+QSplitter::handle:hover { background:#91aeed; }
+QScrollBar:vertical { background:#0c111c; }
+QScrollBar::handle:vertical { background:#35486a; }
+QProgressBar { background:#0b1220; border-color:#2d3c57; }
+QProgressBar::chunk { background:#91aeed; }
+"""
+
+
 def forward_wheel_to_panel(control, event):
     parent = control.parentWidget()
     while parent is not None and not isinstance(parent, QScrollArea):
@@ -158,6 +188,10 @@ class SimulatorWindow(QMainWindow):
         except ValueError:
             self.discord._status("Invalid Application ID — open Discord Rich Presence settings")
         QApplication.instance().aboutToQuit.connect(self.discord.stop)
+        self.gif_export = None
+        self.gif_timer = QTimer(self)
+        self.gif_timer.setInterval(150)
+        self.gif_timer.timeout.connect(self.poll_gif_export)
         self.shown_convergence = set()
         self.reference_dialogs = {}
         self.file_dialogs = []
@@ -224,15 +258,6 @@ class SimulatorWindow(QMainWindow):
         self.application_title.setObjectName("ApplicationTitle")
         self.application_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_row.addWidget(self.application_title, 1)
-        self.cat_button = QPushButton("Cat mode: OFF")
-        self.cat_button.setCheckable(True)
-        self.cat_button.setAccessibleName("Cat mode joke translation")
-        self.cat_button.toggled.connect(lambda checked: self.set_language("cat" if checked else "en"))
-        header_row.addWidget(self.cat_button)
-        self.theme_button = QPushButton("Light mode")
-        self.theme_button.setAccessibleName("Toggle dark mode")
-        self.theme_button.clicked.connect(lambda: self.set_theme("light" if self.theme == "dark" else "dark"))
-        header_row.addWidget(self.theme_button)
         self.setMenuWidget(header)
         file_menu = self.application_menu.addMenu("File")
         for title, handler in (("New project", self.new_project), ("Open project…", self.open_project),
@@ -253,19 +278,29 @@ class SimulatorWindow(QMainWindow):
             file_menu.addAction(action)
         file_menu.addSeparator()
         file_menu.addAction("Exit", self.close)
-        help_menu = self.application_menu.addMenu("Help")
-        view_menu = self.application_menu.addMenu("View")
-        self.dark_action = QAction("Dark mode", self)
-        self.dark_action.setCheckable(True)
-        self.dark_action.toggled.connect(lambda checked: self.set_theme("dark" if checked else "light"))
-        view_menu.addAction(self.dark_action)
+        self.settings_menu = self.application_menu.addMenu("Settings")
+        appearance_menu = self.settings_menu.addMenu("Appearance")
+        self.theme_group = QActionGroup(self)
+        self.theme_group.setExclusive(True)
+        self.theme_actions = {}
+        for theme, title in (("light", "Light"), ("dark", "Dark"), ("midnight", "Midnight")):
+            action = QAction(title, self)
+            action.setCheckable(True)
+            action.setToolTip({"light": "A bright background for daytime use.", "dark": "The original dark blue workbench.",
+                               "midnight": "A deeper, near-black workbench for low-light use."}[theme])
+            action.triggered.connect(lambda checked=False, value=theme: self.set_theme(value))
+            self.theme_group.addAction(action)
+            appearance_menu.addAction(action)
+            self.theme_actions[theme] = action
         self.cat_action = QAction("Cat mode (joke translation)", self)
         self.cat_action.setCheckable(True)
         self.cat_action.toggled.connect(lambda checked: self.set_language("cat" if checked else "en"))
-        view_menu.addAction(self.cat_action)
-        integrations_menu = self.application_menu.addMenu("Integrations")
-        discord_action = integrations_menu.addAction("Discord Rich Presence…", self.show_discord_settings)
+        self.cat_action.setToolTip("A joke feline translation. Turn off to return to English; model inputs and units stay the same.")
+        self.settings_menu.addAction(self.cat_action)
+        self.settings_menu.addSeparator()
+        discord_action = self.settings_menu.addAction("Discord Rich Presence…", self.show_discord_settings)
         discord_action.setToolTip("Show basic simulator activity in Discord. Configure or disable sharing here; project names and file paths stay private.")
+        help_menu = self.application_menu.addMenu("Help")
         help_menu.addAction("About", lambda: QMessageBox.information(
             self, "Doo Doo Dynamics Simulator",
             "Independent open-source structural workbench\nGPL-2.0-or-later\n\n"
@@ -318,7 +353,6 @@ class SimulatorWindow(QMainWindow):
                 button.setToolTip(BUTTON_HELP[button.text()])
         for key, control in {**self.fields, **self.selectors}.items():
             control.setToolTip(FIELD_HELP[key])
-        self.theme_button.setToolTip("Switch between light and dark colors without changing your model or results.")
         self.deformation.setToolTip("Magnify movement for viewing only. True scale shows actual displacement; Auto targets 10% of model size.")
         self.camera.setToolTip("View the model from a corner, the front, above, or the flipped front. This does not rotate the model or loads.")
         self.result_component.setToolTip("Choose total movement, movement along X/Y/Z, or von Mises stress for the color display.")
@@ -446,6 +480,10 @@ class SimulatorWindow(QMainWindow):
         self.animate_mode.setCheckable(True)
         self.animate_mode.toggled.connect(self.apply_view_options)
         modal_row.addWidget(self.animate_mode)
+        self.export_gif_button = QPushButton("Export GIF")
+        self.export_gif_button.setAccessibleName("Export the selected mode shape as an animated GIF")
+        self.export_gif_button.clicked.connect(lambda checked=False: self.safe(self.export_mode_gif))
+        modal_row.addWidget(self.export_gif_button)
         modal_note = QLabel("Normalized shape · arbitrary amplitude · animation plays at 1 Hz")
         modal_note.setWordWrap(True)
         modal_row.addWidget(modal_note, 1)
@@ -473,7 +511,7 @@ class SimulatorWindow(QMainWindow):
         <h2>Your next simulation starts here</h2><p style="color:#6d8197">New project → Import CAD → Generate mesh → Solve</p>
         <p style="color:#6d8197">Or open the Examples tab to try a plate or cantilever beam.</p>
         <p style="color:#8c9bab;font-size:12px">Static structural · Gmsh meshing · CalculiX solver · MCP automation</p></div>
-        <script>function setTheme(theme){document.body.style.background=theme==='dark'?'radial-gradient(#22344f,#101827)':'radial-gradient(#fff,#dfe7f0)';document.body.style.color=theme==='dark'?'#dce9f9':'#243b55';}</script></body></html>"""
+        <script>function setTheme(theme){document.body.style.background=theme==='midnight'?'radial-gradient(#111a2b,#03050a)':theme==='dark'?'radial-gradient(#22344f,#101827)':'radial-gradient(#fff,#dfe7f0)';document.body.style.color=theme!=='light'?'#dce9f9':'#243b55';}</script></body></html>"""
 
     def build_outline(self):
         dock = QDockWidget("Outline / Model", self)
@@ -832,8 +870,8 @@ class SimulatorWindow(QMainWindow):
             raise ValueError("This checkout does not include the reference report")
         document = QTextDocument()
         document.setMarkdown(report.read_text(encoding="utf-8"))
-        dark = self.theme == "dark"
-        background, foreground = ("#121b2b", "#d8e4f1") if dark else ("#ffffff", "#27374a")
+        dark = self.theme != "light"
+        background, foreground = ("#080b12" if self.theme == "midnight" else "#121b2b", "#d8e4f1") if dark else ("#ffffff", "#27374a")
         style = ("<style>body{background:" + background + ";color:" + foreground + ";font:14px 'Segoe UI';margin:24px;line-height:1.55}"
                  "img{max-width:100%;height:auto}table{border-collapse:collapse;width:100%;font-size:13px}"
                  "td,th{border:1px solid #50627a;padding:7px}a{color:#65b5ff}pre{white-space:pre-wrap}</style>")
@@ -963,7 +1001,7 @@ class SimulatorWindow(QMainWindow):
         source = load_plot_source(self.workspace, self.require_project())
         dialog = self.plot_dialogs.get(source.job_id)
         if dialog is None:
-            dialog = PlotDialog(self.workspace, source, self.theme == "dark", self)
+            dialog = PlotDialog(self.workspace, source, self.theme != "light", self)
             dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
             self.plot_dialogs[source.job_id] = dialog
             dialog.finished.connect(lambda code, key=source.job_id: self.plot_dialogs.pop(key, None))
@@ -1050,6 +1088,127 @@ class SimulatorWindow(QMainWindow):
         self.reference_dialogs[key] = dialog
         dialog.show()
         return dialog
+
+    def gif_options(self):
+        """Ask for GIF size and smoothness. Returns (width or None, frames) or None if cancelled."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Export mode shape GIF")
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+        size = QComboBox()
+        for text, value in (("Medium · 960 px wide", 960), ("Large · 1280 px wide", 1280), ("Small · 640 px wide", 640),
+                            ("Same as the viewport", None)):
+            size.addItem(text, value)
+        size.setToolTip("Width of the GIF. It is never larger than the viewport, so enlarge the window for a bigger GIF.")
+        smoothness = QComboBox()
+        for text, value in (("Smooth · 36 frames", 36), ("Very smooth · 48 frames", 48), ("Smaller file · 24 frames", 24)):
+            smoothness.addItem(text, value)
+        smoothness.setToolTip("Frames per vibration cycle. More frames look smoother but make a bigger file.")
+        form.addRow("Size", size)
+        form.addRow("Smoothness", smoothness)
+        layout.addLayout(form)
+        note = QLabel("Uses the current camera, colors and theme. One full vibration cycle that loops forever, slowed to "
+                      "about one cycle per second. The shape is normalized, so the motion size is illustrative.")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Choose file…")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if not dialog.exec():
+            return None
+        return size.currentData(), smoothness.currentData()
+
+    def export_mode_gif(self, path=None, width=960, frames=36):
+        if self.gif_export is not None:
+            raise ValueError("A GIF export is already running")
+        state = self.workspace.ui_state()
+        if state["view"] != "modal":
+            raise ValueError("Open a modal result first: Solution → Modal, then pick a mode")
+        results = self.workspace.get_modal_results(self.require_project())
+        mode = state["modal_mode"]
+        frequency = results["summary"]["frequencies_Hz"][mode - 1]
+        if path is None:
+            options = self.gif_options()
+            if options is None:
+                return
+            width, frames = options
+            project = self.workspace.get_project(self.project_id)
+            safe_name = "".join(character if character.isalnum() or character in "-_" else "-" for character in project["name"]).strip("-") or "model"
+            suggested = Path.home() / "Pictures" / f"{safe_name}-mode-{mode}-{frequency:.4g}Hz.gif"
+            if not suggested.parent.is_dir():
+                suggested = Path.home() / suggested.name
+            path, _ = QFileDialog.getSaveFileName(self, "Save mode shape GIF", str(suggested), "Animated GIF (*.gif)")
+            if not path:
+                return
+        path = Path(path)
+        if path.suffix.lower() != ".gif":
+            path = path.with_suffix(".gif")
+        self.gif_export = {"path": path, "started": time.time(), "mode": mode, "waiting": False}
+        self.export_gif_button.setEnabled(False)
+        self.status_label.setText(f"Exporting mode {mode} GIF…")
+        options = json.dumps({"frames": frames, "width": width})
+        self.view.page().runJavaScript(
+            f"typeof startModeGifExport==='function'?(startModeGifExport({options}).catch(()=>{{}}),true):false", self.gif_export_started)
+
+    def gif_export_started(self, started):
+        if self.gif_export is None:
+            return
+        if not started:
+            self.finish_gif_export("This view cannot export a GIF. Open a modal result and try again.")
+            return
+        self.gif_timer.start()
+
+    def poll_gif_export(self):
+        if self.gif_export is None or self.gif_export["waiting"]:
+            return
+        if time.time() - self.gif_export["started"] > 300:
+            self.finish_gif_export("GIF export took longer than 5 minutes and was abandoned. Try a smaller size or fewer frames.")
+            return
+        self.gif_export["waiting"] = True
+        self.view.page().runJavaScript(
+            "typeof gifExportState==='object'?JSON.stringify({status:gifExportState.status,progress:gifExportState.progress,"
+            "error:gifExportState.error,bytes:gifExportState.bytes}):null", self.gif_export_progress)
+
+    def gif_export_progress(self, text):
+        if self.gif_export is None:
+            return
+        self.gif_export["waiting"] = False
+        state = json.loads(text) if text else None
+        if not state or state["status"] == "idle":
+            self.finish_gif_export("GIF export was interrupted because the view changed. Try again.")
+        elif state["status"] == "error":
+            self.finish_gif_export("GIF export failed: " + str(state["error"]))
+        elif state["status"] == "running":
+            self.status_label.setText(f"Exporting mode {self.gif_export['mode']} GIF… {state['progress'] * 100:.0f}%")
+        elif state["status"] == "done":
+            self.gif_timer.stop()
+            self.gif_export["waiting"] = True
+            self.view.page().runJavaScript("takeGifExport()", self.save_gif_export)
+
+    def save_gif_export(self, data):
+        if self.gif_export is None:
+            return
+        try:
+            content = base64.b64decode(data or "", validate=True)
+            if not content.startswith(b"GIF89a"):
+                raise ValueError("the viewer returned no GIF data")
+            path = self.gif_export["path"]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        except (OSError, ValueError) as error:
+            self.finish_gif_export(f"Could not save the GIF: {error}")
+            return
+        self.finish_gif_export(None, f"Saved GIF ({len(content) / 1e6:.1f} MB): {path}")
+
+    def finish_gif_export(self, error=None, message=None):
+        self.gif_timer.stop()
+        self.gif_export = None
+        self.export_gif_button.setEnabled(True)
+        self.status_label.setText(error or message)
+        if error:
+            QMessageBox.warning(self, "Export GIF", error)
 
     def show_stress(self):
         result = self.workspace.get_results(self.require_project())
@@ -1332,13 +1491,10 @@ class SimulatorWindow(QMainWindow):
         previous = self.language
         self.language = self.workspace.ui_state()["language"]
         active = self.language == "cat"
-        for control in (self.cat_button, self.cat_action):
-            blocker = QSignalBlocker(control)
-            control.setChecked(active)
-            del blocker
-        self.cat_button.setText("Cat mode: ON" if active else "Cat mode: OFF")
-        self.cat_button.setToolTip("Switch back to English" if active else "A deeply unserious feline translation. Meow.")
-        skipped = {self.cat_button, self.viewport_title, self.status_label, self.progress_label}
+        blocker = QSignalBlocker(self.cat_action)
+        self.cat_action.setChecked(active)
+        del blocker
+        skipped = {self.viewport_title, self.status_label, self.progress_label}
         for widget in self.findChildren(QLabel) + self.findChildren(QPushButton) + self.findChildren(QToolButton):
             if widget not in skipped:
                 self.present_text((widget, "text"), widget.text(), widget.setText)
@@ -1370,12 +1526,12 @@ class SimulatorWindow(QMainWindow):
 
     def apply_theme(self):
         self.theme = self.workspace.ui_state()["theme"]
-        self.setStyleSheet(STYLE + (DARK_STYLE if self.theme == "dark" else ""))
-        blocker = QSignalBlocker(self.dark_action)
-        self.dark_action.setChecked(self.theme == "dark")
-        del blocker
-        self.theme_button.setText("Light mode" if self.theme == "dark" else "Dark mode")
-        self.legend.setStyleSheet("padding:9px;color:" + ("#9fb9d7;background:#132238" if self.theme == "dark" else "#55697e;background:#fff"))
+        self.setStyleSheet(STYLE + (DARK_STYLE if self.theme != "light" else "") + (MIDNIGHT_STYLE if self.theme == "midnight" else ""))
+        for theme, action in self.theme_actions.items():
+            blocker = QSignalBlocker(action)
+            action.setChecked(self.theme == theme)
+            del blocker
+        self.legend.setStyleSheet("padding:9px;color:" + ("#a9bbd7;background:#0b1220" if self.theme == "midnight" else "#9fb9d7;background:#132238" if self.theme == "dark" else "#55697e;background:#fff"))
         self.apply_view_options()
 
     def refresh(self):
@@ -1479,6 +1635,7 @@ class SimulatorWindow(QMainWindow):
             self.modal_tools.setVisible(state["view"] == "modal")
             self.deformation.setEnabled(state["view"] != "modal")
             self.animate_mode.setEnabled(bool(modal_result))
+            self.export_gif_button.setEnabled(bool(modal_result) and self.gif_export is None)
             self.modal_selector.setEnabled(bool(modal_result))
             blocker = QSignalBlocker(self.modal_selector)
             frequencies = modal_result["summary"]["frequencies_Hz"] if modal_result else []

@@ -2,9 +2,9 @@
 
 The native Windows desktop application provides an engineering ribbon, model outline, material/load/mesh properties, rotatable viewport, analysis toolbox and job log. It uses original interface code and common engineering-workbench conventions. It contains no Ansys interface assets, source code or branding.
 
-Dark mode is on by default. Use the header button or View → Dark mode to switch; the preference persists in the shared workspace. The renderer supports both palettes, automatic deformation scaling, signed displacement components, a color bar, and clamp/load annotations. The properties pane scrolls vertically, input controls disable during active jobs, and top result cards summarize displacement and force balance.
+Dark mode is on by default. Use **Settings → Appearance → Light / Dark / Midnight** to choose a palette; the preference persists in the shared workspace. Midnight uses near-black panels and a deeper viewport background, with readable dark-theme overlays and GIF export backgrounds. **Settings** also contains **Cat mode (joke translation)** and **Discord Rich Presence…**. Header theme/language buttons and the separate View/Integrations menus are removed. Appearance changes preserve numerical settings, project revisions and unsaved form edits. The renderer supports automatic deformation scaling, signed displacement components, a color bar, and clamp/load annotations. The properties pane scrolls vertically, input controls disable during active jobs, and top result cards summarize displacement and force balance.
 
-The application title now shares the full-width top bar with the menus and theme control. The viewport uses batched WebGL rendering where available; drag to rotate, Shift/middle/right-drag to pan and scroll to zoom. Existing saved results automatically receive the current renderer when opened in the desktop. See [performance measurements and fallback behavior](VIEWPORT_PERFORMANCE.md).
+The application title now shares the full-width top bar with the File, Settings and Help menus. The viewport uses batched WebGL rendering where available; drag to rotate, Shift/middle/right-drag to pan and scroll to zoom. Existing saved results automatically receive the current renderer when opened in the desktop. See [performance measurements and fallback behavior](VIEWPORT_PERFORMANCE.md).
 
 ![Native desktop workbench](desktop-preview.png)
 
@@ -28,7 +28,7 @@ The desktop/MCP extension uses the official `PySide6==6.10.2` and `mcp==1.26.0` 
 
 ## Use the desktop
 
-Discord Rich Presence starts automatically on fresh installs using the simulator's shared public Application ID. **Integrations → Discord Rich Presence…** shows connection status and lets users turn sharing off; saved off choices survive updates. No developer setup is needed. Only generic activity and session time are shared. See [setup, privacy, troubleshooting and checks](DISCORD_PRESENCE.md).
+Discord Rich Presence starts automatically on fresh installs using the simulator's shared public Application ID. **Settings → Discord Rich Presence…** shows connection status and lets users turn sharing off; saved off choices survive updates. No developer setup is needed. Only generic activity and session time are shared. See [setup, privacy, troubleshooting and checks](DISCORD_PRESENCE.md).
 
 1. Click **Test plate** to create a 100 × 40 × 5 mm solid with a 12 mm through hole, or create a project and import STEP/IGES/BREP.
 2. Set mesh size, coordinate scale, Young's modulus, Poisson ratio and total axial load in the details panel; click **Apply settings**.
@@ -78,7 +78,7 @@ Other MCP clients can launch the same command using a standard stdio configurati
 | Tool | Purpose |
 | --- | --- |
 | `get_capabilities` | Available/planned features, workspace and desktop heartbeat |
-| `set_desktop_theme` | Persist dark/light mode and update the live desktop |
+| `set_desktop_theme` | Persist light/dark/midnight mode and update the live desktop |
 | `list_projects` / `create_project` / `get_project` | Project discovery and creation |
 | `import_cad` | Copy an explicitly selected local CAD file into the project |
 | `set_analysis_parameters` | Set SI inputs, element order, force direction and face/point application |
@@ -101,6 +101,8 @@ Typical sequence: create project → set parameters → create/import CAD → wa
 **Study-specific settings.** Open projects contain Static Structural, Modal Analysis and Convergence Study branches. Clicking a study changes the lower settings panel and its Run button. Modal shows density/modes and support-only selection; static shows force controls; convergence adds refinement controls. Hidden values persist. Shared geometry/material/support scope and tests are documented in [study panels](STUDY_PANELS.md).
 
 **Project navigation.** The outline contains only open projects. **Open project…** (Ctrl+O) searches the saved library; closing a project (Ctrl+W) retains all files and jobs. File and right-click menus provide Rename (F2), Close other projects, File locations, and folder shortcuts. The file-locations dialog shows the model copy, recorded import source, run folders and library database, with copy/open buttons. Open projects persist, including an empty session. See [project navigation and checks](PROJECT_NAVIGATION.md).
+
+**Mode shape GIF export.** With a modal result open, **Export GIF** (next to Animate mode) saves the selected mode as a looping animated GIF. It is rendered from the live viewport, so it keeps your camera angle, zoom, theme, labels, color bar and XYZ triad. Choose a width (640, 960 or 1280 px, or the viewport size; never larger than the viewport) and smoothness (24, 36 or 48 frames per cycle). Each GIF holds exactly one vibration cycle and loops seamlessly. Playback is slowed to about one cycle per second, and the label says so, because real frequencies are far too fast to see. Mode shapes are normalized, so the motion size is illustrative. A 960 × 600 export with 36 frames is about 1 MB and takes a few seconds. Progress shows in the status bar. The standalone `mode-N.html` viewer has the same **Export GIF** button and downloads the file directly. Frames use a shared 256-color median-cut palette with standard GIF89a LZW coding, with no extra dependencies. Tests decode the output with Pillow and check the frame count, looping, timing and the symmetry of the motion over the cycle.
 
 **Mesh convergence study.** **Solution → Convergence** (or **Convergence study** in the Analysis Toolbox) re-runs the current static setup on progressively finer meshes. The first mesh uses your mesh size and each later one divides it by the refinement ratio (default 1.4, about 3× the elements per step). It runs up to the chosen number of meshes (3–6, default 4). It stops early once the target changes less than the tolerance (default 2%) between the last two meshes, with at least three meshes solved. Targets are maximum displacement, loaded-area mean displacement along the force, or maximum von Mises stress. All three are always reported. For each quantity the report shows:
 

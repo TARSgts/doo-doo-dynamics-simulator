@@ -6,7 +6,7 @@ const slider = document.getElementById('scale');
 const nodeCount = simulation.points.length;
 const faceCount = simulation.faces.length;
 const isModal = simulation.summary.analysis === 'modal';
-let modeAnimation = false, modePhase = 1;
+let modeAnimation = false, modePhase = 1, phaseOverride = null, exportingGif = false;
 let catMode = false;
 const coordinates = new Float64Array(nodeCount * 3);
 const deformation = new Float64Array(nodeCount * 3);
@@ -193,7 +193,7 @@ meshCanvas.addEventListener('webglcontextlost',event=>{event.preventDefault();gp
 meshCanvas.addEventListener('webglcontextrestored',()=>{gpuRenderer=createGpuRenderer();viewportStats.renderer=gpuRenderer?'webgl':'canvas2d';meshCanvas.style.display=gpuRenderer?'block':'none';draw();});
 
 function componentIndex(){return resultComponent==='stress'?4:resultComponent==='magnitude'?0:'xyz'.indexOf(resultComponent)+1;}
-function setTheme(theme){themeDark=theme==='dark';document.body.classList.toggle('dark',themeDark);draw();}
+function setTheme(theme){themeDark=theme==='dark'||theme==='midnight';document.body.classList.toggle('dark',themeDark);document.body.classList.toggle('midnight',theme==='midnight');draw();}
 function setCatMode(value){catMode=Boolean(value);draw();}
 function setResultComponent(component){if(!['magnitude','x','y','z','stress'].includes(component))return;resultComponent=component==='stress'&&!simulation.von_mises_Pa?'magnitude':component;colorDirty=true;draw();}
 function setViewportMode(mode){if(mode==='modal')mode='results';if(viewportMode!==mode){viewportMode=mode;deformationDirty=true;fitRequested=true;}draw();}
@@ -288,9 +288,6 @@ function drawAxisTriad(){
   const origin=[18*pixel+radius,canvas.height-18*pixel-radius];
   const colors=AXIS_COLORS[themeDark?'dark':'light'];
   context.save();
-  context.beginPath();context.arc(origin[0],origin[1],radius,0,2*Math.PI);
-  context.fillStyle=themeDark?'rgba(16,24,39,0.55)':'rgba(255,255,255,0.6)';context.fill();
-  context.strokeStyle=themeDark?'rgba(178,210,243,0.25)':'rgba(49,72,93,0.25)';context.lineWidth=pixel;context.stroke();
   const axes=axisTriad();
   viewportStats.axisTriad=Object.fromEntries(axes.map(entry=>[entry.axis,{screen:entry.screen,toward:entry.toward}]));
   context.lineCap='round';context.textAlign='center';context.textBaseline='middle';
@@ -322,7 +319,7 @@ function drawOverlay(){
   drawAxisTriad();
   const pixel=devicePixelRatio,range=scalarRanges[componentIndex()];
   context.font=`${12*pixel}px Segoe UI`;context.fillStyle=themeDark?'#bbd2ec':'#3a506b';
-  context.fillText(`${simulation.summary.element_type||'Tetrahedra'} · ${faceCount.toLocaleString()} ${catMode?'tiny triangle beans':'surface triangles'} · ${gpuRenderer?'WebGL':'Canvas fallback'}`,20*pixel,27*pixel);
+  context.fillText(`${simulation.summary.element_type||'Tetrahedra'} · ${faceCount.toLocaleString()} ${catMode?'tiny triangle beans':'surface triangles'}${exportingGif?'':' · '+(gpuRenderer?'WebGL':'Canvas fallback')}`,20*pixel,27*pixel);
   if(facePickMode){
     context.fillStyle=facePickMode==='support'?'#1ad9e6':'#ffa61f';
     context.fillText(`Pick ${facePickMode==='support'?'fixed support (cyan)':'force faces (orange)'} · ${selectedFaces.size} face(s) · click to toggle`,20*pixel,48*pixel);
@@ -330,7 +327,7 @@ function drawOverlay(){
     return;
   }
   if(viewportMode==='results'){
-    context.fillText(isModal?`${catMode?'Wiggle':'Mode'} ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · ${catMode?'purr shape · dance speed':'normalized shape · playback'} 1 Hz`:`${catMode?'Wiggle exaggeration':'Deformation display'}: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
+    context.fillText(isModal?`${catMode?'Wiggle':'Mode'} ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · ${catMode?'purr shape · dance speed':'normalized shape · playback'} ${exportingGif?'slowed to about 1 cycle per second':'1 Hz'}`:`${catMode?'Wiggle exaggeration':'Deformation display'}: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
     const gradient=context.createLinearGradient(0,75*pixel,0,210*pixel);
     for(let stop=0;stop<=6;stop++)gradient.addColorStop(stop/6,`hsl(${225*stop/6} 75% 57%)`);
     context.fillStyle=gradient;context.fillRect(canvas.width-112*pixel,75*pixel,14*pixel,135*pixel);
@@ -357,9 +354,133 @@ function drawOverlay(){
     }
   }
 }
+// ---- Animated GIF export of a mode shape -------------------------------------------------
+// One vibration cycle is rendered frame by frame from this viewport, quantized to a shared
+// 256-colour median-cut palette and written as a looping GIF89a with standard LZW coding.
+const gifExportState=window.gifExportState={status:'idle',progress:0,frames:0,data:null,error:null,bytes:0,width:0,height:0};
+const GIF_BACKGROUND={light:'#eef3f8',dark:'#16243a',midnight:'#080c14',page:'#152330'};
+function gifBackground(){return document.body.classList.contains('desktop')?(document.body.classList.contains('midnight')?GIF_BACKGROUND.midnight:themeDark?GIF_BACKGROUND.dark:GIF_BACKGROUND.light):GIF_BACKGROUND.page;}
+function captureGifFrame(phase,output,outputContext){
+  phaseOverride=phase;renderFrame();
+  outputContext.fillStyle=gifBackground();outputContext.fillRect(0,0,output.width,output.height);
+  if(gpuRenderer)outputContext.drawImage(meshCanvas,0,0,output.width,output.height);
+  outputContext.drawImage(canvas,0,0,output.width,output.height);
+  return outputContext.getImageData(0,0,output.width,output.height).data;
+}
+function medianCutPalette(samples,maximum=256){
+  const histogram=new Uint32Array(32768);
+  for(const pixels of samples)for(let index=0;index<pixels.length;index+=4)histogram[((pixels[index]>>3)<<10)|((pixels[index+1]>>3)<<5)|(pixels[index+2]>>3)]++;
+  const bins=[];for(let bin=0;bin<32768;bin++)if(histogram[bin])bins.push(bin);
+  const channel=(bin,c)=>c===0?bin>>10:c===1?(bin>>5)&31:bin&31;
+  function describe(list){
+    let low=[31,31,31],high=[0,0,0],count=0;
+    for(const bin of list){count+=histogram[bin];for(let c=0;c<3;c++){const v=channel(bin,c);if(v<low[c])low[c]=v;if(v>high[c])high[c]=v;}}
+    const ranges=high.map((v,c)=>v-low[c]),axis=ranges.indexOf(Math.max(...ranges));
+    return {list,count,axis,score:ranges[axis]*Math.sqrt(count)};
+  }
+  const boxes=[describe(bins)];
+  while(boxes.length<maximum){
+    let best=-1,bestScore=0;for(let index=0;index<boxes.length;index++)if(boxes[index].list.length>1&&boxes[index].score>bestScore){best=index;bestScore=boxes[index].score;}
+    if(best<0)break;
+    const box=boxes[best];box.list.sort((left,right)=>channel(left,box.axis)-channel(right,box.axis));
+    let running=0,split=1;for(let index=0;index<box.list.length-1;index++){running+=histogram[box.list[index]];if(running>=box.count/2){split=index+1;break;}split=index+1;}
+    boxes.splice(best,1,describe(box.list.slice(0,split)),describe(box.list.slice(split)));
+  }
+  const palette=new Uint8Array(768);
+  boxes.forEach((box,index)=>{
+    const sum=[0,0,0];let count=0;
+    for(const bin of box.list){const weight=histogram[bin];count+=weight;for(let c=0;c<3;c++)sum[c]+=(channel(bin,c)*8+4)*weight;}
+    for(let c=0;c<3;c++)palette[index*3+c]=Math.min(255,Math.round(sum[c]/Math.max(count,1)));
+  });
+  return {palette,size:Math.max(boxes.length,2)};
+}
+function indexPixels(pixels,palette,size,lookup){
+  const indices=new Uint8Array(pixels.length/4);
+  for(let pixel=0,index=0;index<pixels.length;index+=4,pixel++){
+    const bin=((pixels[index]>>3)<<10)|((pixels[index+1]>>3)<<5)|(pixels[index+2]>>3);
+    let entry=lookup[bin];
+    if(entry<0){
+      let bestDistance=Infinity;const r=(bin>>10)*8+4,g=((bin>>5)&31)*8+4,b=(bin&31)*8+4;
+      for(let candidate=0;candidate<size;candidate++){const dr=palette[candidate*3]-r,dg=palette[candidate*3+1]-g,db=palette[candidate*3+2]-b,distance=dr*dr*2+dg*dg*4+db*db*3;if(distance<bestDistance){bestDistance=distance;entry=candidate;}}
+      lookup[bin]=entry;
+    }
+    indices[pixel]=entry;
+  }
+  return indices;
+}
+function lzwEncode(indices,minimumCodeSize,output){
+  const clearCode=1<<minimumCodeSize,endCode=clearCode+1;
+  let codeSize=minimumCodeSize+1,nextCode=endCode+1,table=new Map(),bitBuffer=0,bitCount=0;
+  const block=[];
+  function flushBlock(force){while(block.length>=255||(force&&block.length)){const chunk=block.splice(0,255);output.push(chunk.length,...chunk);}}
+  function emit(code){bitBuffer|=code<<bitCount;bitCount+=codeSize;while(bitCount>=8){block.push(bitBuffer&255);bitBuffer>>>=8;bitCount-=8;}if(block.length>=255)flushBlock(false);}
+  output.push(minimumCodeSize);
+  emit(clearCode);
+  let current=indices[0];
+  for(let position=1;position<indices.length;position++){
+    const symbol=indices[position],key=(current<<8)|symbol,known=table.get(key);
+    if(known!==undefined){current=known;continue;}
+    emit(current);
+    if(nextCode===4096){emit(clearCode);table=new Map();nextCode=endCode+1;codeSize=minimumCodeSize+1;}
+    else{if(nextCode>=(1<<codeSize))codeSize++;table.set(key,nextCode++);}
+    current=symbol;
+  }
+  emit(current);emit(endCode);
+  if(bitCount>0){block.push(bitBuffer&255);bitBuffer=0;bitCount=0;}
+  flushBlock(true);output.push(0);
+}
+function gifBytes(width,height,palette,frames,delay){
+  const bytes=[...'GIF89a'].map(character=>character.charCodeAt(0));
+  const word=value=>[value&255,(value>>8)&255];
+  bytes.push(...word(width),...word(height),0xF7,0,0,...palette);
+  bytes.push(0x21,0xFF,11,...[...'NETSCAPE2.0'].map(character=>character.charCodeAt(0)),3,1,0,0,0);
+  for(const indices of frames){
+    bytes.push(0x21,0xF9,4,0x04,...word(delay),0,0);
+    bytes.push(0x2C,0,0,0,0,...word(width),...word(height),0);
+    const encoded=[];lzwEncode(indices,8,encoded);for(const value of encoded)bytes.push(value);
+  }
+  bytes.push(0x3B);
+  return new Uint8Array(bytes);
+}
+function toBase64(bytes){let text='';for(let index=0;index<bytes.length;index+=0x8000)text+=String.fromCharCode.apply(null,bytes.subarray(index,index+0x8000));return btoa(text);}
+function startModeGifExport(options={}){
+  if(!isModal)return Promise.reject(new Error('GIF export is available for modal results only'));
+  if(gifExportState.status==='running')return Promise.reject(new Error('A GIF export is already running'));
+  const frameCount=Math.max(8,Math.min(96,Math.round(options.frames||36)));
+  const delay=Math.max(2,Math.round(options.delay||100/frameCount));
+  const scale=options.width?Math.min(1,options.width/canvas.width):1;
+  const output=document.createElement('canvas');
+  output.width=Math.max(16,Math.round(canvas.width*scale));output.height=Math.max(16,Math.round(canvas.height*scale));
+  const outputContext=output.getContext('2d',{willReadFrequently:true});
+  const restore={animation:modeAnimation};
+  Object.assign(gifExportState,{status:'running',progress:0,frames:frameCount,data:null,error:null,bytes:0,width:output.width,height:output.height});
+  modeAnimation=false;exportingGif=true;
+  const phases=Array.from({length:frameCount},(_,index)=>Math.cos(2*Math.PI*index/frameCount));
+  const finish=()=>{phaseOverride=null;exportingGif=false;modeAnimation=restore.animation;draw();};
+  return new Promise((resolve,reject)=>{
+    let palette,size,lookup;const frames=[];let index=0;
+    function step(){
+      try{
+        if(!palette){
+          const samples=[0,Math.floor(frameCount/4),Math.floor(frameCount/2)].map(sample=>captureGifFrame(phases[sample],output,outputContext));
+          ({palette,size}=medianCutPalette(samples));lookup=new Int16Array(32768).fill(-1);
+        }
+        const deadline=performance.now()+30;
+        while(index<frameCount&&performance.now()<deadline){frames.push(indexPixels(captureGifFrame(phases[index],output,outputContext),palette,size,lookup));index++;}
+        gifExportState.progress=index/frameCount*0.9;
+        if(index<frameCount){setTimeout(step,0);return;}
+        const bytes=gifBytes(output.width,output.height,palette,frames,delay);
+        Object.assign(gifExportState,{status:'done',progress:1,data:toBase64(bytes),bytes:bytes.length});
+        finish();resolve(bytes);
+      }catch(error){Object.assign(gifExportState,{status:'error',error:String(error&&error.message||error)});finish();reject(error);}
+    }
+    setTimeout(step,0);
+  });
+}
+function takeGifExport(){const data=gifExportState.data;gifExportState.data=null;gifExportState.status='idle';return data;}
 function renderFrame(){
   const started=performance.now();
-  modePhase=modeAnimation?Math.cos(started*2*Math.PI/1000):1;
+  modePhase=phaseOverride!==null?phaseOverride:modeAnimation?Math.cos(started*2*Math.PI/1000):1;
   const width=Math.max(1,Math.round(canvas.clientWidth*devicePixelRatio)),height=Math.max(1,Math.round(canvas.clientHeight*devicePixelRatio));
   if(canvas.width!==width || canvas.height!==height){canvas.width=meshCanvas.width=width;canvas.height=meshCanvas.height=height;fitRequested=true;}
   if(deformationDirty)updateDeformation();
@@ -403,6 +524,14 @@ if(isModal){
   const animationButton=document.createElement('button');animationButton.textContent='Animate mode (1 Hz playback)';
   animationButton.onclick=()=>{setModeAnimation(!modeAnimation);animationButton.textContent=modeAnimation?'Pause mode':'Animate mode (1 Hz playback)';};
   document.getElementById('reset').after(animationButton);
+  const gifButton=document.createElement('button');gifButton.textContent='Export GIF';gifButton.style.marginLeft='8px';
+  gifButton.onclick=()=>{gifButton.disabled=true;gifButton.textContent='Exporting…';
+    startModeGifExport({frames:36,width:960}).then(bytes=>{
+      const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([bytes],{type:'image/gif'}));
+      link.download=`mode-${simulation.summary.mode_number}-${simulation.summary.frequency_Hz.toPrecision(4)}Hz.gif`;link.click();
+      setTimeout(()=>URL.revokeObjectURL(link.href),10000);takeGifExport();
+    }).catch(error=>alert(String(error))).finally(()=>{gifButton.disabled=false;gifButton.textContent='Export GIF';});};
+  animationButton.after(gifButton);
 }
 document.getElementById('summary').textContent=JSON.stringify(simulation.summary,null,2);
 if(simulation.von_mises_Pa){

@@ -21,3 +21,14 @@ def test_language_preference_is_persistent_and_not_a_model_parameter(tmp_path):
     assert workspace.get_project(project["id"]) == before
     with pytest.raises(ValueError):
         workspace.set_language("dog")
+
+
+def test_midnight_theme_persists_without_changing_analysis(tmp_path):
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project('Theme persistence')
+    for theme in ('light', 'dark', 'midnight'):
+        workspace.set_theme(theme)
+        assert Workspace(tmp_path).ui_state()['theme'] == theme
+        assert workspace.get_project(project['id']) == project
+    with pytest.raises(ValueError):
+        workspace.set_theme('unknown')

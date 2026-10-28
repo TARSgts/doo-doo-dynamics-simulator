@@ -259,6 +259,7 @@ def write_report(path: Path, result: dict):
 :root{{--bg:#ffffff;--fg:#27374a;--muted:#5f7186;--line:#d5dee8;--accent:#2f6fd6;--good:#1f8a4c;--warn:#b7791f;--bad:#c2413b}}
 @media (prefers-color-scheme: dark){{:root{{--bg:#121b2b;--fg:#d8e4f1;--muted:#93a6bc;--line:#2b3b52;--accent:#6aa6ff;--good:#4fd17a;--warn:#f1b956;--bad:#ff6b6b}}}}
 body.dark{{--bg:#121b2b;--fg:#d8e4f1;--muted:#93a6bc;--line:#2b3b52;--accent:#6aa6ff;--good:#4fd17a;--warn:#f1b956;--bad:#ff6b6b}}
+body.midnight{{--bg:#080b12;--fg:#dce5f3;--muted:#a9bbd7;--line:#283853;--accent:#91aeed;--good:#4fd17a;--warn:#f1b956;--bad:#ff6b6b}}
 body.light{{--bg:#ffffff;--fg:#27374a;--muted:#5f7186;--line:#d5dee8;--accent:#2f6fd6;--good:#1f8a4c;--warn:#b7791f;--bad:#c2413b}}
 body{{background:var(--bg);color:var(--fg);font:14px 'Segoe UI',system-ui,sans-serif;margin:24px;line-height:1.5}}
 h1{{font-size:22px;margin:0 0 6px}}h2{{font-size:15px;margin:0 0 6px}}p{{margin:6px 0}}
@@ -272,7 +273,7 @@ table{{border-collapse:collapse;width:100%;font-size:13px;margin-top:10px}}td,th
 th{{text-align:center}}a{{color:var(--accent)}}
 </style>
 <body>
-<script>const theme=new URLSearchParams(location.search).get('theme');if(['light','dark'].includes(theme))document.body.classList.add(theme);</script>
+<script>const theme=new URLSearchParams(location.search).get('theme');if(['light','dark','midnight'].includes(theme))document.body.classList.add(theme);</script>
 <h1>Mesh convergence study</h1>
 <p class="muted">{result['element_type']} elements · refinement ratio {result['refinement_ratio']:g} · tolerance {result['tolerance_percent']:g}% · {len(levels)} of {result['requested_levels']} meshes solved</p>
 <div class="summary"><p><b>{html.escape(QUANTITIES[target][0])}: {title}.</b> {html.escape(explanation)}</p>

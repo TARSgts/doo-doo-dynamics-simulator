@@ -8,7 +8,9 @@ An independent, open-source simulation platform being built in stages. The first
 
 **Dark mode is the default**, with a persistent Light/Dark toggle in the header and View menu. The viewport follows the selected theme. The Geometry/Validation ribbons include a quadratic cantilever preset.
 
-**Cat mode:** toggle **Cat mode** in the top bar or View menu for an original joke translation. Solve becomes “Do a science, meow,” modal analysis becomes “Find da wiggles,” and density becomes “Chonk density.” It remembers your choice and switches straight back to English. Numbers, units, project names, model inputs and solver data stay intact. [Preview and details](docs/CAT_MODE.md).
+**Personalization:** use **Settings → Appearance** for **Light**, **Dark** or the deeper **Midnight** theme. **Settings** also contains Cat mode and Discord Rich Presence; the separate Integrations menu and header theme/language buttons have been removed. Preferences persist without changing numerical inputs. See [settings and theme details](docs/SETTINGS.md).
+
+**Cat mode:** toggle **Settings → Cat mode (joke translation)** for an original joke translation. Solve becomes “Do a science, meow,” modal analysis becomes “Find da wiggles,” and density becomes “Chonk density.” It remembers your choice and switches straight back to English. Numbers, units, project names, model inputs and solver data stay intact. [Preview and details](docs/CAT_MODE.md).
 
 The title occupies the top menu bar, and the viewport now uses batched WebGL rendering with pan/zoom controls and a Canvas fallback. The same-beam browser benchmark improved from about 11 to 144 FPS; see [measurement details](docs/VIEWPORT_PERFORMANCE.md).
 
@@ -40,7 +42,7 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 - Export an offline, rotatable HTML displacement viewer, VTK displacement data and native CalculiX stress/displacement FRD files.
 - Record CAD, input-deck and solver hashes, material properties, mesh settings and dependency versions per run.
 - Run a mesh convergence study: repeat the static solve on finer meshes with per-quantity change, verdict, Richardson extrapolation and GCI, stopping early when converged.
-- Extract undamped, unprestressed natural frequencies with the X-min face fixed, export every mode as HTML/VTK and retain raw eigenvectors. Animate normalized shapes with arbitrary display amplitude and 1 Hz playback.
+- Extract undamped, unprestressed natural frequencies with the X-min face fixed, export every mode as HTML/VTK and retain raw eigenvectors. Animate normalized shapes with arbitrary display amplitude and 1 Hz playback. Export any mode as a looping animated GIF from the current view.
 
 This is a research prototype. It supports one material, one solid and the fixed-support/load conditions above. The legacy equal-node load and consistent uniform traction are separate choices. Point loading requires an end face containing the bounding-section center. The desktop supports [clicking CAD faces](docs/SURFACE_REGIONS.md) for fully fixed supports and uniformly distributed forces. Assemblies, contact, nonlinear behavior and more general support types need later stages. Prefer C3D10 for bending and perform mesh-convergence checks. A point load has a local stress singularity; the cantilever studies validate global displacement and equilibrium, not arbitrary peak stresses. No Ansys compatibility or accuracy equivalence is claimed.
 

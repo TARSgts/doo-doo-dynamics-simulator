@@ -513,18 +513,55 @@ def test_desktop_has_real_actions_disabled_roadmap_and_shared_state(tmp_path):
         assert "MESH" in window.viewport_title.text()
         assert workspace.ui_state()["desktop_connected"]
         assert window.theme == "dark"
-        window.theme_button.click()
+        window.theme_actions['light'].trigger()
         assert window.theme == "light"
         assert Workspace(tmp_path).ui_state()["theme"] == "light"
-        window.theme_button.click()
+        window.theme_actions['dark'].trigger()
         assert window.theme == "dark"
-        assert window.dark_action.isChecked()
+        assert window.theme_actions['dark'].isChecked()
         window.selectors["element_order"].setCurrentIndex(1)
         window.selectors["load_axis"].setCurrentIndex(2)
         window.selectors["load_kind"].setCurrentIndex(1)
         window.save_parameters()
         parameters = workspace.get_project(project["id"])["parameters"]
         assert (parameters["element_order"], parameters["load_axis"], parameters["load_kind"]) == (2, "z", "point")
+    finally:
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
+def test_settings_menu_consolidates_preferences_and_midnight_preserves_model(tmp_path):
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path)
+    project = workspace.create_project('Settings check')
+    workspace.show_project(project['id'])
+    window = SimulatorWindow(workspace)
+    before = workspace.get_project(project['id'])
+    try:
+        assert [action.text() for action in window.application_menu.actions()] == ['File', 'Settings', 'Help']
+        assert not hasattr(window, 'theme_button') and not hasattr(window, 'cat_button')
+        assert window.cat_action in window.settings_menu.actions()
+        assert any(action.text() == 'Discord Rich Presence…' for action in window.settings_menu.actions())
+        assert set(window.theme_actions) == {'light', 'dark', 'midnight'}
+        window.fields['load_N'].setValue(321)
+        assert window.dirty
+        for theme in ('midnight', 'light', 'dark', 'midnight'):
+            window.theme_actions[theme].trigger()
+            assert window.theme == theme
+            assert sum(action.isChecked() for action in window.theme_actions.values()) == 1
+            assert window.theme_actions[theme].isChecked()
+            assert Workspace(tmp_path).ui_state()['theme'] == theme
+            assert window.fields['load_N'].value() == 321 and window.dirty
+            assert workspace.get_project(project['id']) == before
+        assert '#080b12' in window.styleSheet()
+        window.cat_action.trigger()
+        window.refresh()
+        assert window.cat_action.isChecked() and window.language == 'cat'
+        assert window.theme_actions['midnight'].isChecked()
+        window.cat_action.trigger()
+        assert window.settings_menu.title() == 'Settings'
     finally:
         window.close()
         window.view.setPage(None)
@@ -541,7 +578,7 @@ def test_cat_translation_toggle_refresh_and_return_to_english_preserve_inputs(tm
     before = workspace.get_project(project["id"])
     disabled_before = [button.isEnabled() for button in window.findChildren(QPushButton)]
     try:
-        window.cat_button.click()
+        window.cat_action.trigger()
         assert window.language == "cat"
         assert window.ribbon.tabText(0) == "Cat bed"
         assert "MEOWMULATOR" in window.application_title.text()
@@ -553,7 +590,7 @@ def test_cat_translation_toggle_refresh_and_return_to_english_preserve_inputs(tm
         window.refresh()
         assert window.ribbon.tabText(0) == "Cat bed"
         assert workspace.get_project(project["id"]) == before
-        window.cat_button.click()
+        window.cat_action.trigger()
         assert window.language == "en"
         assert window.ribbon.tabText(0) == "Home"
         assert window.application_title.text() == "DOO DOO DYNAMICS  /  SIMULATOR"
@@ -696,6 +733,86 @@ def test_convergence_controls_save_settings_and_report_opens_once_after_finishin
         for dialog in window.reference_dialogs.values():
             dialog.findChild(QWebEngineView).setPage(None)
             dialog.close()
+        window.close()
+        window.view.setPage(None)
+        window.deleteLater()
+        application.processEvents()
+
+
+def test_export_gif_saves_file_reports_progress_and_handles_failures(tmp_path, monkeypatch):
+    import base64
+    import time
+    application = QApplication.instance() or QApplication([])
+    workspace = Workspace(tmp_path / "workspace")
+    project = workspace.create_project("GIF export")
+    revision = workspace.get_project(project["id"])["revision"]
+    now = time.time()
+    result = {"analysis": "modal", "frequencies_Hz": [12.5, 80.0], "mode_count": 2, "nodes": 4, "tetrahedra": 1}
+    with workspace.connect() as connection:
+        connection.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?)", ("modal-job", project["id"], "modal", "completed", revision,
+                           "{}", __import__("json").dumps(result), None, now, now))
+    from opensim.results import write_viewer_data
+    directory = tmp_path / "workspace" / project["id"] / "jobs" / "modal-job" / "modal"
+    directory.mkdir(parents=True)
+    for mode in (1, 2):
+        write_viewer_data(directory / f"mode-{mode}.html", {"points": [[0, 0, 0], [1, 0, 0], [0, 1, 0]], "faces": [[0, 1, 2]],
+                          "displacement": [[0, 0, 0], [0, 0, 1], [0, 0, 0]],
+                          "summary": {"analysis": "modal", "mode_number": mode, "frequency_Hz": result["frequencies_Hz"][mode - 1]}})
+    window = SimulatorWindow(workspace)
+    gif = b"GIF89a" + b"\x00" * 20
+    script = {"states": [], "data": base64.b64encode(gif).decode(), "calls": []}
+    def javascript(source, callback=None):
+        script["calls"].append(source)
+        if callback is None:
+            return
+        if "startModeGifExport" in source:
+            callback(script.get("started", True))
+        elif "gifExportState" in source:
+            callback(script["states"].pop(0) if script["states"] else None)
+        elif "takeGifExport" in source:
+            callback(script["data"])
+    monkeypatch.setattr(window.view.page(), "runJavaScript", javascript)
+    def run_to_end():
+        for _ in range(20):
+            if window.gif_export is None:
+                return
+            window.poll_gif_export()
+    try:
+        with pytest.raises(ValueError, match="modal result"):
+            window.export_mode_gif(tmp_path / "x.gif")
+        workspace.show_project(project["id"], "modal", 2)
+        window.refresh()
+        assert not window.export_gif_button.isHidden() and window.export_gif_button.isEnabled()
+        assert window.export_gif_button.toolTip()
+        script["states"] = ['{"status":"running","progress":0.5,"error":null,"bytes":0}', '{"status":"done","progress":1,"error":null,"bytes":26}']
+        window.export_mode_gif(tmp_path / "out" / "mode2", width=640, frames=24)
+        assert '"frames": 24' in next(call for call in script["calls"] if "startModeGifExport" in call)
+        assert not window.export_gif_button.isEnabled()
+        window.poll_gif_export()
+        assert "50%" in window.status_label.text()
+        run_to_end()
+        assert (tmp_path / "out" / "mode2.gif").read_bytes() == gif
+        assert "Saved GIF" in window.status_label.text() and window.export_gif_button.isEnabled()
+        warnings = []
+        monkeypatch.setattr("opensim.desktop.QMessageBox.warning", lambda *args: warnings.append(args[2]))
+        script["states"] = ['{"status":"error","progress":0.2,"error":"boom","bytes":0}']
+        window.export_mode_gif(tmp_path / "bad.gif")
+        run_to_end()
+        assert "boom" in warnings[-1] and not (tmp_path / "bad.gif").exists()
+        script["states"] = [None]  # page reloaded mid-export
+        window.export_mode_gif(tmp_path / "interrupted.gif")
+        run_to_end()
+        assert "interrupted" in warnings[-1]
+        script["started"] = False
+        window.export_mode_gif(tmp_path / "old.gif")
+        assert "cannot export" in warnings[-1] and window.gif_export is None
+        script["started"], script["data"] = True, base64.b64encode(b"not a gif").decode()
+        script["states"] = ['{"status":"done","progress":1,"error":null,"bytes":9}']
+        window.export_mode_gif(tmp_path / "corrupt.gif")
+        run_to_end()
+        assert "no GIF data" in warnings[-1] and not (tmp_path / "corrupt.gif").exists()
+    finally:
+        monkeypatch.undo()  # restore the page method before Qt deletes the page
         window.close()
         window.view.setPage(None)
         window.deleteLater()

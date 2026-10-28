@@ -13,7 +13,7 @@ PHRASES = {
     "Saving results": "Stashing da science", "Completed": "Science complete, nya",
     "Failed — see job log": "Science bonked — see job log",
     "Stopped by user": "Science interrupted, nap time", "Stop computing": "Stop da science", "Convergence study": "Tiny-triangle taste test",
-    "Convergence report": "Taste test results", "Convergence": "Taste test", "Working": "Paws busy",
+    "Convergence report": "Taste test results", "Convergence": "Taste test", "Export GIF": "Make a wiggle GIF", "Working": "Paws busy",
     "Uniform surface traction": "Spread da boops", "Traction surface": "Boop dis surface",
     "Distributed load": "Boops everywhere", "Uniform traction study": "Evenly spread boop science",
     "Doo Doo Dynamics Simulator — Structural Workbench": "Doo Doo Dynamics Simulator — Catputer Lab",

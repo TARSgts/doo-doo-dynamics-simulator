@@ -2,7 +2,7 @@
 
 Rich Presence starts automatically on a fresh installation using the simulator's shared Discord identity. Everyone who downloads this version uses the same public Application ID; individual users do not need a Developer Portal application, bot, login flow or configuration. Keep the Discord **desktop** client open and enable activity sharing in Discord. Browser-only Discord cannot receive local IPC presence.
 
-Open **Integrations → Discord Rich Presence…** to see connection status or turn sharing off. A saved off choice remains off after updates; re-enable it and click **Apply** if desired. Optional custom Application ID settings are under **Advanced settings…**.
+Open **Settings → Discord Rich Presence…** to see connection status or turn sharing off. A saved off choice remains off after updates; re-enable it and click **Apply** if desired. Optional custom Application ID settings are under **Advanced settings…**. The old Integrations menu has been consolidated into Settings.
 
 The simulator's public Application ID, `1564783884363632670`, is built in. A custom Application ID can be entered in Advanced settings. No bot token, OAuth login, password or client secret is used. The application name shown in Discord is configured in the [Discord Developer Portal](https://discord.com/developers/applications).
 

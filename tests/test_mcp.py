@@ -24,6 +24,8 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
                 assert {"cancel_job", "run_convergence_study", "get_convergence_results"} <= {tool.name for tool in catalog.tools}
                 themed = await session.call_tool("set_desktop_theme", {"theme": "dark"})
                 assert themed.structuredContent["theme"] == "dark"
+                themed = await session.call_tool("set_desktop_theme", {"theme": "midnight"})
+                assert themed.structuredContent["theme"] == "midnight"
                 capabilities = await session.call_tool("get_capabilities", {})
                 assert not capabilities.isError
                 data = capabilities.structuredContent

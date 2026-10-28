@@ -420,8 +420,8 @@ class Workspace:
             connection.execute("UPDATE ui SET heartbeat=? WHERE id=1", (time.time(),))
 
     def set_theme(self, theme: str):
-        if theme not in {"dark", "light"}:
-            raise ValueError("Theme must be dark or light")
+        if theme not in {"dark", "light", "midnight"}:
+            raise ValueError("Theme must be dark, light or midnight")
         with self.connect() as connection:
             connection.execute("UPDATE ui SET theme=? WHERE id=1", (theme,))
 
