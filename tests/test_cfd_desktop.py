@@ -10,7 +10,7 @@ from opensim.cfd_desktop import CFDDialog
 from opensim.workspace import Workspace
 
 
-def test_cfd_desktop_units_model_fields_worker_and_saved_history(tmp_path):
+def test_cfd_desktop_units_model_fields_worker_and_saved_history(tmp_path,monkeypatch):
     app = QApplication.instance() or QApplication([])
     workspace = Workspace(tmp_path)
     original = workspace.create_project('Existing model')
@@ -44,6 +44,22 @@ def test_cfd_desktop_units_model_fields_worker_and_saved_history(tmp_path):
         assert dialog.project_id == pid
         assert dialog.inputs()['cfd_chord_m'] == .2
         assert dialog.fields['cfd_alpha_max_deg'].value() == 8
+        from opensim.geometry import make_box
+        from PySide6.QtWidgets import QFileDialog
+        cad=tmp_path/'fluid.step';make_box(cad,(100,10,10))
+        monkeypatch.setattr(QFileDialog,'getOpenFileName',lambda *args,**kwargs:(str(cad),'CAD'))
+        dialog.import_fluid()
+        assert dialog.case.currentData()=='cad'
+        assert dialog.fields['cfd_resolution'].isHidden()
+        dialog.inspect_mesh()
+        deadline=time.monotonic()+30
+        while dialog.job_id and time.monotonic()<deadline:
+            app.processEvents();dialog.poll();time.sleep(.02)
+        assert dialog.job_id is None
+        assert dialog.mesh_signature is not None
+        assert 'CAD face IDs' in dialog.cad_note.text()
+        job=workspace.list_jobs(pid)[0]
+        assert job['kind']=='cfd_mesh' and job['result']['analysis']=='cfdcad'
         assert workspace.ui_state()['project_id']==original['id']
         assert workspace.get_project(original['id'])==original
     finally:

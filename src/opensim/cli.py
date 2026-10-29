@@ -20,21 +20,21 @@ def digest(path: Path) -> str:
 
 def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
           poisson=0.0, load=1000.0, ccx=None, order=1, load_axis="x", load_kind="face", load_surface="x-max",
-          support_region=None, load_region=None, progress=None, solver_timeout=120, max_elements=None) -> dict:
+          support_region=None, load_region=None, progress=None, solver_timeout=120, max_elements=None, load_cases=None) -> dict:
     executable = find_solver(ccx)
     if not cad.is_file():
         raise FileNotFoundError(cad)
     output.mkdir(parents=True, exist_ok=False)
     if progress:
         progress("meshing")
-    mesh = import_and_mesh(cad, size, scale, output / "mesh.msh", order=order, tip_point=load_kind == "point")
+    mesh = import_and_mesh(cad, size, scale, output / "mesh.msh", order=order, tip_point=load_kind == "point" and not load_cases)
     if max_elements is not None and len(mesh.tetrahedra) > max_elements:
         raise MeshElementLimitExceeded(f"Actual mesh has {len(mesh.tetrahedra):,} elements, exceeding the {max_elements:,} element limit; solver was not started")
     if progress:
         progress("preparing")
-    solver_length_scale = 1000.0 if support_region or load_region else 1.0
+    solver_length_scale = 1000.0 if support_region or load_region or load_cases else 1.0
     loading = write_deck(mesh, output / "model.inp", young, poisson, load, load_axis, load_kind, load_surface,
-                         support_region, load_region, solver_length_scale)
+                         support_region, load_region, solver_length_scale, load_cases=load_cases)
     if progress:
         progress("solving")
     run_solver(executable, output, timeout=solver_timeout)
@@ -52,22 +52,23 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
     reactions = {node: np.asarray(force) - loading.forces[node - 1] for node, force in reactions.items()}
     resultant = np.sum(list(reactions.values()), axis=0)
     applied = loading.forces.sum(axis=0)
-    relative_imbalance = float(np.linalg.norm(resultant + applied) / abs(load))
+    force_scale = loading.force_scale if load_cases else abs(load)
+    relative_imbalance = float(np.linalg.norm(resultant + applied) / force_scale)
     if relative_imbalance > 1e-4:
         raise ValueError("Reaction forces fail global equilibrium tolerance")
     reference = mesh.points[fixed].mean(axis=0)
-    loaded = np.array([mesh.tip_node()]) if load_kind == "point" else mesh.end_nodes("max")
+    loaded = np.unique([n for _,part,_ in loading.parts for face in part.faces for n in face]) if load_cases else np.array([mesh.tip_node()]) if load_kind == "point" else mesh.end_nodes("max")
     reaction_moment = np.sum([np.cross(mesh.points[node - 1] - reference, force)
                               for node, force in reactions.items()], axis=0)
     applied_moment = np.cross(mesh.points - reference, loading.forces).sum(axis=0)
-    moment_scale = abs(load) * np.ptp(mesh.points, axis=0).max()
+    moment_scale = force_scale * np.ptp(mesh.points, axis=0).max()
     moment_imbalance = float(np.linalg.norm(reaction_moment + applied_moment) / moment_scale)
     if moment_imbalance > 1e-4:
         raise ValueError("Reaction forces fail global moment equilibrium tolerance")
     try:
         tip_mean = mesh.tip_average(displacement).tolist()
     except ValueError:
-        if not support_region:
+        if not support_region and not load_cases:
             raise
         tip_mean = None
     summary = {"nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra), "element_type": mesh.element_type,
@@ -82,7 +83,7 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
                "reaction_N": resultant.tolist(), "relative_force_imbalance": relative_imbalance,
                "load_N": load, "young_Pa": young, "poisson": poisson,
                "boundary_condition": f"X minimum clamped; {load_axis.upper()} load at X maximum ({load_kind})"}
-    if load_kind == "traction":
+    if load_kind == "traction" and not load_cases:
         summary.pop("load_point_displacement_m")
         summary["tip_node_mean_ux_m"] = summary.pop("mean_loaded_ux_m")
         markers = []
@@ -118,6 +119,13 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
         summary["boundary_condition"] = "Selected surface region fully fixed; selected load region carries constant global vector traction. No contact/sliding model."
     if load_axis in NORMAL_AXES:
         summary["boundary_condition"] = "Fully fixed support; uniform-magnitude surface-normal traction on initial mesh geometry. No follower loading or contact."
+    if load_cases:
+        from opensim.load_cases import preview_markers
+        summary.update(load_cases=load_cases, load_markers=preview_markers(mesh,loading,displacement),
+                       applied_force_N=applied.tolist(), load_point_m=loading.centroid.tolist(),
+                       load_kind='multiple', load_axis='x', load_N=force_scale,
+                       load_weighted_response_m=float(np.sum(displacement*loading.forces)/force_scale),
+                       boundary_condition='Simultaneous independent surface force vectors and normal pressures; fully fixed support')
     if progress:
         progress("exporting")
     manifest = {"schema_version": 1, "cad_path": str(cad.resolve()), "cad_sha256": digest(cad),
@@ -199,7 +207,8 @@ def main():
     distributed = commands.add_parser("validate-distributed", help="Validate uniform surface traction with axial and uniformly loaded beam studies")
     distributed.add_argument("--out", type=Path, required=True)
     cfd = commands.add_parser('cfd', help='Run a numerical cylinder, laminar-pipe or flat-plate CFD benchmark')
-    cfd.add_argument('--case', choices=['cylinder','pipe','flat_plate'], default='cylinder')
+    cfd.add_argument('--case', choices=['cylinder','pipe','flat_plate','cad'], default='cylinder')
+    cfd.add_argument('--cad',type=Path,help='Closed CAD fluid volume for --case cad')
     cfd.add_argument('--out', type=Path, required=True)
     cfd.add_argument('--resolution', type=int, default=64)
     cfd.add_argument('--parameters', type=Path, help='JSON containing cfd_* overrides (SI; angles in degrees)')
@@ -218,7 +227,11 @@ def main():
                 if not isinstance(parameters, dict) or set(parameters) - set(CFD_DEFAULTS):
                     raise ValueError('CFD JSON accepts only cfd_* settings')
                 parameters = {'cfd_case':arguments.case, 'cfd_resolution':arguments.resolution} | parameters
-                result = run_cfd(arguments.out, parameters)
+                if parameters['cfd_case']=='cad':
+                    from opensim.cad_flow import solve_cad_flow
+                    if not arguments.cad:raise ValueError('Use --cad with the imported CAD fluid volume')
+                    result=solve_cad_flow(arguments.cad,arguments.out,CFD_DEFAULTS|parameters)
+                else:result = run_cfd(arguments.out, parameters)
             print(json.dumps(result, indent=2))
             if result.get('result') == 'FAIL': parser.exit(1, 'CFD verification failed\n')
         except (ValueError, FileNotFoundError, FileExistsError, RuntimeError) as error:

@@ -242,7 +242,7 @@ class SimulatorWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.units_label)
         self.apply_theme()
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.refresh)
+        self.timer.timeout.connect(lambda:self.refresh())
         self.timer.start(700)
         self.refresh()
 
@@ -356,7 +356,7 @@ class SimulatorWindow(QMainWindow):
         for key, control in {**self.fields, **self.selectors}.items():
             control.setToolTip(FIELD_HELP[key])
         self.deformation.setToolTip("Magnify movement for viewing only. True scale shows actual displacement; Auto targets 10% of model size.")
-        self.camera.setToolTip("View the model from a corner, the front, above, or the flipped front. This does not rotate the model or loads.")
+        self.camera.setToolTip("Choose a camera orientation or Home. Click ±X/±Y/±Z on the triad to view those planes; H restores Home and right-click H saves it. Geometry and forces do not rotate.")
         self.result_component.setToolTip("Choose total movement, movement along X/Y/Z, or von Mises stress for the color display.")
         self.modal_selector.setToolTip("Select a natural frequency and its vibration shape. Shape amplitude is normalized, not a predicted displacement.")
         for action in self.application_menu.findChildren(QAction):
@@ -449,7 +449,7 @@ class SimulatorWindow(QMainWindow):
         self.deformation.currentIndexChanged.connect(self.apply_view_options)
         tool_row.addWidget(self.deformation)
         self.camera = QComboBox()
-        self.camera.addItems(["Iso", "Front XZ", "Top XY", "Front XZ · flipped"])
+        self.camera.addItems(["Iso", "Front XZ", "Top XY", "Front XZ · flipped", "Home"])
         self.camera.setToolTip("Camera orientation")
         self.camera.currentIndexChanged.connect(self.apply_camera)
         tool_row.addWidget(self.camera)
@@ -482,6 +482,12 @@ class SimulatorWindow(QMainWindow):
         self.modal_selector.setAccessibleName("Select mode shape")
         self.modal_selector.currentIndexChanged.connect(self.select_mode)
         modal_row.addWidget(self.modal_selector)
+        self.modal_amplitude=QComboBox()
+        for label,value in [('1% size',.01),('2% size',.02),('5% size',.05),('10% size',.1)]:self.modal_amplitude.addItem(label,value)
+        self.modal_amplitude.setCurrentIndex(1)
+        self.modal_amplitude.setToolTip('Visual mode amplitude as a fraction of model size. This is not a predicted vibration displacement. Playback is slowed to 1 Hz.')
+        self.modal_amplitude.currentIndexChanged.connect(self.apply_view_options)
+        modal_row.addWidget(self.modal_amplitude)
         self.animate_mode = QPushButton("Animate mode")
         self.animate_mode.setCheckable(True)
         self.animate_mode.toggled.connect(self.apply_view_options)
@@ -661,6 +667,16 @@ class SimulatorWindow(QMainWindow):
         self.normal_load_note.hide()
         self.apply_button.clicked.connect(lambda: self.safe(self.save_parameters))
         layout.addWidget(self.apply_button)
+        self.material_button=QPushButton('Material properties…')
+        self.material_button.setToolTip('Edit stiffness, Poisson ratio, density and conductivity together, or use an editable steel, aluminum or solid ABS preset.')
+        self.material_button.clicked.connect(lambda:self.safe(self.edit_material))
+        self.loads_button=QPushButton('Independent forces / pressures…')
+        self.loads_button.setToolTip('Each force has its own X/Y/Z components and faces. Pressure uses Pa and local normals. A nonempty list replaces the single load.')
+        self.loads_button.clicked.connect(lambda:self.safe(self.edit_loads))
+        for button in (self.material_button,self.loads_button):
+            button.setMinimumWidth(100);button.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
+        layout.addWidget(self.material_button);layout.addWidget(self.loads_button)
+        self.analysis_buttons.extend([self.material_button,self.loads_button])
         for title, mode in (("Pick fixed support", "support"), ("Pick force faces", "load")):
             button = QPushButton(title)
             button.setProperty("pickRole", mode)
@@ -851,6 +867,17 @@ class SimulatorWindow(QMainWindow):
         self.workspace.start_job(project["id"], "example", example="cantilever_beam")
         self.dirty = False
 
+    def edit_material(self):
+        from opensim.materials import edit_material
+        edit_material(self)
+
+    def edit_loads(self):
+        from opensim.load_editor import LoadEditor
+        self.save_parameters()
+        if not hasattr(self,'loads_dialog') or self.loads_dialog.pid!=self.project_id:
+            self.loads_dialog=LoadEditor(self)
+        self.loads_dialog.show();self.loads_dialog.raise_()
+
     def show_cfd_validation(self):
         self.show_cfd()
         if not self.cfd_dialog.job_id:
@@ -986,6 +1013,9 @@ class SimulatorWindow(QMainWindow):
             visible |= {"convergence_levels", "convergence_ratio", "convergence_tolerance_percent", "convergence_target"}
         if self.selectors["load_kind"].currentData() != "traction":
             visible.discard("load_surface")
+        cases=self.workspace.get_project(self.project_id)['parameters']['load_cases'] if self.project_id else []
+        if cases and study in {'static','convergence'}:
+            visible-= {'load_N','load_axis','load_kind','load_surface'}
         for key, control in {**self.fields, **self.selectors}.items():
             self.properties_form.setRowVisible(control, bool(self.project_id) and key in visible)
         headings = {"static": "DETAILS OF STATIC STRUCTURAL", "modal": "DETAILS OF MODAL ANALYSIS", "convergence": "DETAILS OF CONVERGENCE STUDY", "thermal": "DETAILS OF STEADY THERMAL"}
@@ -997,20 +1027,23 @@ class SimulatorWindow(QMainWindow):
             "thermal": "Steady heat conduction. Temperatures use °C here; conductivity uses W/(m·K). Choose separate thermal faces; other surfaces are insulated. No convection, radiation or expansion."
         }[study])
         self.study_note.setVisible(bool(self.project_id))
-        self.normal_load_note.setVisible(bool(self.project_id) and not modal and not thermal and self.selectors["load_axis"].currentData() in NORMAL_AXES)
+        if cases and study in {'static','convergence'}:
+            self.study_note.setText(f'{len(cases)} independent force/pressure entries replace the single load. Edit each entry’s faces and components using Independent forces / pressures.')
+        self.normal_load_note.setVisible(bool(self.project_id) and not cases and not modal and not thermal and self.selectors["load_axis"].currentData() in NORMAL_AXES)
         # Only the properties-panel force button is hidden; ribbon commands remain
         # discoverable but are disabled for a modal study.
         for button in self.force_pick_buttons:
             if isinstance(button, QPushButton):
                 button.setVisible(not modal and bool(self.project_id))
-            if modal:
+            if modal or (cases and not thermal):
                 button.setEnabled(False)
-        self.region_button.setText("Support region…" if modal else "Support / load regions…")
+        self.region_button.setText("Support region…" if modal or (cases and not thermal) else "Support / load regions…")
         if thermal:
             self.region_button.setText("Thermal boundary regions…")
         for button in self.force_pick_buttons:
             button.setText("Pick thermal source faces" if thermal else "Pick force faces")
             button.setToolTip("Pick the second temperature or heat-input surface (orange)." if thermal else BUTTON_HELP['Pick force faces'])
+            if cases and not thermal:button.setToolTip('Each independent load has its own faces. Use Independent forces / pressures to select an entry and pick its faces.')
         for button in self.findChildren(QPushButton) + self.findChildren(QToolButton):
             if button.property('pickRole') == 'support':
                 button.setText("Pick fixed-temperature faces" if thermal else "Pick fixed support")
@@ -1028,6 +1061,8 @@ class SimulatorWindow(QMainWindow):
                 return "Box selection" if region.get("box_m") else default
             self.region_note.setText("Support: " + region_text(parameters["support_region"], "X-min face")
                                      + ("" if modal else "\nLoad: " + region_text(parameters["load_region"], parameters["load_surface"] if parameters["load_kind"] == "traction" else parameters["load_kind"])))
+            if cases and not modal and not thermal:
+                self.region_note.setText('Support: '+region_text(parameters['support_region'],'X-min face')+'\nForce/pressure regions are stored independently per entry.')
             if thermal:
                 self.region_note.setText("Fixed temperature: " + region_text(parameters["thermal_fixed_region"], "X-min face") + "\nThermal source: " + region_text(parameters["thermal_source_region"], "X-max face"))
         context = self.project_id, study
@@ -1074,6 +1109,9 @@ class SimulatorWindow(QMainWindow):
         for key in ("thermal_fixed_temperature_K", "thermal_source_temperature_K"):
             parameters[key] += 273.15
         parameters.update({key: selector.currentData() for key, selector in self.selectors.items()})
+        from opensim.materials import material_name
+        current=self.workspace.get_project(self.require_project())['parameters']
+        parameters['material_name']=material_name(current|parameters)
         self.workspace.set_parameters(self.require_project(), parameters)
         self.dirty = False
         self.details_note.setText("Settings saved. Prior results are retained in job history.")
@@ -1297,14 +1335,14 @@ class SimulatorWindow(QMainWindow):
         form = QFormLayout()
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         entries = {}
-        roles = (("support_region", "Fixed support"),) if self.workspace.ui_state()["study"] == "modal" else (("support_region", "Fixed support"), ("load_region", "Uniform traction"))
+        roles = (("support_region", "Fixed support"),) if self.workspace.ui_state()["study"] == "modal" or project['parameters']['load_cases'] else (("support_region", "Fixed support"), ("load_region", "Uniform traction"))
         if self.workspace.ui_state()["study"] == "thermal":
             roles = (("thermal_fixed_region", "Fixed temperature"), ("thermal_source_region", "Second temperature / heat input"))
             dialog.setWindowTitle("Thermal boundary regions")
             note.setText("Choose two separate thermal surfaces by face IDs or boxes in mm. Empty regions use X-min and X-max. These thermal selections do not change structural supports or forces. Other surfaces are insulated.")
         if len(roles) == 1:
-            dialog.setWindowTitle("Modal fixed support region")
-            note.setText("Choose fully fixed support faces, optionally filtered by a box in mm. Empty support uses X-min. Geometry and supports are shared with other studies; modal analysis ignores static forces.")
+            dialog.setWindowTitle("Modal fixed support region" if self.workspace.ui_state()['study']=='modal' else "Fixed support region")
+            note.setText("Choose fully fixed support faces, optionally filtered by a box in mm. Empty support uses X-min. Independent force surfaces are edited per load entry; modal analysis ignores static forces.")
         for key, caption in roles:
             region = project["parameters"][key]
             face_input = QLineEdit(", ".join(str(value) for value in region.get("faces", [])))
@@ -1362,6 +1400,8 @@ class SimulatorWindow(QMainWindow):
         project = self.workspace.get_project(self.require_project())
         if mode == "load" and self.workspace.ui_state()["study"] == "modal":
             raise ValueError("Modal studies use fixed supports only. Select Static Structural or Convergence to apply forces")
+        if mode=='load' and project['parameters']['load_cases'] and self.workspace.ui_state()['study']!='thermal' and not getattr(self,'load_pick_callback',None):
+            raise ValueError('Use Independent forces / pressures, choose an entry, then Pick faces for this load')
         if self.dirty:
             raise ValueError("Apply settings and generate a mesh before picking faces")
         if any(job["status"] in {"queued", "running"} for job in self.workspace.list_jobs(project["id"])):
@@ -1376,9 +1416,10 @@ class SimulatorWindow(QMainWindow):
         parameters = project["parameters"]
         fixed_key = "thermal_fixed_region" if session['study'] == 'thermal' else "support_region"
         source_key = "thermal_source_region" if session['study'] == 'thermal' else "load_region"
+        initial_load_faces=getattr(self,'load_pick_initial_faces',[]) if getattr(self,'load_pick_callback',None) else parameters[source_key].get('faces',[])
         script = ("typeof setFacePicking==='function' && "
                   f"setFacePicking('support',{json.dumps(parameters[fixed_key].get('faces', []))}) && "
-                  f"setFacePicking('load',{json.dumps([] if session['study'] == 'modal' else parameters[source_key].get('faces', []))}) && "
+                  f"setFacePicking('load',{json.dumps([] if session['study'] == 'modal' else initial_load_faces)}) && "
                   f"switchFacePicking({json.dumps(mode)})")
         def started(ready):
             if self.face_pick_session is not session:
@@ -1402,6 +1443,8 @@ class SimulatorWindow(QMainWindow):
         self.pick_actions.hide()
         self.view.page().runJavaScript("if(typeof setFacePicking==='function')setFacePicking(null)")
         self.pick_note.setText("Pick fixed support faces or use Support region." if self.workspace.ui_state()["study"] == "modal" else "Pick faces on the model, or enter face IDs in Support / load regions.")
+        callback=getattr(self,'load_pick_callback',None);self.load_pick_callback=None
+        if callback:callback()
 
     def save_picked_faces(self):
         session = self.face_pick_session
@@ -1423,6 +1466,7 @@ class SimulatorWindow(QMainWindow):
             raise ValueError("No face selection is available")
         available = selection.get("available", [])
         updates = {}
+        independent_region=None
         for role in ("support", "load"):
             if not selection.get("touched", {}).get(role):
                 continue
@@ -1432,6 +1476,9 @@ class SimulatorWindow(QMainWindow):
             if not faces:
                 raise ValueError("Select at least one face for each edited region. Use the regions dialog to restore defaults")
             key = ("thermal_fixed_region" if role == "support" else "thermal_source_region") if session['study'] == 'thermal' else role + "_region"
+            if role=='load' and getattr(self,'load_pick_callback',None):
+                independent_region={'faces':sorted(set(faces))}
+                continue
             updates[key] = {"faces": sorted(set(faces))}
             if role == "load" and session['study'] != 'thermal':
                 updates["load_kind"] = "traction"
@@ -1441,8 +1488,11 @@ class SimulatorWindow(QMainWindow):
                                       "mesh": [project["parameters"][key] for key in ("mesh_size_m", "cad_scale", "element_order")],
                                       "artifact": session["view"][0]}
             self.workspace.show_project(project["id"], "geometry")
+        callback=getattr(self,'load_pick_callback',None);self.load_pick_callback=None
         self.cancel_face_picking()
+        if callback:callback(independent_region or updates.get('load_region'))
         self.pick_note.setText("Faces saved. Set total force and direction, then Solve." if updates else "No changes to save.")
+        if independent_region:self.pick_note.setText('Faces returned to the selected independent load. Apply loads in the editor to save the change.')
         if updates and session['study'] == 'thermal':
             self.pick_note.setText("Thermal faces saved. Set temperatures or heat input, then Run thermal study.")
         self.project_revision = None
@@ -1470,11 +1520,18 @@ class SimulatorWindow(QMainWindow):
         node(root, "Mesh / " + element + " (shared)", "mesh")
         support = "Selected region" if parameters["support_region"] else "X-min"
         force = parameters["load_axis"].upper() + " · " + ("selected faces" if parameters["load_region"] else parameters["load_kind"])
+        def independent_nodes(branch,study):
+            for i,load in enumerate(parameters['load_cases']):
+                value=f"{load.get('pressure_Pa',0):g} Pa" if load['kind']=='pressure' else str(tuple(load['components_N']))+' N'
+                title=(load.get('name') or f'Load {i+1}')+' / '+value+(' (disabled)' if not load.get('enabled',True) else '')
+                entry=node(branch,title,study=study,action=f'load:{i}')
+                entry.setToolTip(0,'Independent '+load['kind']+'; region: '+json.dumps(load.get('region') or {'surface':load.get('surface','x-max')}))
         for study, title in (("static", "Static Structural"), ("modal", "Modal Analysis"), ("convergence", "Convergence Study"), ("thermal", "Thermal Analysis")):
             branch = node(root, title, study=study)
             node(branch, "Fixed temperature / " + ("Selected region" if parameters['thermal_fixed_region'] else "X-min") if study == 'thermal' else "Fixed support / " + support, study=study)
             if study == "static":
-                node(branch, "Force / " + force, study=study)
+                if parameters['load_cases']:independent_nodes(branch,study)
+                else:node(branch, "Force / " + force, study=study)
                 solution = node(branch, "Solution / Displacement and stress", "results", study)
             elif study == "modal":
                 node(branch, "Density and requested modes", study=study)
@@ -1483,7 +1540,8 @@ class SimulatorWindow(QMainWindow):
                 node(branch, "Thermal source / " + parameters['thermal_boundary_mode'], study=study)
                 solution = node(branch, "Solution / Temperature and heat flux", "thermal", study)
             else:
-                node(branch, "Static force / " + force, study=study)
+                if parameters['load_cases']:independent_nodes(branch,study)
+                else:node(branch, "Static force / " + force, study=study)
                 node(branch, "Mesh refinement settings", study=study)
                 solution = node(branch, "Convergence report", study=study, action="convergence-report")
             node(branch, "Result plots", study=study, action="plots")
@@ -1511,6 +1569,9 @@ class SimulatorWindow(QMainWindow):
                 self.safe(self.show_convergence_report)
             elif action == "plots":
                 self.safe(self.show_plots)
+            elif isinstance(action,str) and action.startswith('load:'):
+                self.safe(self.edit_loads)
+                if hasattr(self,'loads_dialog'):self.loads_dialog.list.setCurrentRow(int(action.split(':')[1]))
 
     def show_mcp(self):
         QMessageBox.information(self, "Local MCP automation",
@@ -1536,9 +1597,13 @@ class SimulatorWindow(QMainWindow):
             f"if(typeof setThermalStudyMode==='function')setThermalStudyMode({json.dumps(state['study'] == 'thermal')});"
             f"if(typeof setCatMode==='function')setCatMode({json.dumps(self.workspace.ui_state()['language'] == 'cat')});"
             f"if(typeof setModeAnimation==='function')setModeAnimation({json.dumps(mode == 'modal' and self.animate_mode.isChecked())});"
+            f"if(typeof setModalAmplitude==='function')setModalAmplitude({json.dumps(self.modal_amplitude.currentData())});"
             f"if(typeof setResultComponent==='function')setResultComponent({json.dumps(component)});")
 
     def apply_camera(self, *args):
+        if self.camera.currentIndex()==4:
+            self.view.page().runJavaScript("if(typeof homeViewport==='function')homeViewport();")
+            return
         orientation = ["isometric", "front", "top", "flipped-front"][self.camera.currentIndex()]
         self.view.page().runJavaScript(f"if(typeof setViewOrientation==='function')setViewOrientation({json.dumps(orientation)});")
 
@@ -1650,8 +1715,7 @@ class SimulatorWindow(QMainWindow):
         if project:
             self.region_note.setText("Support region: " + json.dumps(project["parameters"]["support_region"]) + "\nLoad region: " + json.dumps(project["parameters"]["load_region"]))
         if project_changed and project:
-            transverse_point = project["parameters"]["load_kind"] == "point" and project["parameters"]["load_axis"] == "z"
-            self.camera.setCurrentIndex(1 if transverse_point else 0)
+            self.camera.setCurrentIndex(4)
         jobs = self.workspace.list_jobs(selected) if selected else []
         signature = ([(entry["id"], entry["name"], entry["revision"]) for entry in projects],
                      [(job["id"], job["status"]) for job in jobs], selected, state["study"], state["view"])
@@ -1715,6 +1779,7 @@ class SimulatorWindow(QMainWindow):
             self.selectors["load_surface"].setEnabled(False)
         for button in self.analysis_buttons:
             button.setEnabled(bool(project) and not active)
+        self.loads_button.setEnabled(bool(project) and not active and state['study'] in {'static','convergence'})
         self.update_study_panel()
         for button in self.stop_buttons:
             button.setEnabled(bool(active))
@@ -1825,7 +1890,9 @@ class SimulatorWindow(QMainWindow):
                 tip = summary.get("loaded_surface_mean_displacement_m", [0, 0, 0]) if selected_load else summary.get("tip_mean_displacement_m") or summary.get("loaded_surface_mean_displacement_m", [0, 0, 0])
                 axis = summary.get("load_axis", "x")
                 location_label = "Tip mean" if summary.get("tip_mean_displacement_m") and not selected_load else "Loaded surface mean"
-                if axis in NORMAL_AXES:
+                if summary.get('load_cases'):
+                    self.result_cards[1].setText(f"Load-weighted response\n{summary['load_weighted_response_m']*1000:.6g} mm")
+                elif axis in NORMAL_AXES:
                     self.result_cards[1].setText(f"Loaded mean · along normal force\n{summary['loaded_surface_mean_normal_displacement_m'] * 1000:.6g} mm")
                 else:
                     self.result_cards[1].setText(f"{location_label} U{axis}\n{tip['xyz'.index(axis)] * 1000:.6g} mm")

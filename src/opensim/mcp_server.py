@@ -14,7 +14,8 @@ def create_server(workspace: Workspace) -> FastMCP:
         "Optional support_region/load_region dictionaries select CAD face IDs and box_m centroid filters. A selected support is fully fixed, not contact. Static results include recovered nodal von Mises stress. "
         "Undamped unprestressed modal analysis is available with positive density and default or selected fixed support. "
         "Steady thermal conduction is available through set_thermal_parameters/run_thermal_analysis/get_thermal_results; Kelvin, W, W/m/K. No convection, radiation or thermal expansion. "
-        "CFD benchmark studies use set_cfd_parameters/run_cfd_analysis/get_cfd_results: source-panel cylinder, laminar round pipe, discrete-vortex flat-plate CL-alpha sweep. No CAD flow, turbulence, stall or thermal coupling. "
+        "Static load_cases independently specify name, kind force/pressure, components_N or pressure_Pa, region, surface, enabled. Nonempty load_cases replace the legacy single load. Pressure is positive inward. material_preset selects editable generic Steel, Aluminum or solid ABS defaults. "
+        "CFD uses set_cfd_parameters/run_cfd_analysis/get_cfd_results. cfd_case=cad solves an imported fluid volume using 3D creeping flow (peak Re<=1): cfd_mesh_size_m, cfd_cad_scale, cfd_inlet_region/cfd_outlet_region, viscosity, density, pressure_drop. This is fluid space, not a solid body; all nonport walls are no-slip. No finite-Re Navier-Stokes, turbulence or thermal coupling. Existing cylinder, pipe and flat_plate benchmarks remain available. "
         "run_convergence_study checks whether results depend on mesh size. Use cancel_job to stop a job that is taking too long. Inspect get_capabilities before requesting other physics. The desktop reflects shared workspace changes."))
 
     @server.tool()
@@ -69,8 +70,9 @@ def create_server(workspace: Workspace) -> FastMCP:
     def set_analysis_parameters(project_id: str, mesh_size_m: float = 0.004, cad_scale: float = 1.0,
                                 young_Pa: float = 210e9, poisson: float = 0.3, load_N: float = 1000,
                                 element_order: int = 1, load_axis: str = "x", load_kind: str = "face", load_surface: str = "x-max",
-                                support_region: dict[str, Any] | None = None, load_region: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Set SI static inputs. With traction, load_axis x/y/z gives global-vector traction; normal-in/normal-out gives local inward/outward normals. Positive load_N follows that choice, negative reverses it. Normal load_N is the surface integral of traction magnitude, not net force on curved/multiple faces. face retains legacy equal-node end loading. Changed inputs invalidate prior results."""
+                                support_region: dict[str, Any] | None = None, load_region: dict[str, Any] | None = None,
+                                load_cases: list[dict[str, Any]] | None = None, material_preset: str | None = None) -> dict[str, Any]:
+        """Set SI inputs. Nonempty load_cases replaces the legacy load: each entry has name, kind=force/pressure, components_N=[Fx,Fy,Fz] or pressure_Pa (positive inward), region (CAD face IDs/box_m), surface fallback, enabled. Entries act simultaneously. Empty list restores legacy face/point/traction settings. material_preset: Steel (generic), Aluminum (generic), ABS (solid, isotropic approximation); sets E, nu, density and conductivity together. Changed inputs invalidate prior results."""
         parameters = {"mesh_size_m": mesh_size_m, "cad_scale": cad_scale,
                                                     "young_Pa": young_Pa, "poisson": poisson, "load_N": load_N,
                                                     "element_order": element_order, "load_axis": load_axis, "load_kind": load_kind, "load_surface": load_surface}
@@ -78,6 +80,11 @@ def create_server(workspace: Workspace) -> FastMCP:
             parameters["support_region"] = support_region
         if load_region is not None:
             parameters["load_region"] = load_region
+        if load_cases is not None: parameters['load_cases']=load_cases
+        if material_preset is not None:
+            from opensim.materials import MATERIALS
+            if material_preset not in MATERIALS:raise ValueError('Choose: '+', '.join(MATERIALS))
+            parameters.update(MATERIALS[material_preset]);parameters['material_name']=material_preset
         return workspace.set_parameters(project_id, parameters)
 
     @server.tool()
@@ -118,7 +125,7 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def set_cfd_parameters(project_id: str, parameters: dict[str, Any]) -> dict[str, Any]:
-        """Set cfd_* inputs only. cfd_case: cylinder / pipe / flat_plate; resolution 12–256. SI units except alpha_min/max/step_deg (±10°). Inspect the project's defaults. Pipe requires Re<2000, external models Mach≤0.3. CAD is ignored: these are numerical benchmark geometries."""
+        """Set cfd_* inputs. Cases: cad / cylinder / pipe / flat_plate. cad requires an imported single fluid volume, cfd_mesh_size_m, cfd_cad_scale, cfd_inlet_region/cfd_outlet_region (face IDs or box_m); default ports X-min/X-max, other walls no-slip, peak Re<=1. Positive pressure drop Pa drives the flow. Viscosity Pa.s, density kg/m3. Benchmark resolution 12–256; angles degrees (±10). Pipe Re<2000; external potential models Mach<=0.3. No turbulence or thermal coupling."""
         from opensim.cfd_parameters import CFD_DEFAULTS
         if set(parameters) - set(CFD_DEFAULTS):
             raise ValueError('Use only cfd_* parameters from the CFD defaults')
@@ -126,7 +133,7 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def run_cfd_analysis(project_id: str, validate_all: bool = False) -> dict[str, Any]:
-        """Start the selected numerical CFD benchmark without CAD. validate_all runs all three reference comparisons at three resolutions. Poll get_job. Models: inviscid 2D cylinder, fully developed laminar pipe, small-angle flat-plate lift sweep. No separation, stall, turbulence, viscous external drag or heat transfer."""
+        """Start the selected flow model. cad meshes the project's imported fluid volume and solves 3D creeping flow (peak Re<=1); others use built-in cylinder/pipe/plate geometry. validate_all runs the three original analytical benchmark comparisons. Poll get_job, then get_cfd_results. No turbulence, finite-Re CAD Navier-Stokes, stall or heat transfer."""
         return workspace.start_job(project_id, 'cfd_validation' if validate_all else 'cfd')
 
     @server.tool()

@@ -12,6 +12,42 @@ from opensim.desktop import SimulatorWindow
 from opensim.workspace import Workspace
 
 
+def test_independent_load_tree_editor_and_legacy_controls(tmp_path,monkeypatch):
+    app=QApplication.instance() or QApplication([])
+    workspace=Workspace(tmp_path);project=workspace.create_project('Independent properties')
+    cases=[{'name':'Side pull','kind':'force','components_N':[2,3,0],'surface':'x-max'},
+           {'name':'Top pressure','kind':'pressure','pressure_Pa':1000,'surface':'z-max'}]
+    workspace.set_parameters(project['id'],{'load_cases':cases});workspace.show_project(project['id'])
+    window=SimulatorWindow(workspace)
+    try:
+        assert window.fields['load_N'].isHidden()
+        assert window.selectors['load_axis'].isHidden()
+        branch=window.tree.topLevelItem(0).child(2)
+        pressure=next(branch.child(i) for i in range(branch.childCount()) if 'Top pressure' in branch.child(i).text(0))
+        window.select_tree_item(pressure,0)
+        editor=window.loads_dialog
+        assert editor.index==1 and editor.values[3].value()==1000
+        editor.list.setCurrentRow(0);editor.values[0].setValue(7)
+        editor.list.setCurrentRow(1);editor.values[3].setValue(800)
+        editor.save(False)
+        saved=workspace.get_project(project['id'])['parameters']['load_cases']
+        assert saved[0]['components_N']==[7,3,0] and saved[1]['pressure_Pa']==800
+        assert not workspace.list_jobs(project['id'])
+        assert all(not b.isEnabled() for b in window.force_pick_buttons)
+        monkeypatch.setattr(window.view.page(),'runJavaScript',lambda script,callback=None:callback(True) if callback else None)
+        editor.pick()
+        session=window.face_pick_session
+        window.commit_picked_faces(session,{'mode':'load','load':[7],'support':[],'available':[7],
+            'touched':{'support':False,'load':True}})
+        assert editor.cases[1]['region']=={'faces':[7]}
+        assert workspace.get_project(project['id'])['parameters']['load_region']=={}
+        assert workspace.get_project(project['id'])['parameters']['load_cases'][1]['region']=={}
+        editor.save(False)
+        assert workspace.get_project(project['id'])['parameters']['load_cases'][1]['region']=={'faces':[7]}
+    finally:
+        window.close();app.processEvents()
+
+
 def test_study_tree_switches_properties_without_solving_or_losing_hidden_inputs(tmp_path, monkeypatch):
     from PySide6.QtCore import Qt
     application = QApplication.instance() or QApplication([])

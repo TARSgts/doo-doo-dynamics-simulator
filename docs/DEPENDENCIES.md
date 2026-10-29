@@ -7,6 +7,7 @@ Reviewed October 26, 2026 (America/Phoenix).
 | Python | 3.12.14 | Existing bundled runtime; isolated project environment | PSF and bundled notices |
 | Gmsh | 4.15.2 | [Official PyPI package](https://pypi.org/project/gmsh/); CAD/meshing | GPL-2.0-or-later |
 | NumPy | 2.3.4 | [PyPI](https://pypi.org/project/numpy/2.3.4/); mesh/result arrays | BSD-3-Clause and bundled library notices |
+| SciPy | 1.16.3 | [Official PyPI wheel](https://pypi.org/project/scipy/1.16.3/); sparse CAD Stokes solve, added October 28, 2026 | BSD-3-Clause; retain bundled numerical-library notices |
 | CalculiX | 2.23 | [Author's download page](https://www.dhondt.de/); external `ccx_static.exe` using SPOOLES | GPL; upstream program states version 2 or later; bundled libraries have separate notices |
 | pytest | 8.4.2 | [PyPI](https://pypi.org/project/pytest/8.4.2/); tests only | MIT |
 | setuptools | 80.9.0 | [PyPI](https://pypi.org/project/setuptools/80.9.0/); local build | MIT |
@@ -16,6 +17,8 @@ Reviewed October 26, 2026 (America/Phoenix).
 `requirements-validation-win-py312.lock` adds plotting wheels and includes the core lock. The desktop lock includes that validation lock, so the full test suite and cantilever report generator are installed together. PySide6 6.10.2 and the MCP SDK 1.26.0 remain pinned in the desktop lock.
 
 `requirements-win-py312.lock` records every installed project/test/build wheel version and SHA-256 for Windows x64 / Python 3.12. Pip's installation reports were used to capture artifact hashes. `tools/rea/package-lock.json` records REA's dependency graph and registry integrity values. Pip and the existing runtimes are bootstrap prerequisites, not included in those locks.
+
+SciPy 1.16.3 was installed as a binary wheel from the official PyPI index. The Windows CPython 3.12 x64 wheel SHA-256 is `56edc65510d1331dae01ef9b658d428e33ed48b4f77b1d51caf479a0253f96dc`, recorded in the base lock and inherited by the desktop lock. Its [upstream BSD license and bundled notices](https://github.com/scipy/scipy/blob/v1.16.3/LICENSE.txt) remain applicable. No new external CFD executable is downloaded or invoked.
 
 CalculiX archive: `https://www.dhondt.de/calculix_2.23_4win.zip`.
 Observed SHA-256: `87fc4e1721df37370ec67d0a244bb14f9bf804b0a95df49e2ae7369d30ec72e8`.

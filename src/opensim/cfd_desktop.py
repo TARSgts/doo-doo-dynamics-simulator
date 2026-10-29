@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtWidgets import (QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
-    QFormLayout, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton,
+    QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton,
     QScrollArea, QSpinBox, QSplitter, QVBoxLayout, QWidget)
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -26,7 +26,7 @@ class CFDDialog(QDialog):
         heading = QLabel('CFD · numerical flow studies')
         heading.setStyleSheet('font-size:22px;font-weight:600;padding:4px')
         layout.addWidget(heading)
-        intro = QLabel('Choose a supported flow model, run it, and compare with theory. These benchmark geometries are independent of your CAD projects.')
+        intro = QLabel('Choose a flow model or import a CAD fluid volume. Flow studies have their own projects and do not change your structural model.')
         intro.setWordWrap(True); layout.addWidget(intro)
         history = QHBoxLayout()
         self.history = QComboBox()
@@ -45,6 +45,22 @@ class CFDDialog(QDialog):
         self.scope = QLabel(); self.scope.setWordWrap(True)
         self.scope.setStyleSheet('padding:10px;border:1px solid #71829a;border-radius:5px;')
         left.addWidget(self.scope)
+        self.cad_controls=QWidget();cad_layout=QVBoxLayout(self.cad_controls);cad_layout.setContentsMargins(0,0,0,0)
+        self.cad_note=QLabel('No fluid volume imported');self.cad_note.setWordWrap(True);cad_layout.addWidget(self.cad_note)
+        import_button=QPushButton('Import CAD fluid volume');import_button.clicked.connect(self.import_fluid);cad_layout.addWidget(import_button)
+        import_button.setToolTip('Import the closed volume occupied by fluid. A solid body is not an external-flow domain; construct the surrounding fluid volume in CAD first.')
+        inspect=QPushButton('Inspect mesh / choose ports');inspect.clicked.connect(self.inspect_mesh);cad_layout.addWidget(inspect)
+        inspect.setToolTip('Generate the fluid mesh, inspect face IDs and pick inlet/outlet faces. Defaults are X-min and X-max.')
+        self.inlet_ids=QLineEdit();self.outlet_ids=QLineEdit()
+        self.inlet_ids.setPlaceholderText('Inlet face IDs (blank: X-min)');self.outlet_ids.setPlaceholderText('Outlet face IDs (blank: X-max)')
+        self.inlet_ids.setToolTip('Comma-separated CAD face IDs carrying inlet pressure traction; no velocity is prescribed. Picking new faces replaces any saved box filter.')
+        self.outlet_ids.setToolTip('Comma-separated CAD face IDs carrying zero-gauge-pressure traction; other faces are no-slip walls.')
+        cad_layout.addWidget(self.inlet_ids);cad_layout.addWidget(self.outlet_ids)
+        row=QHBoxLayout();cad_layout.addLayout(row)
+        for text,role in [('Pick inlet','support'),('Pick outlet','load')]:
+            b=QPushButton(text);b.clicked.connect(lambda checked=False,r=role:self.pick_port(r));row.addWidget(b)
+        save_ports=QPushButton('Use picked port faces');save_ports.clicked.connect(self.save_ports);cad_layout.addWidget(save_ports)
+        left.addWidget(self.cad_controls);self.port_regions={'cfd_inlet_region':{},'cfd_outlet_region':{}};self.mesh_signature=None
         inputs = QWidget(); self.form = QFormLayout(inputs)
         self.form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.fields = {}
@@ -61,6 +77,8 @@ class CFDDialog(QDialog):
             ('cfd_alpha_min_deg', 'Start α (degrees)', -10, 10, 2),
             ('cfd_alpha_max_deg', 'End α (degrees)', -10, 10, 2),
             ('cfd_alpha_step_deg', 'Step α (degrees)', .01, 20, 2),
+            ('cfd_mesh_size_m','Flow mesh size (mm)',.00001,1e7,4),
+            ('cfd_cad_scale','CAD scale to meters',.000001,1e6,6),
         ]
         for key, title, low, high, decimals in specs:
             field = QSpinBox() if decimals == 0 else QDoubleSpinBox()
@@ -82,6 +100,8 @@ class CFDDialog(QDialog):
                 'cfd_alpha_min_deg': 'First angle of attack. Small-angle attached-flow study only, within ±10°.',
                 'cfd_alpha_max_deg': 'Last angle of attack. Positive alpha gives positive lift. Stall is not modeled.',
                 'cfd_alpha_step_deg': 'Positive spacing between angles; at most 101 samples. The end angle is always included.',
+                'cfd_mesh_size_m':'Target tetrahedral edge size in millimeters. First CAD stage allows up to 7000 nodes / 35000 elements.',
+                'cfd_cad_scale':'Multiply CAD coordinates by this number to obtain meters. Use 0.001 for millimeter CAD, 1 for meter CAD.',
             }[key])
             self.fields[key] = field
             self.form.addRow(title, field)
@@ -122,7 +142,7 @@ class CFDDialog(QDialog):
         self.history.blockSignals(True); self.history.clear()
         self.history.addItem('New unsaved CFD study', None)
         with self.workspace.connect() as connection:
-            rows = connection.execute("SELECT DISTINCT p.id,p.name,p.created FROM projects p JOIN jobs j ON j.project_id=p.id WHERE j.kind IN ('cfd','cfd_validation') ORDER BY p.created DESC").fetchall()
+            rows = connection.execute("SELECT DISTINCT p.id,p.name,p.created FROM projects p LEFT JOIN jobs j ON j.project_id=p.id WHERE j.kind IN ('cfd','cfd_validation') OR json_extract(p.parameters,'$.cfd_case')='cad' ORDER BY p.created DESC").fetchall()
         for row in rows: self.history.addItem(row['name'], row['id'])
         self.history.setCurrentIndex(max(0, self.history.findData(self.project_id)))
         self.history.blockSignals(False)
@@ -130,7 +150,10 @@ class CFDDialog(QDialog):
     def load_inputs(self, p):
         self.case.setCurrentIndex(self.case.findData(p['cfd_case']))
         for key, field in self.fields.items():
-            field.setValue(p[key]*1000 if key in {'cfd_radius_m','cfd_length_m','cfd_chord_m'} else p[key])
+            field.setValue(p[key]*1000 if key in {'cfd_radius_m','cfd_length_m','cfd_chord_m','cfd_mesh_size_m'} else p[key])
+        self.port_regions={k:p[k].copy() for k in ('cfd_inlet_region','cfd_outlet_region')}
+        self.inlet_ids.setText(', '.join(map(str,p['cfd_inlet_region'].get('faces',[]))))
+        self.outlet_ids.setText(', '.join(map(str,p['cfd_outlet_region'].get('faces',[]))))
         self.update_case()
 
     def new_study(self):
@@ -150,8 +173,12 @@ class CFDDialog(QDialog):
         case = self.case.currentData()
         if not case: return
         self.scope.setText(CASE_LIMITS[case])
+        self.cad_controls.setVisible(case=='cad')
+        if case=='cad' and self.fields['cfd_pressure_drop_Pa'].value()==.1:
+            self.fields['cfd_pressure_drop_Pa'].setValue(.00001)
         common = {'cfd_resolution', 'cfd_density_kg_m3', 'cfd_viscosity_Pa_s'}
-        visible = common | ({'cfd_radius_m','cfd_length_m','cfd_pressure_drop_Pa'} if case == 'pipe' else
+        if case=='cad':common.discard('cfd_resolution')
+        visible = common | ({'cfd_mesh_size_m','cfd_cad_scale','cfd_pressure_drop_Pa'} if case=='cad' else {'cfd_radius_m','cfd_length_m','cfd_pressure_drop_Pa'} if case == 'pipe' else
                   {'cfd_speed_m_s','cfd_sound_speed_m_s'} | ({'cfd_radius_m'} if case == 'cylinder' else
                   {'cfd_chord_m','cfd_alpha_min_deg','cfd_alpha_max_deg','cfd_alpha_step_deg'}))
         for key, field in self.fields.items(): self.form.setRowVisible(field, key in visible)
@@ -159,13 +186,59 @@ class CFDDialog(QDialog):
     def inputs(self):
         p = {'cfd_case': self.case.currentData()}
         for key, field in self.fields.items():
-            p[key] = field.value()/1000 if key in {'cfd_radius_m','cfd_length_m','cfd_chord_m'} else field.value()
+            p[key] = field.value()/1000 if key in {'cfd_radius_m','cfd_length_m','cfd_chord_m','cfd_mesh_size_m'} else field.value()
+        for key,control in (('cfd_inlet_region',self.inlet_ids),('cfd_outlet_region',self.outlet_ids)):
+            region=self.port_regions[key].copy();ids=[int(s.strip()) for s in control.text().split(',') if s.strip()]
+            region.pop('faces',None)
+            if ids:region['faces']=ids
+            p[key]=region
         return p
+
+    def import_fluid(self):
+        if self.job_id:return
+        file,_=QFileDialog.getOpenFileName(self,'Import closed CAD fluid volume','','CAD (*.step *.stp *.iges *.igs *.brep *.stl *.obj *.3mf)')
+        if not file:return
+        try:
+            if not self.project_id:self.project_id=self.workspace.create_project('CFD / CAD fluid volume / '+datetime.now().strftime('%H:%M:%S'))['id']
+            self.workspace.import_cad(self.project_id,file)
+            self.case.setCurrentIndex(self.case.findData('cad'))
+            self.inlet_ids.clear();self.outlet_ids.clear();self.port_regions={'cfd_inlet_region':{},'cfd_outlet_region':{}}
+            self.cad_note.setText(Path(file).name);self.mesh_signature=None;self.result_folder=None
+            self.workspace.set_parameters(self.project_id,self.inputs());self.export_button.setEnabled(False)
+        except Exception as error:QMessageBox.warning(self,'Fluid-volume import',str(error))
+
+    def inspect_mesh(self):
+        try:
+            if not self.project_id:raise ValueError('Import a CAD fluid volume first')
+            p=self.inputs()
+            self.workspace.set_parameters(self.project_id,p|{'mesh_size_m':p['cfd_mesh_size_m'],'cad_scale':p['cfd_cad_scale'],'element_order':1})
+            self.job_id=self.workspace.start_job(self.project_id,'cfd_mesh')['id'];self.result_folder=None;self.set_running(True)
+        except Exception as error:QMessageBox.warning(self,'Fluid mesh',str(error))
+
+    def pick_port(self,role):
+        try:
+            signature=(self.project_id,self.inputs()['cfd_mesh_size_m'],self.inputs()['cfd_cad_scale'])
+            if self.mesh_signature!=signature:raise ValueError('Inspect the mesh before picking ports, and after changing mesh settings')
+            region=self.inputs()['cfd_inlet_region' if role=='support' else 'cfd_outlet_region']
+            self.viewer.page().runJavaScript(f"typeof setFacePicking==='function' && setFacePicking('{role}',{region.get('faces',[])})")
+        except Exception as error:QMessageBox.warning(self,'Pick flow port',str(error))
+
+    def save_ports(self):
+        def received(data):
+            if not data or not data.get('mode'):return
+            for role,field in (('support',self.inlet_ids),('load',self.outlet_ids)):
+                if data.get('touched',{}).get(role):
+                    field.setText(', '.join(map(str,data[role])))
+                    self.port_regions['cfd_inlet_region' if role=='support' else 'cfd_outlet_region']={}
+            self.viewer.page().runJavaScript("setFacePicking(null)");self.mark_changed()
+        self.viewer.page().runJavaScript("typeof getFaceSelection==='function' ? getFaceSelection() : null",received)
 
     def run(self, validation=False):
         try:
             from opensim.cfd_parameters import validate_cfd_parameters
             p = self.inputs(); validate_cfd_parameters(p)
+            if not validation and p['cfd_case']=='cad' and (not self.project_id or not self.workspace.get_project(self.project_id)['cad']):
+                raise ValueError('Import a closed CAD fluid volume before running CAD flow')
             if validation or not self.project_id:
                 name = 'Validation / all three' if validation else CASE_LABELS[p['cfd_case']]
                 self.project_id = self.workspace.create_project('CFD / '+name+' / '+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))['id']
@@ -178,7 +251,7 @@ class CFDDialog(QDialog):
         except Exception as error: QMessageBox.warning(self, 'CFD study', str(error))
 
     def set_running(self, running):
-        for widget in (self.case, self.history, self.new_button, self.run_button, self.verify_button, *self.fields.values()): widget.setEnabled(not running)
+        for widget in (self.case, self.history, self.new_button, self.run_button, self.verify_button,self.cad_controls, *self.fields.values()): widget.setEnabled(not running)
         self.stop_button.setEnabled(running); self.export_button.setEnabled(not running and self.result_folder is not None)
         self.progress.setRange(0, 0 if running else 1)
         if not running: self.progress.setValue(1)
@@ -190,6 +263,11 @@ class CFDDialog(QDialog):
         if job['status'] in {'queued','running'}: return
         self.job_id = None
         if job['status'] == 'completed':
+            if job['kind']=='cfd_mesh':
+                self.mesh_signature=(self.project_id,self.inputs()['cfd_mesh_size_m'],self.inputs()['cfd_cad_scale'])
+                self.viewer.setUrl(QUrl.fromLocalFile(str(self.workspace.job_directory(job['id'])/'preview.html')))
+                self.cad_note.setText('Mesh ready. CAD face IDs: '+', '.join(str(f['id']) for f in job['result']['cad_faces']))
+                self.status.setText('Pick ports or use X-min / X-max defaults');self.set_running(False);return
             folder = self.workspace.job_directory(job['id'])/('cfd_validation' if job['kind']=='cfd_validation' else 'cfd')
             self.show_result(folder)
             self.status.setText('Verification '+job['result']['result'] if job['kind']=='cfd_validation' else 'Completed')
@@ -200,15 +278,19 @@ class CFDDialog(QDialog):
         if job['status'] != 'completed': self.progress.setValue(0)
 
     def show_result(self, folder):
+        self.mesh_signature=None
         self.result_folder = Path(folder)
         self.viewer.setUrl(QUrl.fromLocalFile(str(self.result_folder/'report.html')))
         self.export_button.setEnabled((self.result_folder/'data.csv').is_file())
+        self.progress.setRange(0,1);self.progress.setValue(1)
 
     def open_saved(self):
         pid = self.history.currentData()
         if not pid or self.job_id: return
         self.project_id = pid
         project = self.workspace.get_project(pid); self.load_inputs(project['parameters'])
+        self.cad_note.setText('Fluid volume imported' if project['cad'] else 'No fluid volume imported')
+        self.cad_note.setToolTip(project['cad'] or 'Import the closed volume occupied by fluid')
         job = next((j for j in self.workspace.list_jobs(pid) if j['kind'] in {'cfd','cfd_validation'} and j['revision']==project['revision']), None)
         self.result_folder = None; self.export_button.setEnabled(False)
         if job and job['status'] in {'queued','running'}:

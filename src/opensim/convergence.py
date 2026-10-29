@@ -42,6 +42,7 @@ def validate_convergence_parameters(levels, ratio, tolerance_percent, target, ma
 
 def response_value(summary):
     """Mean displacement of the loaded area along the applied force direction (m), sign kept."""
+    if 'load_weighted_response_m' in summary: return float(summary['load_weighted_response_m'])
     axis = summary.get("load_axis", "x")
     if axis in NORMAL_AXES:
         return float(summary["loaded_surface_mean_normal_displacement_m"])
@@ -116,7 +117,7 @@ def analyse(levels, tolerance):
 def run_convergence(cad: Path, output: Path, size, scale=1.0, young=210e9, poisson=0.3, load=1000.0, order=1,
                     load_axis="x", load_kind="face", load_surface="x-max", support_region=None, load_region=None,
                     levels=DEFAULT_LEVELS, ratio=DEFAULT_RATIO, tolerance_percent=DEFAULT_TOLERANCE_PERCENT,
-                    target="displacement", max_elements=DEFAULT_MAX_ELEMENTS, ccx=None, progress=None):
+                    target="displacement", max_elements=DEFAULT_MAX_ELEMENTS, ccx=None, progress=None, load_cases=None):
     """Solve on meshes size, size/ratio, size/ratio², … and stop early once the target quantity converges."""
     from opensim.cli import solve
     from opensim.geometry import MeshElementLimitExceeded
@@ -141,7 +142,7 @@ def run_convergence(cad: Path, output: Path, size, scale=1.0, young=210e9, poiss
             summary = solve(cad, output / f"mesh-{index + 1}", size=level_size, scale=scale, young=young, poisson=poisson,
                             load=load, ccx=ccx, order=order, load_axis=load_axis, load_kind=load_kind, load_surface=load_surface,
                             support_region=support_region, load_region=load_region, progress=report,
-                            solver_timeout=LEVEL_SOLVER_TIMEOUT_S, max_elements=max_elements)
+                            solver_timeout=LEVEL_SOLVER_TIMEOUT_S, max_elements=max_elements, **({'load_cases':load_cases} if load_cases else {}))
         except MeshElementLimitExceeded as error:
             stop_reason = str(error)
             break

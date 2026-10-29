@@ -22,11 +22,11 @@ CANCEL_MESSAGE = "Stopped by user before it finished; partial files are kept in 
 DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
                       "poisson": 0.3, "load_N": 1000.0, "element_order": 1,
                       "load_axis": "x", "load_kind": "face", "load_surface": "x-max", "density_kg_m3": 7850.0, "mode_count": 6,
-                      "support_region": {}, "load_region": {},
+                      "support_region": {}, "load_region": {}, "load_cases": [], "material_name":"Custom",
                       "convergence_levels": 4, "convergence_ratio": 1.4, "convergence_tolerance_percent": 2.0,
                       "convergence_target": "displacement"} | THERMAL_DEFAULTS | CFD_DEFAULTS
 TEXT_PARAMETERS = {"load_axis", "load_kind", "load_surface", "support_region", "load_region", "convergence_target",
-                   "thermal_boundary_mode", "thermal_fixed_region", "thermal_source_region", "cfd_case"}
+                   "thermal_boundary_mode", "thermal_fixed_region", "thermal_source_region", "cfd_case", "load_cases", "material_name", "cfd_inlet_region", "cfd_outlet_region"}
 STUDY_TYPES = ("static", "modal", "convergence", "thermal")
 CAPABILITIES = [
     {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP; closed STL, OBJ or 3MF surface meshes"},
@@ -39,7 +39,7 @@ CAPABILITIES = [
     {"name": "Convergence study", "enabled": True, "detail": "Static solve on 3–6 successively finer meshes; change, verdict, Richardson extrapolation and GCI per quantity"},
     {"name": "Modal analysis", "enabled": True, "detail": "Undamped unprestressed modes; X-min face fixed; positive density"},
     {"name": "Thermal analysis", "enabled": True, "detail": "Steady isotropic conduction; fixed temperature plus second temperature or total surface heat input; other surfaces insulated"},
-    {"name": "Fluid dynamics", "enabled": True, "detail": "CFD workbench: 2D inviscid cylinder and flat-plate lift sweep; fully developed laminar round pipe. Benchmark geometries only; not a general CAD Navier–Stokes solver"},
+    {"name": "Fluid dynamics", "enabled": True, "detail": "Imported single CAD fluid volumes: 3D incompressible creeping flow, pressure ports and no-slip walls, peak Re<=1. Also inviscid 2D cylinder/flat plate and laminar pipe benchmarks. No finite-Re Navier-Stokes, turbulence or heat transfer"},
     *[{"name": name, "enabled": False, "detail": "Planned — not implemented"} for name in
       ("Transient dynamics",
        "Electromagnetics", "Contact", "Nonlinear materials", "Optimization", "GPU solve")],
@@ -177,7 +177,7 @@ class Workspace:
             shutil.copyfile(path, target)
             current = connection.execute("SELECT parameters FROM projects WHERE id=?", (project_id,)).fetchone()
             parameters = DEFAULT_PARAMETERS | json.loads(current["parameters"])
-            parameters.update({"support_region": {}, "load_region": {}, "thermal_fixed_region": {}, "thermal_source_region": {}})
+            parameters.update({"support_region": {}, "load_region": {}, "load_cases": [], "thermal_fixed_region": {}, "thermal_source_region": {}, "cfd_inlet_region":{}, "cfd_outlet_region":{}})
             connection.execute("UPDATE projects SET cad=?, parameters=?, revision=revision+1 WHERE id=?",
                                (str(target), json.dumps(parameters), project_id))
             connection.execute("INSERT INTO project_sources VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET cad_path=excluded.cad_path,source_path=excluded.source_path",
@@ -192,6 +192,9 @@ class Workspace:
         merged = project["parameters"] | parameters
         validate_thermal_parameters(merged)
         validate_cfd_parameters(merged)
+        from opensim.load_case_parameters import validate_load_cases
+        validate_load_cases(merged['load_cases'])
+        if not isinstance(merged['material_name'],str) or len(merged['material_name'])>100: raise ValueError('Invalid material name')
         numeric = [value for key, value in merged.items() if key not in TEXT_PARAMETERS]
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
                for value in numeric):
@@ -216,7 +219,7 @@ class Workspace:
         validate_region(merged["load_region"])
         if merged["load_region"] and merged["load_kind"] != "traction":
             raise ValueError("A selected load region requires uniform surface traction")
-        if not -1 < merged["poisson"] < 0.5 or merged["load_N"] == 0:
+        if not -1 < merged["poisson"] < 0.5 or (merged["load_N"] == 0 and not merged['load_cases']):
             raise ValueError("Use -1 < Poisson ratio < 0.5 and a nonzero axial load")
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -230,7 +233,7 @@ class Workspace:
         return self.get_project(project_id)
 
     def start_job(self, project_id: str, kind: str, example="perforated_plate") -> dict:
-        if kind not in {"example", "mesh", "solve", "modal", "convergence", "thermal", "cfd", "cfd_validation"}:
+        if kind not in {"example", "mesh", "solve", "modal", "convergence", "thermal", "cfd", "cfd_validation", "cfd_mesh"}:
             raise ValueError("Unsupported job kind")
         if example not in {"perforated_plate", "axial_bar", "cantilever_beam", "heat_sink"}:
             raise ValueError("Unsupported test object")
@@ -247,7 +250,7 @@ class Workspace:
             if kind == "example":
                 project["revision"] += 1
                 parameters = DEFAULT_PARAMETERS | json.loads(project["parameters"])
-                parameters.update({"support_region": {}, "load_region": {}, "thermal_fixed_region": {}, "thermal_source_region": {}})
+                parameters.update({"support_region": {}, "load_region": {}, "load_cases": [], "thermal_fixed_region": {}, "thermal_source_region": {}, "cfd_inlet_region":{}, "cfd_outlet_region":{}})
                 if example == 'heat_sink':
                     from opensim.heat_sink import HEAT_SINK_PARAMETERS
                     parameters.update(HEAT_SINK_PARAMETERS)
@@ -394,7 +397,7 @@ class Workspace:
             if job['revision'] == project['revision'] and job['kind'] in {'cfd', 'cfd_validation'} and job['status'] == 'completed':
                 directory = self.job_directory(job['id']) / job['kind']
                 return {'job_id': job['id'], 'summary': job['result'], 'artifacts': {
-                    name: str(directory/name) for name in ('report.html', 'plot.png', 'data.csv', 'flow.npz', 'manifest.json', 'report.json') if (directory/name).is_file()
+                    name: str(directory/name) for name in ('report.html', 'plot.png', 'data.csv', 'flow.npz', 'manifest.json', 'report.json', 'results.html','results.vtk') if (directory/name).is_file()
                 }}
         raise ValueError('No completed CFD study for the current project inputs')
 

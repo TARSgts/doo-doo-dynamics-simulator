@@ -32,7 +32,9 @@ The title occupies the top menu bar, and the viewport now uses batched WebGL ren
 
 - [Steady thermal conduction](docs/THERMAL.md): independent temperature/heat-input face selections, conductivity, temperature/heat-flux contours, plots, heat balance and SI exports. [Fourier verification](docs/thermal/REPORT.md).
 - [Heat-sink example](docs/HEAT_SINK_EXAMPLE.md): **Examples → Heat sink** creates a six-fin solid with a ready-to-run 20 W conduction study.
-- [CFD workbench](docs/CFD.md): **Solution → CFD** opens numerical cylinder flow, laminar round-pipe flow and flat-plate CL versus angle studies, with plots, CSV export and [three-case theory verification](docs/cfd/REPORT.md). These are bounded benchmark models; general CAD flow, turbulence and thermal coupling remain future work.
+- [CFD workbench](docs/CFD.md): **Solution → CFD** supports [imported CAD fluid volumes in 3D creeping flow](docs/CAD_FLOW.md), plus numerical cylinder, laminar pipe and flat-plate CL/angle studies. Pressure ports, no-slip walls, flow/pressure exports and documented verification are included; finite-Re Navier–Stokes, turbulence and thermal coupling remain future work.
+- [Independent forces and pressures](docs/INDEPENDENT_LOADS.md): separate selected surfaces and vector components per load, pressure in Pa, simultaneous assembly, colored previews and force/moment balance.
+- [Material presets, camera Home and modal display](docs/MATERIALS_AND_CAMERA.md): editable steel/aluminum/ABS starting values, a clickable ±X/±Y/±Z triad, saved Home camera and adjustable modal display amplitude.
 - Automatic [Discord Rich Presence](docs/DISCORD_PRESENCE.md) on fresh installs using the shared simulator identity, with an on/off switch and no project names or file paths.
 - Plot static displacement/stress, modal frequencies/shapes and mesh-convergence results, with PNG/SVG figures and CSV export. See [result plots](docs/RESULT_PLOTS.md).
 - Study branches for static, modal and convergence analysis, with a lower settings panel that follows the selected study. See [study panels](docs/STUDY_PANELS.md).

@@ -1,6 +1,6 @@
 # Roadmap
 
-Current CFD milestone: [numerical flow workbench](CFD.md) implements source-panel cylinder flow, fully developed laminar pipe flow and a discrete-vortex flat-plate CL/α sweep, with three-resolution reference comparisons. General CAD Navier–Stokes simulation, turbulence, separated-flow drag/stall and conjugate heat transfer remain future work.
+Current CFD milestone: [CAD fluid-volume creeping flow](CAD_FLOW.md) is implemented with MINI tetrahedra, independent pressure ports, no-slip walls, sparse solve, flow conservation and recorded duct refinement. The [three original benchmark models](CFD.md) remain available. General finite-Re Navier–Stokes, turbulence, separated-flow drag/stall and conjugate heat transfer remain future work.
 
 Current thermal milestone: steady isotropic conduction is implemented, with conductivity, independent prescribed-temperature/heat-input faces, energy balance, temperature/flux contours and plots, SI exports and three MCP tools. See [scope](THERMAL.md) and [eight analytical comparisons](thermal/REPORT.md). Transient thermal, convection, radiation and thermoelastic coupling remain future stages.
 

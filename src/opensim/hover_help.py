@@ -24,9 +24,9 @@ FIELD_HELP = {
 }
 
 BUTTON_HELP = {
-    "CFD": "Open the numerical flow workbench: cylinder pressure/streamlines, laminar pipe velocity, and a flat-plate CL versus angle sweep. Benchmark geometries only.",
+    "CFD": "Open flow studies: imported CAD fluid volumes at creeping-flow Reynolds numbers (Re≤1), plus cylinder, laminar pipe and flat-plate benchmarks. No turbulence or heat transfer.",
     "CFD checks": "Run cylinder, laminar pipe and flat-plate theory comparisons at three spatial resolutions, with a saved verification report.",
-    "Fluid dynamics": "Open CFD benchmark studies and their theory comparisons. External flow is inviscid; pipe flow is fully developed and laminar.",
+    "Fluid dynamics": "Import a closed fluid volume for 3D creeping flow (Re≤1), or run the cylinder/pipe/plate theory comparisons. Import fluid space, not the solid object.",
     "Heat sink": "Create a separate six-fin heat sink with a 20 W heated base and 20 °C fin tips. This demonstrates conduction to fixed-temperature tips, not air convection.",
     "Thermal bar": "Open the independent Fourier-conduction verification report. It does not change your project.",
     "Thermal": "Run steady isotropic heat conduction. Configure conductivity and thermal boundary temperatures or power first.",
@@ -64,7 +64,7 @@ BUTTON_HELP = {
     "Modal beam": "Open the reference study comparing beam vibration frequencies with theory.",
     "Distributed load": "Open the reference study checking a uniformly distributed force against beam theory.",
     "Circular hole": "Open the reference plate study checking stress concentration around a circular hole.",
-    "Fit view": "Center the whole model and reset the camera zoom and rotation.",
+    "Fit view": "Fit the whole model while keeping its orientation. Click H in the triad for Home, or right-click H to save a Home orientation.",
     "Edges": "Show or hide mesh edges in the 3D view.",
     "Animate mode": "Play or pause the selected vibration shape. Size is illustrative and playback is 1 Hz, not the natural frequency.",
     "Pause mode": "Pause the selected vibration shape animation.",

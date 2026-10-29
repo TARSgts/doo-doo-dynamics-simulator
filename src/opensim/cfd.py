@@ -132,6 +132,7 @@ def flat_plate_flow(resolution=64, speed=10., chord=.1, density=1.225, alpha_min
 
 def run_cfd(output, parameters=None, progress=None):
     p = validate_cfd_parameters(CFD_DEFAULTS | (parameters or {}))
+    if p['cfd_case']=='cad':raise ValueError('CAD flow requires solve_cad_flow and an imported fluid volume')
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     case = p['cfd_case']

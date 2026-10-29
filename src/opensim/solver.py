@@ -57,16 +57,20 @@ def find_solver(explicit: str | None = None) -> Path:
 
 
 def write_deck(mesh: Mesh, path: Path, young: float, poisson: float, load: float,
-               load_axis="x", load_kind="face", load_surface="x-max", support_region=None, load_region=None, length_scale=1.0):
+               load_axis="x", load_kind="face", load_surface="x-max", support_region=None, load_region=None, length_scale=1.0, load_cases=None):
     if not np.isfinite(young) or young <= 0:
         raise ValueError("Young's modulus must be positive and finite")
     if not np.isfinite(poisson) or not -1 < poisson < 0.5:
         raise ValueError("Poisson ratio must be between -1 and 0.5, exclusive")
-    if not np.isfinite(load) or load == 0:
+    if not np.isfinite(load) or (load == 0 and not load_cases):
         raise ValueError("Load must be nonzero and finite")
     if load_region and load_kind != "traction":
         raise ValueError("A selected load region requires uniform surface traction")
-    applied = assemble_load(mesh, load, load_axis, load_kind, load_surface, load_region)
+    if load_cases:
+        from opensim.load_cases import assemble_load_cases
+        applied = assemble_load_cases(mesh, load_cases)
+    else:
+        applied = assemble_load(mesh, load, load_axis, load_kind, load_surface, load_region)
     fixed = support_nodes(mesh, support_region)
     if not np.isfinite(length_scale) or length_scale <= 0:
         raise ValueError("Solver length scale must be positive and finite")

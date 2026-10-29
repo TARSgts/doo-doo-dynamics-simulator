@@ -1,5 +1,7 @@
 # CFD workbench — first stage
 
+**CAD fluid volumes are now supported through a separate 3D creeping-flow model (Re≤1).** See [CAD import, inlet/outlet picking, validity range and recorded accuracy](CAD_FLOW.md). The three original benchmark models below remain available. General finite-Re Navier–Stokes, turbulence and heat-transfer coupling remain future work.
+
 Open **Solution → CFD**, or **Fluid dynamics** in the right toolbox. Choose a case, enter its conditions and select **Run flow study**. Each new study saves its own project, inputs, background job and report. **Saved CFD studies** reopens previous runs; **New study** starts another. CAD geometry and structural/thermal supports are not used or changed.
 
 The first stage is three numerical benchmark models, not a general CAD Navier–Stokes solver. It uses the existing NumPy and Matplotlib dependencies. No additional executable or downloaded solver is needed.

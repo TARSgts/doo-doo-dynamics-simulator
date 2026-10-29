@@ -7,6 +7,7 @@ const nodeCount = simulation.points.length;
 const faceCount = simulation.faces.length;
 const isModal = simulation.summary.analysis === 'modal';
 const isThermal = simulation.summary.analysis === 'thermal';
+const isFlow = simulation.summary.analysis === 'cfdcad';
 let thermalPicking=isThermal;
 function setThermalStudyMode(active){thermalPicking=!!active;draw();}
 let modeAnimation = false, modePhase = 1, phaseOverride = null, exportingGif = false;
@@ -16,11 +17,11 @@ const deformation = new Float64Array(nodeCount * 3);
 const deformed = new Float64Array(nodeCount * 3);
 const magnitudes = new Float64Array(nodeCount);
 const scalarRanges = [[0,0],[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];
-const stressValues = new Float32Array(isThermal ? simulation.temperature_K.map(value=>value-273.15) : simulation.von_mises_Pa || nodeCount);
-scalarRanges.push(isThermal ? [stressValues.reduce((m,v)=>Math.min(m,v),Infinity),stressValues.reduce((m,v)=>Math.max(m,v),-Infinity)] : [0,stressValues.reduce((maximum,value)=>Math.max(maximum,value),0)]);
+const stressValues = new Float32Array(isFlow?simulation.pressure_Pa:isThermal ? simulation.temperature_K.map(value=>value-273.15) : simulation.von_mises_Pa || nodeCount);
+scalarRanges.push(isThermal||isFlow ? [stressValues.reduce((m,v)=>Math.min(m,v),Infinity),stressValues.reduce((m,v)=>Math.max(m,v),-Infinity)] : [0,stressValues.reduce((maximum,value)=>Math.max(maximum,value),0)]);
 const bounds = [[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];
 for(let node=0;node<nodeCount;node++){
-  const scalarVector=isThermal?simulation.heat_flux_W_m2[node]:simulation.displacement[node];
+  const scalarVector=isFlow?simulation.velocity_m_s[node]:isThermal?simulation.heat_flux_W_m2[node]:simulation.displacement[node];
   magnitudes[node] = Math.hypot(...scalarVector);
   scalarRanges[0][1] = Math.max(scalarRanges[0][1],magnitudes[node]);
   for(let axis=0;axis<3;axis++){
@@ -38,12 +39,13 @@ const span = Math.max(...bounds.map(bound=>bound[1]-bound[0]));
 const faceIndices = new Uint32Array(simulation.faces.flat());
 const scalarBuffer = new Float32Array(nodeCount*4);
 for(let node=0;node<nodeCount;node++){
-  scalarBuffer.set([magnitudes[node],...(isThermal?simulation.heat_flux_W_m2[node]:simulation.displacement[node])],node*4);
+  scalarBuffer.set([magnitudes[node],...(isFlow?simulation.velocity_m_s[node]:isThermal?simulation.heat_flux_W_m2[node]:simulation.displacement[node])],node*4);
 }
 let yaw=-0.45, pitch=-0.5, drag=null;
 let viewportMode=simulation.summary.view==='mesh'?'mesh':'results';
 let edgeVisibility=true, themeDark=!document.body.classList.contains('desktop');
-let deformationOverride=isThermal?0:isModal && maximum ? span*0.1/maximum : null, resultComponent=isThermal?'stress':'magnitude';
+let modalAmplitude=.02;
+let deformationOverride=isThermal?0:isModal && maximum ? span*modalAmplitude/maximum : null, resultComponent=isThermal?'stress':'magnitude';
 let framePending=false, deformationDirty=true, fitRequested=true, colorDirty=true;
 let factor=0, cameraZoom=1, panX=0, panY=0, depthScale=1;
 let target=center.slice(), deformedBounds=bounds.map(bound=>bound.slice());
@@ -199,13 +201,21 @@ meshCanvas.addEventListener('webglcontextrestored',()=>{gpuRenderer=createGpuRen
 function componentIndex(){return resultComponent==='stress'?4:resultComponent==='magnitude'?0:'xyz'.indexOf(resultComponent)+1;}
 function setTheme(theme){themeDark=theme==='dark'||theme==='midnight';document.body.classList.toggle('dark',themeDark);document.body.classList.toggle('midnight',theme==='midnight');draw();}
 function setCatMode(value){catMode=Boolean(value);draw();}
-function setResultComponent(component){if(!['magnitude','x','y','z','stress'].includes(component))return;resultComponent=component==='stress'&&!simulation.von_mises_Pa&&!isThermal?'magnitude':component;colorDirty=true;draw();}
+function setResultComponent(component){if(!['magnitude','x','y','z','stress'].includes(component))return;resultComponent=component==='stress'&&!simulation.von_mises_Pa&&!isThermal&&!isFlow?'magnitude':component;colorDirty=true;draw();}
 function setViewportMode(mode){if(mode==='modal')mode='results';if(viewportMode!==mode){viewportMode=mode;deformationDirty=true;fitRequested=true;}draw();}
 function setModeAnimation(value){modeAnimation=isModal && Boolean(value);if(!modeAnimation)modePhase=1;draw();}
 function setEdgeVisibility(value){edgeVisibility=Boolean(value);draw();}
-function setDeformationScale(value){deformationOverride=isThermal?0:value==='auto'?(maximum?span*0.1/maximum:0):Number(value);deformationDirty=true;fitRequested=true;draw();}
+function setModalAmplitude(value){modalAmplitude=Math.min(.1,Math.max(.001,Number(value)));if(isModal)setDeformationScale('auto');}
+function setDeformationScale(value){deformationOverride=isThermal?0:value==='auto'?(maximum?span*(isModal?modalAmplitude:.1)/maximum:0):Number(value);deformationDirty=true;fitRequested=true;draw();}
 function resetViewport(){panX=panY=0;fitRequested=true;draw();}
 function setViewOrientation(orientation){yaw=orientation==='flipped-front'?Math.PI:orientation==='isometric'?-0.45:0;pitch=orientation==='flipped-front'?Math.PI:orientation==='front'?0:orientation==='top'?-Math.PI/2:-0.5;panX=panY=0;fitRequested=true;draw();}
+let homeCamera={yaw:-.45,pitch:-.5};
+try{homeCamera=JSON.parse(localStorage.getItem('ddd-home-camera'))||homeCamera;}catch(error){}
+function saveHomeCamera(){homeCamera={yaw,pitch};try{localStorage.setItem('ddd-home-camera',JSON.stringify(homeCamera));}catch(error){}}
+function homeViewport(){yaw=Number.isFinite(homeCamera.yaw)?homeCamera.yaw:-.45;pitch=Number.isFinite(homeCamera.pitch)?homeCamera.pitch:-.5;cameraZoom=1;panX=panY=0;fitRequested=true;draw();}
+function viewAlongAxis(axis,sign=1){yaw=axis==='X'?-sign*Math.PI/2:axis==='Y'?(sign>0?Math.PI:0):0;pitch=axis==='Z'?-sign*Math.PI/2:0;cameraZoom=1;panX=panY=0;fitRequested=true;draw();}
+let triadTargets=[];
+function activateTriad(x,y,button=0){const hit=triadTargets.slice().reverse().find(t=>Math.hypot(t.x-x,t.y-y)<15*devicePixelRatio);if(!hit)return false;if(hit.axis==='H'){if(button===2)saveHomeCamera();else homeViewport();}else viewAlongAxis(hit.axis,hit.sign);return true;}
 function draw(){
   viewportStats.drawRequests++;
   if(framePending)return;
@@ -290,6 +300,7 @@ function axisTriad(){
 function drawAxisTriad(){
   const pixel=devicePixelRatio,length=34*pixel,radius=48*pixel;
   const origin=[18*pixel+radius,canvas.height-18*pixel-radius];
+  triadTargets=[];
   const colors=AXIS_COLORS[themeDark?'dark':'light'];
   context.save();
   const axes=axisTriad();
@@ -314,9 +325,13 @@ function drawAxisTriad(){
     }
     const label=projectedLength>0.15?[tip[0]+dx/projectedLength*13*pixel,tip[1]+dy/projectedLength*13*pixel]:[origin[0]+13*pixel,origin[1]-13*pixel];
     context.fillText(entry.axis,...label);
+    triadTargets.push({x:label[0],y:label[1],axis:entry.axis,sign:1});
+    const negative=[origin[0]-dx*length,origin[1]-dy*length];
+    if(projectedLength>.15){context.globalAlpha=.55;context.beginPath();context.arc(...negative,9*pixel,0,2*Math.PI);context.stroke();context.fillText('−'+entry.axis,negative[0],negative[1]);triadTargets.push({x:negative[0],y:negative[1],axis:entry.axis,sign:-1});}
   }
   context.globalAlpha=1;context.fillStyle=themeDark?'#c6d7ec':'#34485f';
   context.beginPath();context.arc(...origin,2.5*pixel,0,2*Math.PI);context.fill();
+  context.font=`bold ${12*pixel}px Segoe UI`;context.fillText('H',origin[0]-45*pixel,origin[1]+43*pixel);triadTargets.push({x:origin[0]-45*pixel,y:origin[1]+43*pixel,axis:'H'});
   context.restore();
 }
 function drawOverlay(){
@@ -326,36 +341,51 @@ function drawOverlay(){
   context.fillText(`${simulation.summary.element_type||'Tetrahedra'} · ${faceCount.toLocaleString()} ${catMode?'tiny triangle beans':'surface triangles'}${exportingGif?'':' · '+(gpuRenderer?'WebGL':'Canvas fallback')}`,20*pixel,27*pixel);
   if(facePickMode){
     context.fillStyle=facePickMode==='support'?'#1ad9e6':'#ffa61f';
-    context.fillText(`Pick ${thermalPicking?(facePickMode==='support'?'fixed temperature (cyan)':'temperature / heat input (orange)'):(facePickMode==='support'?'fixed support (cyan)':'force faces (orange)')} · ${selectedFaces.size} face(s) · click to toggle`,20*pixel,48*pixel);
+    context.fillText(`Pick ${isFlow?(facePickMode==='support'?'inlet (cyan)':'outlet (orange)'):thermalPicking?(facePickMode==='support'?'fixed temperature (cyan)':'temperature / heat input (orange)'):(facePickMode==='support'?'fixed support (cyan)':'force faces (orange)')} · ${selectedFaces.size} face(s) · click to toggle`,20*pixel,48*pixel);
     context.fillText(`Draft: ${facePickSets.support.size} support / ${facePickSets.load.size} load faces · drag to rotate · Save picked faces to apply`,20*pixel,68*pixel);
     return;
   }
   if(viewportMode==='results'){
-    context.fillText(isThermal?'Steady thermal conduction · undeformed geometry':isModal?`${catMode?'Wiggle':'Mode'} ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · ${catMode?'purr shape · dance speed':'normalized shape · playback'} ${exportingGif?'slowed to about 1 cycle per second':'1 Hz'}`:`${catMode?'Wiggle exaggeration':'Deformation display'}: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
+    context.fillText(isFlow?'Steady creeping flow · undeformed fluid volume':isThermal?'Steady thermal conduction · undeformed geometry':isModal?`${catMode?'Wiggle':'Mode'} ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · ${catMode?'purr shape · dance speed':'normalized shape · playback'} ${exportingGif?'slowed to about 1 cycle per second':'1 Hz'}`:`${catMode?'Wiggle exaggeration':'Deformation display'}: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
     const gradient=context.createLinearGradient(0,75*pixel,0,210*pixel);
     for(let stop=0;stop<=6;stop++)gradient.addColorStop(stop/6,`hsl(${225*stop/6} 75% 57%)`);
     context.fillStyle=gradient;context.fillRect(canvas.width-112*pixel,75*pixel,14*pixel,135*pixel);
-    const units=isThermal?(resultComponent==='stress'?'(°C)':'(W/m²)'):resultComponent==='stress'?'(MPa)':isModal?'(norm.)':'(mm)',unitScale=isThermal?1:resultComponent==='stress'?1e-6:isModal?1:1000;
-    context.fillStyle=themeDark?'#c6d7ec':'#34485f';context.fillText((isThermal?(resultComponent==='stress'?'Temperature':resultComponent==='magnitude'?'|q|':`q${resultComponent}`):resultComponent==='stress'?'von Mises':resultComponent==='magnitude'?'|U|':`U${resultComponent}`)+' '+units,canvas.width-150*pixel,58*pixel);
+    const units=isFlow?(resultComponent==='stress'?'(Pa)':'(m/s)'):isThermal?(resultComponent==='stress'?'(°C)':'(W/m²)'):resultComponent==='stress'?'(MPa)':isModal?'(norm.)':'(mm)',unitScale=isFlow||isThermal?1:resultComponent==='stress'?1e-6:isModal?1:1000;
+    context.fillStyle=themeDark?'#c6d7ec':'#34485f';context.fillText((isFlow?(resultComponent==='stress'?'Pressure':resultComponent==='magnitude'?'Speed':`V${resultComponent}`):isThermal?(resultComponent==='stress'?'Temperature':resultComponent==='magnitude'?'|q|':`q${resultComponent}`):resultComponent==='stress'?'von Mises':resultComponent==='magnitude'?'|U|':`U${resultComponent}`)+' '+units,canvas.width-150*pixel,58*pixel);
     context.fillText((range[1]*unitScale).toPrecision(4),canvas.width-92*pixel,85*pixel);context.fillText((range[0]*unitScale).toPrecision(4),canvas.width-92*pixel,210*pixel);
   }
-  if(isThermal)return;
+  if(isThermal||isFlow)return;
   const anchor=projection.project(simulation.summary.support_point_m || [bounds[0][0],center[1],center[2]]);
-  context.fillStyle=themeDark?'#41c8d6':'#087f8c';context.beginPath();context.arc(anchor[0],anchor[1],4*pixel,0,2*Math.PI);context.fill();context.fillText(catMode?'NO ZOOMIES':'FIXED',anchor[0]-15*pixel,anchor[1]+25*pixel);
+  if(simulation.summary.support_preview_valid!==false){context.fillStyle=themeDark?'#41c8d6':'#087f8c';context.beginPath();context.arc(anchor[0],anchor[1],4*pixel,0,2*Math.PI);context.fill();context.fillText(catMode?'NO ZOOMIES':'FIXED',anchor[0]-15*pixel,anchor[1]+25*pixel);}
+  if(isModal)return;
   if(simulation.summary.load_point_m){
     const markers=simulation.summary.load_markers||[{point_m:simulation.summary.load_point_m,displacement_m:simulation.summary.load_point_displacement_m||[0,0,0]}];
+    if(simulation.summary.load_cases){
+      context.fillStyle=themeDark?'#bbd2ec':'#3a506b';context.fillText('Independent surface loads · arrow lengths illustrative',20*pixel,68*pixel);
+      const labels=markers.filter(m=>m.label);
+      labels.slice(0,8).forEach((m,i)=>{context.fillStyle=m.color||'#f1b956';context.fillRect(20*pixel,(81+20*i)*pixel,8*pixel,8*pixel);context.fillText(m.label,34*pixel,(90+20*i)*pixel);});
+    }
     for(let markerIndex=0;markerIndex<markers.length;markerIndex++){
-    const vector=markers[markerIndex].displacement_m;
+    const vector=markers[markerIndex].displacement_m||[0,0,0];
     const position=markers[markerIndex].point_m.map((value,axis)=>value+factor*vector[axis]);
     const point=projection.project(position),axis=simulation.summary.load_axis||'x';
     const direction=markers[markerIndex].direction || [0,1,2].map(index=>index==='xyz'.indexOf(axis)?Math.sign(simulation.summary.load_N):0);
     const shifted=position.map((value,index)=>value+span*0.1*direction[index]);
     const reference=projection.project(shifted),length=Math.hypot(reference[0]-point[0],reference[1]-point[1])||1;
+    if(length<1.5*pixel){
+      const toward=reference[2]>point[2];context.strokeStyle=markers[markerIndex].color||'#f1b956';context.fillStyle=context.strokeStyle;context.lineWidth=2*pixel;
+      context.beginPath();context.arc(point[0],point[1],8*pixel,0,2*Math.PI);context.stroke();
+      if(toward){context.beginPath();context.arc(point[0],point[1],2.5*pixel,0,2*Math.PI);context.fill();}
+      else{context.beginPath();context.moveTo(point[0]-4*pixel,point[1]-4*pixel);context.lineTo(point[0]+4*pixel,point[1]+4*pixel);context.moveTo(point[0]-4*pixel,point[1]+4*pixel);context.lineTo(point[0]+4*pixel,point[1]-4*pixel);context.stroke();}
+      if(markers[markerIndex].label&&!simulation.summary.load_cases)context.fillText(markers[markerIndex].label,point[0]+12*pixel,point[1]-12*pixel);
+      continue;
+    }
     const unit=[(reference[0]-point[0])/length,(reference[1]-point[1])/length],start=[point[0]-unit[0]*55*pixel,point[1]-unit[1]*55*pixel];
-    context.strokeStyle=themeDark?'#f1b956':'#a56608';context.fillStyle=context.strokeStyle;context.lineWidth=2*pixel;
+    context.strokeStyle=markers[markerIndex].color||(themeDark?'#f1b956':'#a56608');context.fillStyle=context.strokeStyle;context.lineWidth=2*pixel;
     context.beginPath();context.moveTo(...start);context.lineTo(point[0],point[1]);context.stroke();context.beginPath();context.moveTo(point[0],point[1]);
     context.lineTo(point[0]-unit[0]*10*pixel-unit[1]*5*pixel,point[1]-unit[1]*10*pixel+unit[0]*5*pixel);context.lineTo(point[0]-unit[0]*10*pixel+unit[1]*5*pixel,point[1]-unit[1]*10*pixel-unit[0]*5*pixel);context.closePath();context.fill();
-    if(markerIndex===0)context.fillText(`${simulation.summary.load_kind==='traction'?'Total ':''}${simulation.summary.load_N} N · ${axis.startsWith('normal-')?'surface normal':axis.toUpperCase()}`,start[0]-15*pixel,start[1]-10*pixel);
+    if(markers[markerIndex].label&&!simulation.summary.load_cases)context.fillText(markers[markerIndex].label,start[0]-15*pixel,start[1]-10*pixel);
+    else if(markerIndex===0&&!simulation.summary.load_cases)context.fillText(`${simulation.summary.load_kind==='traction'?'Total ':''}${simulation.summary.load_N} N · ${axis.startsWith('normal-')?'surface normal':axis.toUpperCase()}`,start[0]-15*pixel,start[1]-10*pixel);
     }
   }
 }
@@ -497,8 +527,9 @@ function renderFrame(){
 }
 slider.oninput=()=>{deformationOverride=null;deformationDirty=true;fitRequested=true;document.getElementById('factor').value=slider.value+'×';draw();};
 canvas.oncontextmenu=event=>event.preventDefault();
-canvas.onpointerdown=event=>{drag={horizontal:event.clientX,vertical:event.clientY,startX:event.clientX,startY:event.clientY,moved:false,button:event.button,pan:event.shiftKey||event.button===1||event.button===2};canvas.setPointerCapture(event.pointerId);event.preventDefault();};
+canvas.onpointerdown=event=>{const rect=canvas.getBoundingClientRect();if(activateTriad((event.clientX-rect.left)*devicePixelRatio,(event.clientY-rect.top)*devicePixelRatio,event.button)){drag=null;event.preventDefault();return;}drag={horizontal:event.clientX,vertical:event.clientY,startX:event.clientX,startY:event.clientY,moved:false,button:event.button,pan:event.shiftKey||event.button===1||event.button===2};canvas.setPointerCapture(event.pointerId);event.preventDefault();};
 canvas.onpointermove=event=>{
+  canvas.title='Click X/Y/Z or −X/−Y/−Z to look along that axis. H restores home; right-click H saves this camera as home.';
   if(!drag)return;
   const horizontal=event.clientX-drag.horizontal,vertical=event.clientY-drag.vertical;
   if(Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)>4)drag.moved=true;
@@ -523,6 +554,7 @@ canvas.addEventListener('wheel',event=>{
 document.getElementById('reset').onclick=resetViewport;
 document.getElementById('range').textContent=isThermal?`Temperature: ${scalarRanges[4][0].toPrecision(5)} → ${scalarRanges[4][1].toPrecision(5)} °C`:isModal?'Normalized mode shape: 0 → 1 (dimensionless); amplitude is arbitrary':`0 m → ${maximum.toExponential(5)} m`;
 if(isThermal){document.querySelector('h1').textContent='Steady thermal analysis';document.querySelector('main>p').textContent='Temperature and heat flux · SI solver units · Celsius display';slider.parentElement.style.display='none';document.querySelector('main>p:last-child').textContent='Steady conduction only; unassigned surfaces are insulated. No thermal expansion is calculated.';}
+if(isFlow){document.querySelector('h1').textContent='CAD fluid-volume flow';document.querySelector('main>p').textContent='3D creeping flow · velocity (m/s), pressure (Pa)';slider.parentElement.style.display='none';document.querySelector('main>p:last-child').textContent=simulation.summary.limitations;document.getElementById('range').textContent=`Surface speed: 0 → ${maximum.toExponential(5)} m/s. Interior centroid speeds are in the report and NPZ.`;}
 if(isModal){
   document.querySelector('main>p').textContent=`Modal analysis · Mode ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · undamped, unprestressed`;
   slider.parentElement.style.display='none';
@@ -540,13 +572,14 @@ if(isModal){
   animationButton.after(gifButton);
 }
 document.getElementById('summary').textContent=JSON.stringify(simulation.summary,null,2);
-if(simulation.von_mises_Pa){
+if(simulation.von_mises_Pa||isThermal||isFlow){
   const selection=document.createElement('select');selection.id='resultField';
-  for(const [value,label] of (isThermal?[['stress','Temperature (°C)'],['magnitude','Heat flux magnitude (W/m²)'],['x','Heat flux X'],['y','Heat flux Y'],['z','Heat flux Z']]:[['magnitude','Total displacement'],['x','Ux'],['y','Uy'],['z','Uz'],['stress','Recovered von Mises (MPa)']])){
+  for(const [value,label] of (isFlow?[['magnitude','Speed (m/s)'],['x','Velocity X'],['y','Velocity Y'],['z','Velocity Z'],['stress','Pressure (Pa)']]:isThermal?[['stress','Temperature (°C)'],['magnitude','Heat flux magnitude (W/m²)'],['x','Heat flux X'],['y','Heat flux Y'],['z','Heat flux Z']]:[['magnitude','Total displacement'],['x','Ux'],['y','Uy'],['z','Uz'],['stress','Recovered von Mises (MPa)']])){
     const option=document.createElement('option');option.value=value;option.textContent=label;selection.append(option);
   }
   selection.onchange=()=>setResultComponent(selection.value);document.getElementById('reset').before(selection);
-  document.querySelector('main>p:last-child').textContent='Recovered nodal stress is available. Peaks at ideal fixed edges may be singular; use mesh refinement and physical support assumptions when interpreting stress.';
+  selection.value=isThermal?'stress':'magnitude';
+  if(!isFlow&&!isThermal)document.querySelector('main>p:last-child').textContent='Recovered nodal stress is available. Peaks at ideal fixed edges may be singular; use mesh refinement and physical support assumptions when interpreting stress.';
 }
 new ResizeObserver(()=>{fitRequested=true;draw();}).observe(canvas);
-draw();
+homeViewport();

@@ -35,6 +35,19 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
                 cfd_results = await session.call_tool('get_cfd_results', {'project_id':cfd_pid})
                 assert not cfd_results.isError
                 assert cfd_results.structuredContent['summary']['angle_count']==17
+                await session.call_tool('import_cad',{'project_id':cfd_pid,'path':str(cad)})
+                cad_setup=await session.call_tool('set_cfd_parameters',{'project_id':cfd_pid,'parameters':{
+                    'cfd_case':'cad','cfd_cad_scale':1.,'cfd_mesh_size_m':.005,'cfd_viscosity_Pa_s':.001,'cfd_pressure_drop_Pa':.00001}})
+                assert not cad_setup.isError
+                cad_job=await session.call_tool('run_cfd_analysis',{'project_id':cfd_pid})
+                while True:
+                    cad_status=await session.call_tool('get_job',{'job_id':cad_job.structuredContent['id']})
+                    if cad_status.structuredContent['status'] not in {'queued','running'}:break
+                    await asyncio.sleep(.05)
+                assert cad_status.structuredContent['status']=='completed',cad_status.structuredContent
+                cad_result=await session.call_tool('get_cfd_results',{'project_id':cfd_pid})
+                assert cad_result.structuredContent['summary']['analysis']=='cfdcad'
+                assert cad_result.structuredContent['summary']['relative_mass_imbalance']<1e-8
                 assert {"cancel_job", "run_convergence_study", "get_convergence_results"} <= {tool.name for tool in catalog.tools}
                 themed = await session.call_tool("set_desktop_theme", {"theme": "dark"})
                 assert themed.structuredContent["theme"] == "dark"
@@ -49,6 +62,13 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
                 project_id = created.structuredContent["id"]
                 configured = await session.call_tool("set_analysis_parameters", {"project_id": project_id, "load_N": 1500})
                 assert configured.structuredContent["parameters"]["load_N"] == 1500
+                multi=await session.call_tool('set_analysis_parameters',{'project_id':project_id,'material_preset':'Aluminum (generic)',
+                    'load_cases':[{'name':'Independent pull','kind':'force','components_N':[2,3,0],'surface':'x-max'}]})
+                assert not multi.isError
+                assert multi.structuredContent['parameters']['density_kg_m3']==2700
+                assert multi.structuredContent['parameters']['young_Pa']==69e9
+                assert multi.structuredContent['parameters']['load_cases'][0]['components_N']==[2,3,0]
+                await session.call_tool('set_analysis_parameters',{'project_id':project_id,'load_cases':[]})
                 modal = await session.call_tool("set_modal_parameters", {"project_id": project_id, "density_kg_m3": 2700, "mode_count": 8})
                 assert modal.structuredContent["parameters"]["density_kg_m3"] == 2700
                 assert modal.structuredContent["parameters"]["mode_count"] == 8
