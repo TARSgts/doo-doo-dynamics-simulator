@@ -42,7 +42,7 @@ Geometry/mesh previews are additionally restricted to the selected study, preven
 
 The study registry selects a handler through `execution/dispatch.py`. Every analysis handler takes `(cad, job_directory, parameters, progress)` and returns a numerical summary. Solvers run outside the UI process. Job snapshots, cancellation checks and the one-active-job-per-project constraint remain in force.
 
-History reads join progress in one SQL query instead of opening a connection for every job. `list_jobs` accepts optional `limit`, `offset`, `kinds` and `status` filters. The main message panel shows the latest 100 jobs; the API retains access to complete history, and result lookup can still find older matching studies. An additive project/history index supports these reads.
+History reads join progress in one SQL query instead of opening a connection for every job. `list_jobs` accepts optional `limit`, `offset`, `kinds` and `status` filters. The desktop fetches at most 100 recent jobs per refresh, while its compact message panel retains the existing latest-eight display. The API retains access to complete history, and result lookup can still find older matching studies. An additive project/history index supports these reads.
 
 ## Adding a capability
 
