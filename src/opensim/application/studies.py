@@ -14,6 +14,7 @@ LOAD=frozenset({'load_N','load_axis','load_kind','load_surface','load_region','l
 CONVERGENCE=frozenset(k for k in DEFAULT_PARAMETERS if k.startswith('convergence_'))
 THERMAL=frozenset(k for k in DEFAULT_PARAMETERS if k.startswith('thermal_'))
 CFD=frozenset(k for k in DEFAULT_PARAMETERS if k.startswith('cfd_'))
+IMPACT=frozenset(k for k in DEFAULT_PARAMETERS if k.startswith('impact_'))
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ STUDIES={definition.key:definition for definition in (
     StudyDefinition('convergence','Convergence Study','convergence','geometry',MESH|ELASTIC|LOAD|CONVERGENCE,'opensim.execution.analyses:convergence','convergence'),
     StudyDefinition('thermal','Thermal Analysis','thermal','thermal',MESH|THERMAL,'opensim.execution.analyses:thermal','thermal'),
     StudyDefinition('cfd','Fluid Dynamics','cfd','cfd_slice',CFD,'opensim.execution.analyses:cfd','cfd_run'),
+    StudyDefinition('impact','Impact / drop test','impact','impact',IMPACT,'opensim.execution.analyses:impact','impact_run'),
 )}
 STUDY_TYPES=tuple(STUDIES)
 JOB_STUDIES={definition.job_kind:definition.key for definition in STUDIES.values()}|{'cfd_mesh':'cfd','cfd_validation':'cfd'}
@@ -77,7 +79,7 @@ def input_values(study,parameters,*,kind=None):
 def input_snapshot(study,cad,parameters,*,kind=None):
     values=input_values(study,parameters,kind=kind)
     # Analytical reference models do not consume an imported solid.
-    consumes_cad=kind!='cfd_validation' and not (study=='cfd' and (DEFAULT_PARAMETERS|parameters)['cfd_case']!='cad' and kind!='cfd_mesh')
+    consumes_cad=study!='impact' and kind!='cfd_validation' and not (study=='cfd' and (DEFAULT_PARAMETERS|parameters)['cfd_case']!='cad' and kind!='cfd_mesh')
     return {'study':study,'cad':str(cad) if cad and consumes_cad else None,'inputs':values}
 
 

@@ -16,7 +16,25 @@ def create_server(workspace: Workspace) -> FastMCP:
         "Steady thermal conduction is available through set_thermal_parameters/run_thermal_analysis/get_thermal_results; Kelvin, W, W/m/K. No convection, radiation or thermal expansion. "
         "Static load_cases independently specify name, kind force/pressure, components_N or pressure_Pa, region, surface, enabled. Nonempty load_cases replace the legacy single load. Pressure is positive inward. material_preset selects editable generic Steel, Aluminum or solid ABS defaults. "
         "CFD is a main-window project study. With cfd_case=cad and cfd_backend=su2, the imported CAD may be a solid (cfd_domain_mode=external builds surrounding fluid) or an existing fluid passage (fluid). Configure cfd_speed_m_s, fluid density/viscosity, cfd_flow_axis x/y/z, near-model mesh size, CAD scale, and cfd_turbulence none/sa. SU2 solves steady incompressible Navier-Stokes or SA RANS. cfd_backend=stokes retains pressure-driven Re<=1 flow on existing fluid volumes. No thermal coupling or time-accurate wakes. show_in_desktop views cfd_slice, cfd and cfd_report select main-window flow results. "
+        "Elastic drop-test study: set_impact_parameters/run_impact_analysis/get_impact_results. Low-height blunt weight on a parametric simply supported elastic plate; independent of CAD, modal bending with unilateral contact spring. No plasticity, fracture or penetration. Show the impact view for playback and plots. "
         "run_convergence_study checks whether results depend on mesh size. Use cancel_job to stop a job that is taking too long. Inspect get_capabilities before requesting other physics. The desktop reflects shared workspace changes."))
+
+    @server.tool()
+    def set_impact_parameters(project_id: str, parameters: dict[str, Any]) -> dict[str, Any]:
+        """Set impact_* SI inputs for the bounded elastic plate drop-test demonstrator. Mass 0.05–2 kg, height 0.1–50 mm (entered in m), simply supported rectangular target, centered blunt square patch. Separate plate E/nu/density, contact spring N/m, damping, duration s, time step s and 1–5 symmetric modes/direction. Imported CAD is not used; no plasticity, fracture, penetration or damage predictions."""
+        from opensim.impact_parameters import IMPACT_DEFAULTS
+        if set(parameters)-set(IMPACT_DEFAULTS):raise ValueError('Use only supported impact_* settings')
+        return workspace.set_parameters(project_id,parameters)
+
+    @server.tool()
+    def run_impact_analysis(project_id: str) -> dict[str, Any]:
+        """Start the parametric low-height elastic plate drop test. Poll get_job. Energy and small-deflection checks reject unsupported cases. No imported-CAD impact solver."""
+        return workspace.start_job(project_id,'impact')
+
+    @server.tool()
+    def get_impact_results(project_id: str) -> dict[str, Any]:
+        """Return current elastic drop-test summary, time playback/report, CSV history, NPZ and input manifest. Does not predict damage or failure."""
+        return workspace.get_impact_results(project_id)
 
     @server.tool()
     def set_modal_parameters(project_id: str, density_kg_m3: float = 7850.0, mode_count: int = 6) -> dict[str, Any]:
@@ -171,7 +189,7 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def show_in_desktop(project_id: str, view: str = "results", mode: int = 1) -> dict[str, Any]:
-        """Select geometry, mesh, static results, modal or thermal view in the running desktop app. Mode selects a vibration mode only."""
+        """Select geometry, mesh, static results, modal, thermal, CFD or impact view in the running desktop app. Mode selects a vibration mode only."""
         return workspace.show_project(project_id, view, mode)
 
     return server

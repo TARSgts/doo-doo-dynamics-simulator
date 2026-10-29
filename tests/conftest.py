@@ -30,6 +30,21 @@ def desktop_runtime():
 
 
 @pytest.fixture(autouse=True)
+def close_test_windows(desktop_runtime):
+    """Release each test's native pages instead of accumulating hidden browsers."""
+    yield
+    if desktop_runtime is None:
+        return
+    from PySide6.QtCore import QCoreApplication,QEvent
+    for window in desktop_runtime.topLevelWidgets():
+        window.close()
+        window.deleteLater()
+    QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+    desktop_runtime.processEvents()
+    QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+
+
+@pytest.fixture(autouse=True)
 def isolate_discord_presence(tmp_path, monkeypatch):
     try:
         from PySide6.QtCore import QSettings

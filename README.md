@@ -104,3 +104,5 @@ The Python package is under `src/opensim`; the command is `open-sim`. Keep meshi
 Original project code is offered under GPL-2.0-or-later; see [LICENSE](LICENSE). Dependencies retain their own licenses. Installed environments, downloaded executables and generated run artifacts are excluded from Git. Ansys is a third-party trademark; this project is independent and unaffiliated.
 
 Code organization and adding studies: [Architecture and navigation](docs/ARCHITECTURE.md).
+
+- [Elastic plate drop test](docs/IMPACT.md): low-height blunt weight, parametric simply supported plate, time playback, force/displacement/energy histories and CSV. Reduced modal model; imported-CAD impact and material damage are unavailable.

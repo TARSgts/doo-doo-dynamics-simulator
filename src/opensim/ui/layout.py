@@ -293,6 +293,7 @@ class LayoutMixin:
             form.addRow(label, selector)
             self.selectors[key] = selector
         self.build_cfd_properties(form,layout)
+        self.build_impact_properties(form,layout)
         for key, control in {**self.fields, **self.selectors}.items():
             label_widget = form.labelForField(control)
             label_widget.setToolTip(FIELD_HELP[key])

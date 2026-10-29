@@ -11,6 +11,10 @@ class ResultsMixin:
     def current_artifact(self, project_id: str, view="results", mode=1) -> Path | None:
         project = self.get_project(project_id)
         study=self.selected_study(project_id)
+        if view=="impact":
+            job=self.latest_result_job(project_id,["impact"])
+            return self.job_directory(job["id"])/"impact/report.html" if job else None
+        if study=='impact' and view in {'geometry','mesh'}:study='static'
         for job in self.list_jobs(project_id,status='completed'):
             if not job_is_current(job, project) or job["status"] != "completed":
                 continue
@@ -37,6 +41,12 @@ class ResultsMixin:
                 if candidate.is_file():
                     return candidate
         return None
+
+    def get_impact_results(self,project_id):
+        job=self.latest_result_job(project_id,['impact'])
+        if job is None:raise ValueError('Run the elastic drop test for the current inputs first')
+        directory=self.job_directory(job['id'])/'impact'
+        return {'job_id':job['id'],'summary':job['result'],'artifacts':{name:str(directory/name) for name in ('report.html','plot.png','history.csv','impact.npz','manifest.json')}}
 
     def get_results(self, project_id: str) -> dict:
         project = self.get_project(project_id)

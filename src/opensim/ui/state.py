@@ -1,5 +1,6 @@
 """State for the desktop workbench."""
 from opensim.application.studies import STUDIES, study_for_job
+from opensim.ui.impact import IMPACT_UNITS
 import json
 from pathlib import Path
 import time
@@ -68,6 +69,7 @@ class StateMixin:
         if project and not self.dirty and self.project_revision != project["revision"]:
             for key, field in self.fields.items():
                 value = project["parameters"][key]
+                if key in IMPACT_UNITS:value/=IMPACT_UNITS[key]
                 if key in {"mesh_size_m",'cfd_mesh_size_m'}:
                     value *= 1000
                 if key == "young_Pa":
@@ -128,7 +130,7 @@ class StateMixin:
                 except ValueError:
                     pass
             self.modal_tools.setVisible(state["view"] == "modal")
-            self.deformation.setEnabled(state["view"] not in {"modal", "thermal"} and state['study']!='cfd')
+            self.deformation.setEnabled(state["view"] not in {"modal", "thermal"} and state['study'] not in {'cfd','impact'})
             self.animate_mode.setEnabled(bool(modal_result))
             self.export_gif_button.setEnabled(bool(modal_result) and self.gif_export is None)
             self.modal_selector.setEnabled(bool(modal_result))
@@ -157,14 +159,14 @@ class StateMixin:
                 self.cancel_face_picking()
             if view_key != self.loaded_view:
                 self.loaded_view = view_key
-                view_title={'cfd_slice':'Velocity slice','cfd':'Surface pressure','cfd_report':'Flow convergence / exports'}.get(state['view'],state['view'])
+                view_title={'cfd_slice':'Velocity slice','cfd':'Surface pressure','cfd_report':'Flow convergence / exports','impact':'Elastic plate response'}.get(state['view'],state['view'])
                 self.viewport_title.setText(project["name"].upper() + "  /  " + view_title.upper())
                 if artifact:
                     url = QUrl.fromLocalFile(str(artifact if artifact.name=='report.html' else self.viewer_for_artifact(artifact)))
                     url.setQuery("desktop=1")
                     self.view.setUrl(url)
                 else:
-                    self.view.setHtml(self.empty_view())
+                    self.view.setHtml(self.impact_placeholder() if state['study']=='impact' else self.empty_view())
             output = []
             for job in jobs[:8]:
                 output.append(f"[{job['status'].upper()}] {job['kind']}  ·  {job['id'][:8]}  ·  input revision {job['revision']}")
@@ -172,7 +174,7 @@ class StateMixin:
                     output.append("  " + job["error"])
                 if job["result"]:
                     result = job["result"]
-                    output.append(f"  {result['nodes']:,} nodes · {result['tetrahedra']:,} tetrahedra")
+                    output.append(f"  {result['plate_modes']} plate modes · {result['integration_steps']:,} integration steps" if result.get('analysis')=='impact' else f"  {result['nodes']:,} nodes · {result['tetrahedra']:,} tetrahedra")
                     repair = result.get("mesh_repair") or {}
                     if repair:
                         changes = [f"{repair.get('removed_duplicate_triangles', 0)} duplicate triangles removed",
@@ -200,6 +202,13 @@ class StateMixin:
             if self.messages.toPlainText() != text:
                 self.messages.setPlainText(text)
             try:
+                if state['study']=='impact':
+                    summary=self.workspace.get_impact_results(selected)['summary']
+                    self.result_cards[0].setText(f"Peak contact force\n{summary['maximum_contact_force_N']:.5g} N")
+                    self.result_cards[1].setText(f"Peak patch deflection\n{summary['maximum_patch_deflection_m']*1000:.5g} mm")
+                    self.result_cards[2].setText(f"Energy balance error\n{summary['maximum_relative_energy_error']*100:.4g}%")
+                    self.legend.setText('  Elastic plate drop test · Modal bending / compliant contact · No damage or CAD impact prediction')
+                    self.apply_language();return
                 if state['study']=='cfd' and state['view'] in {'cfd','cfd_slice','cfd_report'}:
                     summary=self.workspace.get_cfd_results(selected)['summary']
                     if summary.get('analysis') in {'cfd','cfd_validation'}:
@@ -253,6 +262,10 @@ class StateMixin:
                 if self.result_component.currentIndex() == 4 and "maximum_von_mises_Pa" in summary:
                     self.legend.setText(f"  Recovered von Mises: 0 → {summary['maximum_von_mises_Pa'] / 1e6:.6g} MPa · Ideal fixed-edge peaks may be singular · Display deformation is exaggerated")
             except ValueError:
+                if state['study']=='impact':
+                    for card,title in zip(self.result_cards,('Peak contact force','Peak patch deflection','Energy balance error')):card.setText(title+'\n—')
+                    self.legend.setText('  Set the plate and low-height drop conditions, then Run elastic drop test')
+                    self.apply_language();return
                 for card, title in zip(self.result_cards, ("Maximum |U|", "Tip displacement", "Force balance")):
                     card.setText(title + "\n—")
                 label = "No solved result for current settings" if state["view"] in {"results", "modal", "thermal"} else "Undeformed geometry / mesh preview"

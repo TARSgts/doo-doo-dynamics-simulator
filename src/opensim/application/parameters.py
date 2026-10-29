@@ -1,5 +1,6 @@
 """Backward-compatible defaults and validation for shared and study inputs."""
 import math
+from opensim.impact_parameters import IMPACT_DEFAULTS,validate_impact_parameters
 from opensim.load_settings import LOAD_AXES,LOAD_KINDS,LOAD_SURFACES,NORMAL_AXES
 from opensim.region_settings import validate_region
 from opensim.thermal_parameters import THERMAL_DEFAULTS,validate_thermal_parameters
@@ -10,7 +11,7 @@ DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
                       "load_axis": "x", "load_kind": "face", "load_surface": "x-max", "density_kg_m3": 7850.0, "mode_count": 6,
                       "support_region": {}, "load_region": {}, "load_cases": [], "material_name":"Custom",
                       "convergence_levels": 4, "convergence_ratio": 1.4, "convergence_tolerance_percent": 2.0,
-                      "convergence_target": "displacement"} | THERMAL_DEFAULTS | CFD_DEFAULTS
+                      "convergence_target": "displacement"} | THERMAL_DEFAULTS | CFD_DEFAULTS | IMPACT_DEFAULTS
 
 TEXT_PARAMETERS = {"load_axis", "load_kind", "load_surface", "support_region", "load_region", "convergence_target",
                    "thermal_boundary_mode", "thermal_fixed_region", "thermal_source_region", "cfd_case", "load_cases", "material_name", "cfd_inlet_region", "cfd_outlet_region",'cfd_backend','cfd_domain_mode','cfd_flow_axis','cfd_turbulence'}
@@ -28,6 +29,7 @@ def prepare_parameters(current,parameters):
     merged = project["parameters"] | parameters
     validate_thermal_parameters(merged)
     validate_cfd_parameters(merged)
+    validate_impact_parameters(merged)
     from opensim.load_case_parameters import validate_load_cases
     validate_load_cases(merged['load_cases'])
     if not isinstance(merged['material_name'],str) or len(merged['material_name'])>100: raise ValueError('Invalid material name')

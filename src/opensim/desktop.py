@@ -13,6 +13,7 @@ from opensim.discord_presence import DiscordPresence, load_presence_preferences
 from opensim.desktop_cfd import CFDStudyMixin
 
 
+from opensim.ui.impact import ImpactStudyMixin
 from opensim.ui.commands import CommandsMixin
 from opensim.ui.layout import LayoutMixin
 from opensim.ui.projects import ProjectsMixin
@@ -27,7 +28,7 @@ from opensim.ui.styles import STYLE, DARK_STYLE, MIDNIGHT_STYLE
 from opensim.ui.widgets import ScrollSafeDoubleSpinBox, ScrollSafeSpinBox, forward_wheel_to_panel
 
 
-class SimulatorWindow(CommandsMixin,LayoutMixin,ProjectsMixin,StudyPanelMixin,ReportsMixin,SelectionMixin,ViewportMixin,PresentationMixin,StateMixin,StudyTreeMixin,CFDStudyMixin,QMainWindow):
+class SimulatorWindow(ImpactStudyMixin,CommandsMixin,LayoutMixin,ProjectsMixin,StudyPanelMixin,ReportsMixin,SelectionMixin,ViewportMixin,PresentationMixin,StateMixin,StudyTreeMixin,CFDStudyMixin,QMainWindow):
     def __init__(self, workspace: Workspace):
         set_process_identity()
         super().__init__()

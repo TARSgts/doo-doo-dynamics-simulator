@@ -5,6 +5,7 @@ STAGE_LABELS = {
     "meshing": "Generating mesh",
     "preparing": "Preparing solver input",
     "solving": "CalculiX solving",
+    "impact-solving": "Integrating elastic drop test",
     "cfd-solving": "Solving numerical flow model",
     "reading": "Reading solver results",
     "exporting": "Saving results",

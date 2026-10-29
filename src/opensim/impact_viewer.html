@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Elastic plate drop test</title>
+<style>
+:root{--bg:#080b12;--fg:#dce5f3;--panel:#111c2d;--border:#35465f}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px 'Segoe UI',sans-serif}main{padding:16px;max-width:1400px;margin:auto}h1{font-size:22px;margin:0 0 8px}p{line-height:1.5;margin:8px 0}.notice{border-left:3px solid #d9ab60;padding:8px 12px;background:var(--panel)}.controls{position:sticky;top:0;z-index:2;background:var(--panel);border:1px solid var(--border);padding:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}.controls input{flex:1;min-width:120px}button,select{background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:6px 10px}canvas{display:block;width:100%;height:390px;background:var(--panel);border:1px solid var(--border)}img{width:100%;height:auto;border-radius:4px}table{border-collapse:collapse;width:100%;font-size:12px}td{border:1px solid var(--border);padding:7px;overflow-wrap:anywhere}section{margin-top:18px}#readout{min-width:230px;font-variant-numeric:tabular-nums}label{display:inline-flex;align-items:center;gap:5px}h2{font-size:17px}
+</style></head><body><main>
+<h1>Elastic plate drop test</h1>
+<p class="notice">__LIMITS__</p>
+<p>Four simply supported edges; centered square contact patch. Time starts at first touch. The drop height sets the initial downward speed. Gravity acts on the drop weight; plate self-weight is omitted. Contact stiffness represents a compliant interface; it is not a measured material property.</p>
+<div class="controls"><button id="play" title="Play one saved response over four seconds; this display is slowed down.">Play</button><input id="time" aria-label="Saved response time" title="Scrub the saved displacement and contact-force history." type="range" min="0" value="0" step="1"><span id="readout"></span><label>Plate display <select id="scale" title="Magnifies plate bending only. The symbolic weight follows the displayed plate using true relative motion; plots retain actual units."><option value="auto">Auto exaggeration</option><option value="1">True scale</option><option value="10">10× plate bending</option></select></label></div>
+<canvas id="impact" role="img" aria-label="Animated elastic plate and blunt drop weight"></canvas>
+<p id="scale-note"></p>
+<section><h2>Force, displacement and energy histories</h2><p>__ACCURACY__</p><img src="plot.png" alt="Contact force, target and weight displacements, energy components and energy balance versus time"></section>
+<section><h2>Results and files</h2><p>Use Export drop-test history in the desktop for CSV. The job folder also contains <code>history.csv</code>, <code>impact.npz</code> and <code>manifest.json</code>. Reported peaks are tracked at every integration step; plots and animation are sampled. No stress, failure or damage result is calculated.</p><table>__SUMMARY_ROWS__</table><h2>Inputs used (SI)</h2><table>__INPUT_ROWS__</table></section>
+</main><script>
+const impactData=__IMPACT_DATA__;
+const canvas=document.getElementById('impact'),ctx=canvas.getContext('2d'),time=document.getElementById('time'),play=document.getElementById('play'),scale=document.getElementById('scale');
+time.max=impactData.frames.length-1;
+let playing=false,epoch=null,dark=true,animationRequest=0;
+const maximum=impactData.frames.reduce((m,frame)=>Math.max(m,...frame.map(Math.abs)),0),width=impactData.x.at(-1),depth=impactData.y.at(-1),span=Math.max(width,depth);
+function setTheme(theme){dark=theme!=='light';document.documentElement.style.setProperty('--bg',dark?(theme==='midnight'?'#080b12':'#121b2b'):'#f5f8fc');document.documentElement.style.setProperty('--fg',dark?'#dce5f3':'#243b53');document.documentElement.style.setProperty('--panel',dark?'#111c2d':'#ffffff');drawImpact();}
+function drawImpact(){
+ const pixel=devicePixelRatio||1;canvas.width=canvas.clientWidth*pixel;canvas.height=canvas.clientHeight*pixel;ctx.scale(pixel,pixel);const W=canvas.clientWidth,H=canvas.clientHeight;ctx.clearRect(0,0,W,H);
+ const i=Number(time.value),frame=impactData.frames[i],factor=scale.value==='auto'?Math.min(150,span*.08/Math.max(maximum,1e-12)):Number(scale.value);
+ function project(x,y,z){return [W*.5+(x-width/2)*W*.65/span+(y-depth/2)*W*.22/span,H*.62-(y-depth/2)*H*.42/span+z*H*.9/span];}
+ const nx=impactData.x.length,ny=impactData.y.length;
+ for(let row=ny-2;row>=0;row--)for(let col=0;col<nx-1;col++){
+  const ids=[row*nx+col,row*nx+col+1,(row+1)*nx+col+1,(row+1)*nx+col],value=ids.reduce((s,k)=>s+Math.abs(frame[k]),0)/4;
+  ctx.fillStyle=`hsl(${220-170*value/Math.max(maximum,1e-12)} 65% ${dark?53:55}%)`;ctx.strokeStyle=dark?'#cadcff44':'#23364e44';ctx.lineWidth=.45;ctx.beginPath();
+  ids.forEach((k,n)=>{const p=project(impactData.x[k%nx],impactData.y[Math.floor(k/nx)],frame[k]*factor);n?ctx.lineTo(...p):ctx.moveTo(...p)});ctx.closePath();ctx.fill();ctx.stroke();
+ }
+ // The platen is a display symbol; its size is not a rigid-body contact mesh.
+ const centerDeflection=frame[Math.floor(ny/2)*nx+Math.floor(nx/2)],relative=impactData.weight[i]-impactData.patchDisplacement[i];
+ const center=project(width/2,depth/2,centerDeflection*factor+relative),pad=Math.max(12,impactData.patch*W*.65/span);
+ ctx.fillStyle='#eeb85d';ctx.strokeStyle='#966127';ctx.lineWidth=1.5;ctx.fillRect(center[0]-pad/2,center[1]-34,pad,32);ctx.strokeRect(center[0]-pad/2,center[1]-34,pad,32);
+ ctx.fillStyle=dark?'#dce5f3':'#243b53';ctx.font='13px Segoe UI';ctx.fillText('Blunt drop weight',center[0]-pad/2-10,center[1]-44);ctx.fillText('Simply supported edges · deflection color scale',18,25);
+ document.getElementById('readout').textContent=`${(impactData.time[i]*1000).toFixed(3)} ms · ${impactData.force[i].toFixed(2)} N`;
+ document.getElementById('scale-note').textContent=`Plate bending displayed at ${factor.toFixed(1)}×; the symbolic weight uses true motion relative to the displayed patch. Color range: 0–${(maximum*1000).toFixed(4)} mm deflection. Playback is slowed down; numerical time is shown above.`;
+ window.impactPlaybackState={frame:i,frames:impactData.frames.length,time_s:impactData.time[i],force_N:impactData.force[i],display_factor:factor,playing};
+}
+function stopPlayback(){playing=false;cancelAnimationFrame(animationRequest);play.textContent='Play';}
+function animate(stamp){if(!playing)return;if(epoch===null)epoch=stamp-Number(time.value)/Number(time.max)*4000;const f=(stamp-epoch)/4000;time.value=Math.min(Number(time.max),Math.round(f*Number(time.max)));if(f>=1)stopPlayback();drawImpact();if(playing)animationRequest=requestAnimationFrame(animate)}
+play.onclick=()=>{if(playing)stopPlayback();else{if(time.value===time.max)time.value=0;playing=true;play.textContent='Pause';epoch=null;animationRequest=requestAnimationFrame(animate)}drawImpact()};time.oninput=()=>{stopPlayback();drawImpact()};window.addEventListener('pagehide',stopPlayback);scale.onchange=drawImpact;new ResizeObserver(drawImpact).observe(canvas);drawImpact();
+</script></body></html>

@@ -27,7 +27,7 @@ class JobsMixin:
             if row is None:
                 raise ValueError("Unknown project")
             project = dict(row)
-            if kind not in {"example", "cfd", "cfd_validation"} and not project["cad"]:
+            if kind not in {"example", "cfd", "cfd_validation", "impact"} and not project["cad"]:
                 raise ValueError("Import CAD or create a test object first")
             if kind == "example":
                 project["revision"] += 1

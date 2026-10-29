@@ -122,7 +122,7 @@ class CommandsMixin:
         contents = QWidget()
         layout = QVBoxLayout(contents)
         layout.addWidget(QLabel("AVAILABLE NOW"))
-        for label, callback in (("Static Structural", self.solve), ("Convergence study", self.convergence), ("Modal analysis", self.modal), ("Thermal analysis", self.thermal), ("Fluid dynamics", self.show_cfd),
+        for label, callback in (("Static Structural", self.solve), ("Convergence study", self.convergence), ("Modal analysis", self.modal), ("Thermal analysis", self.thermal), ("Fluid dynamics", self.show_cfd), ("Impact / drop test", self.show_impact),
                                 ("Generate Mesh", self.mesh), ("MCP Controls", self.show_mcp)):
             button = QPushButton(label)
             button.clicked.connect(lambda checked=False, handler=callback: self.safe(handler))

@@ -1,5 +1,6 @@
 """Study panel for the desktop workbench."""
 from datetime import datetime
+from opensim.ui.impact import IMPACT_UNITS
 from opensim.application.studies import STUDIES
 from PySide6.QtCore import Qt, QSignalBlocker
 from PySide6.QtWidgets import QPushButton, QScrollArea, QToolButton
@@ -54,6 +55,7 @@ class StudyPanelMixin:
     def update_study_panel(self):
         state = self.workspace.ui_state()
         study = state["study"]
+        if self.impact_panel(study):return
         if self.cfd_panel(study):return
         modal = study == "modal"
         thermal = study == "thermal"
@@ -137,10 +139,11 @@ class StudyPanelMixin:
         study = self.workspace.ui_state()['study']
         if study == 'convergence':
             return self.show_convergence_report()
-        self.change_view({'static':'results','modal':'modal','thermal':'thermal','cfd':'cfd_slice'}[study])
+        self.change_view(STUDIES[study].result_view)
 
     def show_plots(self):
         if self.workspace.ui_state()['study']=='cfd':return self.change_view('cfd_report')
+        if self.workspace.ui_state()['study']=='impact':return self.change_view('impact')
         if self.dirty:
             raise ValueError("Apply settings and solve this study before plotting edited inputs")
         from opensim.plots import load_plot_source
@@ -161,6 +164,7 @@ class StudyPanelMixin:
 
     def save_parameters(self):
         parameters = {key: field.value() for key, field in self.fields.items()}
+        for key,unit in IMPACT_UNITS.items():parameters[key]*=unit
         parameters["mesh_size_m"] /= 1000
         parameters['cfd_mesh_size_m']/=1000
         parameters["young_Pa"] *= 1e9
@@ -176,6 +180,7 @@ class StudyPanelMixin:
         self.details_note.setText("Settings saved. Prior results are retained in job history.")
 
     def mesh(self):
+        if self.workspace.ui_state()['study']=='impact':raise ValueError('The parametric drop-test plate uses analytical modes; CAD meshing is unavailable for this study')
         self.save_parameters()
         self.workspace.start_job(self.require_project(), 'cfd_mesh' if self.workspace.ui_state()['study']=='cfd' else "mesh")
         self.workspace.show_project(self.project_id, 'geometry' if self.workspace.ui_state()['study']=='cfd' else "mesh")

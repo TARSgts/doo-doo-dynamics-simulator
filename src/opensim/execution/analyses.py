@@ -64,3 +64,8 @@ def static(cad,directory,parameters,progress):
                    support_region=parameters["support_region"], load_region=parameters["load_region"], progress=progress, load_cases=parameters['load_cases'])
 
     return result
+
+
+def impact(cad,directory,parameters,progress):
+    from opensim.impact import run_impact
+    return run_impact(directory/"impact",parameters,progress)

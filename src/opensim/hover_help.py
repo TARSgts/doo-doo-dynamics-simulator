@@ -24,6 +24,7 @@ FIELD_HELP = {
 }
 
 BUTTON_HELP = {
+    "Impact / drop test": "Open the low-height elastic plate drop-test study in this project. Uses its own parametric plate, not imported CAD; includes contact-force and energy histories.",
     "CFD": "Set up flow on this project in the main window. SU2 supports surrounding fluid around your solid model, velocity-driven flow and optional Spalart–Allmaras turbulence.",
     "CFD checks": "Run cylinder, laminar pipe and flat-plate theory comparisons at three spatial resolutions, with a saved verification report.",
     "Fluid dynamics": "Add a flow study to this project. Use your solid CAD with an automatic surrounding fluid enclosure, or import the volume occupied by fluid in a passage.",

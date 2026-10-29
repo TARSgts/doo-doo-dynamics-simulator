@@ -1,6 +1,6 @@
 # Architecture and code navigation
 
-The desktop keeps one project tree: shared Geometry and Mesh, then Static Structural, Modal, Convergence, Thermal and Fluid Dynamics. Each study shows its relevant properties below the tree. The restructuring changes code ownership and result validity; it preserves existing project files, job folders, controls and solver algorithms.
+The desktop keeps one project tree: shared Geometry and Mesh, then Static Structural, Modal, Convergence, Thermal, Fluid Dynamics and the parametric elastic drop test. Each study shows its relevant properties below the tree. The restructuring changes code ownership and result validity; it preserves existing project files, job folders, controls and solver algorithms.
 
 ## Where to look
 
@@ -54,6 +54,6 @@ History reads join progress in one SQL query instead of opening a connection for
 
 ## CI and remaining work
 
-GitHub Actions uses pinned official Node 24 actions, installs trusted CalculiX/SU2 dependencies, and retains XML reports and the full test log even on failure. Desktop tests keep one QApplication alive for the suite and delete remaining windows before native WebEngine shutdown. A nonzero process exit remains a failure, including a shutdown error after passing tests; the runner does not force success or suppress notifications.
+GitHub Actions uses pinned official Node 24 actions, installs trusted CalculiX/SU2 dependencies, and retains XML reports and the full test log even on failure. Desktop tests keep one QApplication alive for the suite, release native windows/pages after each test, and delete remaining windows before native WebEngine shutdown. A nonzero process exit remains a failure, including a shutdown error after passing tests; the runner does not force success or suppress notifications.
 
-This is a foundation for growth, not a distributed compute platform. Native thread limits and timeouts still use their existing defaults. Large results still use whole-file JSON/HTML viewers and NPZ/VTK exports. Resource scheduling, streaming/binary result loading, independently editable mesh/material configurations per study, remote workers and multiphysics coupling remain separate future changes.
+This is a foundation for growth, not a distributed compute platform. Native thread limits and timeouts still use their existing defaults. Large results still use whole-file JSON/HTML viewers and NPZ/VTK exports. Resource scheduling, streaming/binary result loading, independently editable mesh/material configurations per study, remote workers and multiphysics coupling remain separate future changes. The bounded elastic plate drop test is a reduced modal study; it does not implement general CAD transient contact.

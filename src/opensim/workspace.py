@@ -24,6 +24,7 @@ CAPABILITIES = [
     {"name": "Modal analysis", "enabled": True, "detail": "Undamped unprestressed modes; X-min face fixed; positive density"},
     {"name": "Thermal analysis", "enabled": True, "detail": "Steady isotropic conduction; fixed temperature plus second temperature or total surface heat input; other surfaces insulated"},
     {"name": "Fluid dynamics", "enabled": True, "detail": "Main-window CFD on user CAD: automatic external fluid enclosures or existing fluid volumes. Native SU2 incompressible Navier-Stokes, laminar or Spalart-Allmaras RANS; velocity slices, pressure, residual/flux checks. Legacy pressure-driven Stokes and analytical benchmarks remain available. No thermal coupling or time-accurate CFD."},
+    {"name":"Elastic drop test","enabled":True,"detail":"Low-height blunt drop weight on a parametric simply supported elastic plate; modal bending, contact spring, playback and energy checks. No CAD contact, plasticity, fracture or penetration."},
     *[{"name": name, "enabled": False, "detail": "Planned — not implemented"} for name in
       ("Transient dynamics",
        "Electromagnetics", "Contact", "Nonlinear materials", "Optimization", "GPU solve")],
@@ -173,8 +174,8 @@ class Workspace(JobsMixin,ResultsMixin):
 
     def show_project(self, project_id: str, view="geometry", mode=1) -> dict:
         self.get_project(project_id)
-        if view not in {"geometry", "mesh", "results", "modal", "thermal",'cfd','cfd_slice','cfd_report'}:
-            raise ValueError("View must be geometry, mesh, results, modal or thermal")
+        if view not in {'geometry','mesh'} | set(VIEW_STUDIES):
+            raise ValueError('Choose a view: '+', '.join(sorted({'geometry','mesh'} | set(VIEW_STUDIES))))
         if isinstance(mode, bool) or not isinstance(mode, int) or not 1 <= mode <= 30:
             raise ValueError("Mode must be an integer from 1 to 30")
         if view == "modal":

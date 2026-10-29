@@ -146,6 +146,10 @@ def solve(cad: Path, output: Path, size=0.05, scale=1.0, young=210e9,
 def main():
     parser = argparse.ArgumentParser(description="CAD to structural, modal and steady thermal simulation (SI units)")
     commands = parser.add_subparsers(dest="command", required=True)
+    impact = commands.add_parser('impact', help='Low-height elastic plate drop-test demonstrator; independent of CAD')
+    impact.add_argument('--out',type=Path,required=True)
+    impact.add_argument('--parameters',type=Path)
+
     thermal = commands.add_parser('thermal', help='Steady isotropic thermal conduction; SI inputs (Kelvin, W, W/m/K)')
     thermal.add_argument('cad', type=Path)
     thermal.add_argument('--out', type=Path, required=True)
@@ -241,6 +245,16 @@ def main():
         except (ValueError, FileNotFoundError, FileExistsError, RuntimeError) as error:
             parser.exit(1, f'open-sim: {error}\n')
         return
+    if arguments.command == 'impact':
+        try:
+            from opensim.impact import run_impact
+            from opensim.impact_parameters import IMPACT_DEFAULTS
+            settings=json.loads(arguments.parameters.read_text(encoding='utf-8-sig')) if arguments.parameters else {}
+            if not isinstance(settings,dict) or set(settings)-set(IMPACT_DEFAULTS):raise ValueError('Impact JSON accepts only supported impact_* settings')
+            print(json.dumps(run_impact(arguments.out,settings),indent=2))
+        except (ValueError,OSError) as error:parser.exit(1,f'Drop test failed: {error}\n')
+        return
+
     if arguments.command == 'thermal':
         try:
             from opensim.thermal import solve_thermal

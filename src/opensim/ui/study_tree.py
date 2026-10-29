@@ -28,7 +28,7 @@ class StudyTreeMixin:
                 entry=node(branch,title,study=study,action=f'load:{i}')
                 entry.setToolTip(0,'Independent '+load['kind']+'; region: '+json.dumps(load.get('region') or {'surface':load.get('surface','x-max')}))
         for study, definition in STUDIES.items():
-            if study=='cfd':continue
+            if study in {'cfd','impact'}:continue
             title=definition.title
             branch = node(root, title, study=study)
             node(branch, "Fixed temperature / " + ("Selected region" if parameters['thermal_fixed_region'] else "X-min") if study == 'thermal' else "Fixed support / " + support, study=study)
@@ -62,6 +62,15 @@ class StudyTreeMixin:
         node(branch,'Convergence / export','cfd_report','cfd')
         branch.setExpanded(project_id==state['project_id'] and state['study']=='cfd')
         if project_id==state['project_id'] and state['study']=='cfd':
+            self.tree.setCurrentItem(branch);self.tree.scrollToItem(branch,QTreeWidget.ScrollHint.PositionAtTop)
+
+        branch=node(root,'Impact / drop test','impact',study='impact')
+        node(branch,'Parametric elastic plate','impact',study='impact')
+        node(branch,'Simply supported edges','impact',study='impact')
+        node(branch,'Drop weight / contact spring','impact',study='impact')
+        node(branch,'Time playback / plots','impact','impact')
+        branch.setExpanded(project_id==state['project_id'] and state['study']=='impact')
+        if project_id==state['project_id'] and state['study']=='impact':
             self.tree.setCurrentItem(branch);self.tree.scrollToItem(branch,QTreeWidget.ScrollHint.PositionAtTop)
 
     def select_tree_item(self, item, column):

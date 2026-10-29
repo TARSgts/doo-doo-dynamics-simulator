@@ -29,6 +29,7 @@ def completed(w,pid,kind,*,parameters=None,payload=True):
     ({'mesh_size_m':.003},{'solve','modal','thermal','convergence'}),
     ({'cfd_mesh_size_m':.003},{'cfd'}),
     ({'material_name':'A different display label'},set()),
+    ({'impact_drop_height_m':.005},set()),
 ])
 def test_only_dependent_studies_become_stale(tmp_path,changes,stale):
     w=Workspace(tmp_path);pid=w.create_project('Independent studies')['id']

@@ -20,7 +20,22 @@ def test_actual_stdio_protocol_and_workspace_mutation(tmp_path):
             async with ClientSession(reader, writer) as session:
                 await session.initialize()
                 catalog = await session.list_tools()
-                assert len(catalog.tools) == 25
+                assert len(catalog.tools) == 28
+                impact_created=await session.call_tool('create_project',{'name':'MCP elastic drop'})
+                impact_pid=impact_created.structuredContent['id']
+                setup=await session.call_tool('set_impact_parameters',{'project_id':impact_pid,'parameters':{'impact_modes':1,'impact_duration_s':.005}})
+                assert not setup.isError
+                started=await session.call_tool('run_impact_analysis',{'project_id':impact_pid})
+                assert not started.isError
+                while True:
+                    state=await session.call_tool('get_job',{'job_id':started.structuredContent['id']})
+                    if state.structuredContent['status'] not in {'queued','running'}:break
+                    await asyncio.sleep(.05)
+                assert state.structuredContent['status']=='completed',state.structuredContent
+                result=await session.call_tool('get_impact_results',{'project_id':impact_pid})
+                assert result.structuredContent['summary']['analysis']=='impact'
+                assert result.structuredContent['summary']['maximum_relative_energy_error']<.001
+
                 cfd_project = await session.call_tool('create_project', {'name':'MCP CFD plate'})
                 cfd_pid = cfd_project.structuredContent['id']
                 configured_cfd = await session.call_tool('set_cfd_parameters', {'project_id':cfd_pid, 'parameters':{'cfd_case':'flat_plate','cfd_alpha_step_deg':1}})
