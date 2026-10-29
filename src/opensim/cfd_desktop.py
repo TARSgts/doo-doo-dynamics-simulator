@@ -291,7 +291,7 @@ class CFDDialog(QDialog):
         project = self.workspace.get_project(pid); self.load_inputs(project['parameters'])
         self.cad_note.setText('Fluid volume imported' if project['cad'] else 'No fluid volume imported')
         self.cad_note.setToolTip(project['cad'] or 'Import the closed volume occupied by fluid')
-        job = next((j for j in self.workspace.list_jobs(pid) if j['kind'] in {'cfd','cfd_validation'} and j['revision']==project['revision']), None)
+        job = next((j for j in self.workspace.list_jobs(pid) if j['kind'] in {'cfd','cfd_validation'} and self.workspace.job_is_current(j,project)), None)
         self.result_folder = None; self.export_button.setEnabled(False)
         if job and job['status'] in {'queued','running'}:
             self.job_id = job['id']; self.set_running(True)

@@ -61,11 +61,11 @@ STRESS_COMPONENTS = {"xx": "Normal X · Sxx", "yy": "Normal Y · Syy", "zz": "No
 def load_plot_source(workspace, project_id, study=None):
     project = workspace.get_project(project_id)
     study = study or workspace.ui_state()["study"]
-    kind = {"static": "solve", "modal": "modal", "convergence": "convergence", "thermal": "thermal"}.get(study)
-    if kind is None:
+    from opensim.application.studies import STUDIES
+    if study not in STUDIES or study=='cfd':
         raise ValueError("Choose static, modal or convergence study")
-    job = next((job for job in workspace.list_jobs(project_id)
-                if job["kind"] == kind and job["status"] == "completed" and job["revision"] == project["revision"]), None)
+    kind=STUDIES[study].job_kind
+    job = workspace.latest_result_job(project_id,[kind])
     if job is None:
         raise ValueError(f"Run the {study} study for the current settings before creating plots")
     directory = workspace.job_directory(job["id"]) / kind

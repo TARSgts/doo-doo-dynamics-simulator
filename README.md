@@ -102,3 +102,5 @@ Tests exercise CAD import and scaling, surface extraction, material validation, 
 The Python package is under `src/opensim`; the command is `open-sim`. Keep meshing, solver-deck generation, execution and visualization separate. See the [roadmap](docs/ROADMAP.md), [clean-room policy](docs/CLEAN_ROOM.md), [dependency review](docs/DEPENDENCIES.md) and [REA review](docs/REA_REVIEW.md).
 
 Original project code is offered under GPL-2.0-or-later; see [LICENSE](LICENSE). Dependencies retain their own licenses. Installed environments, downloaded executables and generated run artifacts are excluded from Git. Ansys is a third-party trademark; this project is independent and unaffiliated.
+
+Code organization and adding studies: [Architecture and navigation](docs/ARCHITECTURE.md).

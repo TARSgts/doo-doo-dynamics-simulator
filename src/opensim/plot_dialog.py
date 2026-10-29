@@ -121,7 +121,8 @@ class PlotDialog(QDialog):
 
     def update_banner(self):
         current = self.workspace.get_project(self.source.project_id)
-        label = "Saved result for current inputs" if current["revision"] == self.source.revision else "Historical result — project inputs have changed"
+        job=self.workspace.get_job(self.source.job_id)
+        label = "Saved result for current inputs" if self.workspace.job_is_current(job,current) else "Historical result — study inputs have changed"
         self.banner.setText(f"{label} · {self.source.study.title()} · run {self.source.job_id[:8]} · input revision {self.source.revision}")
         self.banner.setToolTip(str(self.source.directory))
 

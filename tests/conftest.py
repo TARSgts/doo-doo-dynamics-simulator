@@ -1,5 +1,32 @@
-"""Keep desktop tests independent of the user's live Discord and preferences."""
+"""Isolated preferences and explicit ownership of the native desktop runtime."""
+import os
 import pytest
+
+os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+
+
+@pytest.fixture(scope='session',autouse=True)
+def desktop_runtime():
+    """Keep Qt alive across tests, then delete windows before WebEngine shuts down.
+
+    Individual tests previously owned the only QApplication reference. Native
+    teardown could then run in arbitrary order after pytest printed its summary.
+    """
+    try:
+        from PySide6.QtCore import QCoreApplication,QEvent
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        yield None
+        return
+    application=QApplication.instance() or QApplication([])
+    application.setQuitOnLastWindowClosed(False)
+    yield application
+    for window in application.topLevelWidgets():
+        window.close()
+        window.deleteLater()
+    QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+    application.processEvents()
+    QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
 
 
 @pytest.fixture(autouse=True)

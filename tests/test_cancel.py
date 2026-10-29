@@ -95,7 +95,7 @@ def test_cancelled_example_cannot_replace_newly_imported_model(tmp_path, monkeyp
         path.write_text("old generated geometry")
         workspace.cancel_job("example-race")
         workspace.import_cad(project["id"], replacement)
-    monkeypatch.setattr(worker, "make_box", cancelled_geometry)
+    monkeypatch.setattr("opensim.execution.examples.make_box", cancelled_geometry)
     monkeypatch.setattr(worker, "watch_for_cancel", lambda workspace, job_id, stop: stop.wait())
     workspace.job_directory("example-race").mkdir(parents=True, exist_ok=True)
     worker.execute(workspace, "example-race")

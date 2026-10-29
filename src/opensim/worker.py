@@ -5,12 +5,7 @@ import threading
 import time
 import traceback
 
-import gmsh
-import numpy as np
 
-from opensim.cli import solve
-from opensim.geometry import gmsh_session, import_and_mesh, make_box
-from opensim.results import write_viewer
 from opensim.solver import cancel_active_solvers
 from opensim.workspace import Workspace
 
@@ -52,105 +47,10 @@ def execute(workspace: Workspace, job_id: str):
         def progress(stage):
             workspace.set_job_progress(job_id, stage)
         progress("starting")
-        cad = Path(job["payload"]["cad"]) if job["payload"]["cad"] else None
-        if job["kind"] == "example":
-            progress("creating")
-            cad = directory / ("heat-sink.step" if job['payload']['example'] == 'heat_sink' else "test-object.step")
-            if job['payload']['example'] == 'heat_sink':
-                from opensim.heat_sink import make_heat_sink
-                make_heat_sink(cad)
-            elif job["payload"]["example"] == "cantilever_beam":
-                make_box(cad, (1.0, 0.02, 0.02))
-            elif job["payload"]["example"] == "axial_bar":
-                make_box(cad, (0.1, 0.02, 0.02))
-            else:
-                with gmsh_session():
-                    gmsh.model.add("perforated_plate")
-                    plate = gmsh.model.occ.addBox(0, 0, 0, 0.1, 0.04, 0.005)
-                    hole = gmsh.model.occ.addCylinder(0.05, 0.02, -0.001, 0, 0, 0.007, 0.006)
-                    gmsh.model.occ.cut([(3, plate)], [(3, hole)])
-                    gmsh.model.occ.synchronize()
-                    gmsh.write(str(cad))
-            with workspace.connect() as connection:
-                updated = connection.execute(
-                    "UPDATE projects SET cad=? WHERE id=? AND revision=? AND EXISTS (SELECT 1 FROM jobs WHERE id=? AND status='running')",
-                    (str(cad), job["project_id"], job["revision"], job_id)).rowcount
-            if not updated:
-                return  # A stopped example must not overwrite a newly imported model.
-        if job['kind'] == 'cfd_validation':
-            from opensim.cfd_validation import run_cfd_validation
-            result = run_cfd_validation(directory / 'cfd_validation', progress=progress)
-        elif job['kind'] == 'cfd':
-            if parameters['cfd_case']=='cad':
-                if parameters['cfd_backend']=='su2':
-                    from opensim.su2_flow import solve_su2
-                    result=solve_su2(cad,directory/'cfd',parameters,progress=progress)
-                else:
-                    from opensim.cad_flow import solve_cad_flow
-                    result=solve_cad_flow(cad,directory/'cfd',parameters,progress=progress)
-            else:
-                from opensim.cfd import run_cfd
-                result = run_cfd(directory / 'cfd', parameters, progress=progress)
-        elif job["kind"] == "thermal":
-            from opensim.thermal import solve_thermal
-            result = solve_thermal(cad, directory / "thermal", size=parameters["mesh_size_m"], scale=parameters["cad_scale"],
-                                   order=parameters["element_order"], parameters=parameters, progress=progress)
-        elif job["kind"] == "modal":
-            from opensim.modal import solve_modal
-            result = solve_modal(cad, directory / "modal", size=parameters["mesh_size_m"],
-                                 scale=parameters["cad_scale"], young=parameters["young_Pa"],
-                                 poisson=parameters["poisson"], density=parameters["density_kg_m3"],
-                                 mode_count=parameters["mode_count"], order=parameters["element_order"], support_region=parameters["support_region"], progress=progress)
-        elif job["kind"] == "convergence":
-            from opensim.convergence import run_convergence
-            result = run_convergence(cad, directory / "convergence", size=parameters["mesh_size_m"],
-                                     scale=parameters["cad_scale"], young=parameters["young_Pa"], poisson=parameters["poisson"],
-                                     load=parameters["load_N"], order=parameters["element_order"], load_axis=parameters["load_axis"],
-                                     load_kind=parameters["load_kind"], load_surface=parameters["load_surface"],
-                                     support_region=parameters["support_region"], load_region=parameters["load_region"],
-                                     levels=int(parameters["convergence_levels"]), ratio=parameters["convergence_ratio"],
-                                     tolerance_percent=parameters["convergence_tolerance_percent"],
-                                     target=parameters["convergence_target"], progress=progress, load_cases=parameters['load_cases'])
-        elif job["kind"] == "solve":
-            result = solve(cad, directory / "solve", size=parameters["mesh_size_m"],
-                           scale=parameters["cad_scale"], young=parameters["young_Pa"],
-                           poisson=parameters["poisson"], load=parameters["load_N"], order=parameters["element_order"],
-                           load_axis=parameters["load_axis"], load_kind=parameters["load_kind"], load_surface=parameters["load_surface"],
-                           support_region=parameters["support_region"], load_region=parameters["load_region"], progress=progress, load_cases=parameters['load_cases'])
-        else:
-            progress("meshing")
-            domain={}
-            if job['kind']=='cfd_mesh':
-                from opensim.flow_domain import prepare_flow_mesh
-                mesh,domain=prepare_flow_mesh(cad,parameters,directory/'mesh.msh')
-            else:
-                mesh = import_and_mesh(cad, parameters["mesh_size_m"], parameters["cad_scale"], directory / "mesh.msh",
-                                       order=parameters["element_order"], tip_point=parameters["load_kind"] == "point" and not parameters['load_cases'] and job['payload'].get('study') != 'thermal')
-            result = {"nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra), "view": "mesh",
-                      "mesh_repair": mesh.repair_report,
-                      "cad_faces": mesh.surface_catalog(),
-                      "element_type": mesh.element_type,
-                      "bounds_m": [mesh.points.min(axis=0).tolist(), mesh.points.max(axis=0).tolist()]}
-            progress("exporting")
-            if job['payload'].get('study')!='thermal' and job['kind']!='cfd_mesh':
-                from opensim.load_cases import build_load_preview
-                result.update(build_load_preview(mesh,parameters,include_loads=job['payload'].get('study')!='modal'))
-            if job['kind']=='cfd_mesh':
-                from opensim.results import write_viewer_data
-                from opensim.flow_preview import flow_preview_data
-                flow_preview=flow_preview_data(mesh,parameters,domain)
-                result.update(analysis='cfdcad',limitations='Setup arrows show prescribed inlet flow and outward outlet direction, not solved streamlines. External enclosure side faces are farfield; body surfaces are no-slip walls.')
-                write_viewer_data(directory/'preview.html',{'points':mesh.points.tolist(),'faces':mesh.boundary_faces(),'face_ids':mesh.boundary_face_ids(),
-                    'displacement':np.zeros_like(mesh.points).tolist(),'velocity_m_s':np.zeros_like(mesh.points).tolist(),'pressure_Pa':np.zeros(len(mesh.points)).tolist(),'summary':result,'flow_preview':flow_preview})
-                if domain.get('mode')=='external':
-                    from opensim.su2_flow import boundary_groups
-                    from opensim.flow_domain import classify_external
-                    from opensim.flow_results import surface_view
-                    groups=classify_external(mesh,boundary_groups(mesh,parameters),domain)
-                    ids={tuple(sorted(f[:3])):int(tag) for tag,ff in mesh.surface_groups.items() for f in ff}
-                    surface_view(directory/'preview-body.html',mesh.points,groups['wall'],np.zeros_like(mesh.points),np.zeros(len(mesh.points)),result,[ids.get(tuple(sorted(f[:3])),0) for f in groups['wall']],flow_preview)
-            else:
-                write_viewer(directory / "preview.html", mesh, np.zeros_like(mesh.points), result)
+        from opensim.execution.dispatch import run_job
+        result = run_job(workspace, job, directory, progress)
+        if result is None:
+            return
         workspace.finish_job(job_id, result=result)
     except Exception as error:
         traceback.print_exc()

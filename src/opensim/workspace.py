@@ -1,33 +1,17 @@
+from opensim.application.parameters import DEFAULT_PARAMETERS, TEXT_PARAMETERS, prepare_parameters
+from opensim.storage.schema import initialize, connect_database
 import json
-import math
-import os
 from pathlib import Path
 import shutil
 import sqlite3
-import subprocess
-import sys
-import threading
 import time
 import uuid
-from opensim.load_settings import LOAD_AXES, LOAD_KINDS, LOAD_SURFACES, NORMAL_AXES
-from opensim.region_settings import validate_region
-from opensim.job_progress import STAGE_LABELS
-from opensim.thermal_parameters import THERMAL_DEFAULTS, validate_thermal_parameters
-from opensim.cfd_parameters import CFD_DEFAULTS, validate_cfd_parameters
 
 
-ACTIVE_STATUSES = ("queued", "running")
-TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
-CANCEL_MESSAGE = "Stopped by user before it finished; partial files are kept in the job folder"
-DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
-                      "poisson": 0.3, "load_N": 1000.0, "element_order": 1,
-                      "load_axis": "x", "load_kind": "face", "load_surface": "x-max", "density_kg_m3": 7850.0, "mode_count": 6,
-                      "support_region": {}, "load_region": {}, "load_cases": [], "material_name":"Custom",
-                      "convergence_levels": 4, "convergence_ratio": 1.4, "convergence_tolerance_percent": 2.0,
-                      "convergence_target": "displacement"} | THERMAL_DEFAULTS | CFD_DEFAULTS
-TEXT_PARAMETERS = {"load_axis", "load_kind", "load_surface", "support_region", "load_region", "convergence_target",
-                   "thermal_boundary_mode", "thermal_fixed_region", "thermal_source_region", "cfd_case", "load_cases", "material_name", "cfd_inlet_region", "cfd_outlet_region",'cfd_backend','cfd_domain_mode','cfd_flow_axis','cfd_turbulence'}
-STUDY_TYPES = ("static", "modal", "convergence", "thermal", "cfd")
+from opensim.storage.status import ACTIVE_STATUSES,TERMINAL_STATUSES,CANCEL_MESSAGE
+from opensim.application.studies import STUDY_TYPES, STUDIES, VIEW_STUDIES, job_is_current
+from opensim.storage.jobs import JobsMixin
+from opensim.storage.results import ResultsMixin
 CAPABILITIES = [
     {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP; closed STL, OBJ or 3MF surface meshes"},
     {"name": "Tetrahedral meshing", "enabled": True, "detail": "Gmsh C3D4 or quadratic C3D10"},
@@ -50,48 +34,16 @@ def default_workspace() -> Path:
     return Path(__file__).resolve().parents[2] / "workspace"
 
 
-class Workspace:
+class Workspace(JobsMixin,ResultsMixin):
     def __init__(self, root: Path | None = None):
         self.root = (root or default_workspace()).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.database = self.root / "workspace.sqlite3"
         with self.connect() as connection:
-            had_open_projects = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='open_projects'").fetchone()
-            connection.executescript("""
-                CREATE TABLE IF NOT EXISTS open_projects (project_id TEXT PRIMARY KEY, opened REAL NOT NULL);
-                CREATE TABLE IF NOT EXISTS project_studies (project_id TEXT PRIMARY KEY, study TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS project_sources (
-                    project_id TEXT PRIMARY KEY, cad_path TEXT NOT NULL, source_path TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS projects (
-                    id TEXT PRIMARY KEY, name TEXT NOT NULL, cad TEXT,
-                    parameters TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0,
-                    created REAL NOT NULL);
-                CREATE TABLE IF NOT EXISTS jobs (
-                    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL,
-                    status TEXT NOT NULL, revision INTEGER NOT NULL, payload TEXT NOT NULL,
-                    result TEXT, error TEXT, created REAL NOT NULL, updated REAL NOT NULL);
-                CREATE UNIQUE INDEX IF NOT EXISTS one_active_job ON jobs(project_id)
-                    WHERE status IN ('queued', 'running');
-                CREATE TABLE IF NOT EXISTS job_progress (
-                    job_id TEXT PRIMARY KEY, stage TEXT NOT NULL, updated REAL NOT NULL);
-                CREATE TABLE IF NOT EXISTS ui (id INTEGER PRIMARY KEY CHECK(id=1),
-                    project_id TEXT, view TEXT NOT NULL DEFAULT 'geometry', heartbeat REAL NOT NULL DEFAULT 0);
-                INSERT OR IGNORE INTO ui(id) VALUES(1);
-            """)
-            if "theme" not in {row["name"] for row in connection.execute("PRAGMA table_info(ui)")}:
-                connection.execute("ALTER TABLE ui ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'")
-            if "modal_mode" not in {row["name"] for row in connection.execute("PRAGMA table_info(ui)")}:
-                connection.execute("ALTER TABLE ui ADD COLUMN modal_mode INTEGER NOT NULL DEFAULT 1")
-            if "language" not in {row["name"] for row in connection.execute("PRAGMA table_info(ui)")}:
-                connection.execute("ALTER TABLE ui ADD COLUMN language TEXT NOT NULL DEFAULT 'en'")
-            if not had_open_projects:
-                connection.execute("INSERT OR IGNORE INTO open_projects SELECT project_id,? FROM ui WHERE project_id IN (SELECT id FROM projects)", (time.time(),))
-            connection.execute("INSERT OR IGNORE INTO project_studies SELECT project_id,CASE WHEN view='modal' THEN 'modal' ELSE 'static' END FROM ui WHERE project_id IN (SELECT id FROM projects)")
+            initialize(connection)
 
     def connect(self):
-        connection = sqlite3.connect(self.database, timeout=10)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_database(self.database)
 
     def create_project(self, name: str) -> dict:
         name = name.strip()
@@ -106,23 +58,43 @@ class Workspace:
 
     def list_projects(self) -> list[dict]:
         with self.connect() as connection:
-            rows = connection.execute("SELECT id FROM projects ORDER BY created DESC").fetchall()
-        return [self.get_project(row["id"]) for row in rows]
+            rows = connection.execute("SELECT * FROM projects ORDER BY created DESC").fetchall()
+        return [self._decode_project(row) for row in rows]
+
+    @staticmethod
+    def _decode_project(row):
+        project = dict(row)
+        project["parameters"] = DEFAULT_PARAMETERS | json.loads(project["parameters"])
+        return project
 
     def get_project(self, project_id: str) -> dict:
         with self.connect() as connection:
             row = connection.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
         if row is None:
             raise ValueError("Unknown project")
-        project = dict(row)
-        project["parameters"] = DEFAULT_PARAMETERS | json.loads(project["parameters"])
-        return project
+        return self._decode_project(row)
+
+    def selected_study(self, project_id):
+        with self.connect() as connection:
+            row=connection.execute('SELECT study FROM project_studies WHERE project_id=?',(project_id,)).fetchone()
+        return row['study'] if row else 'static'
+
+    def job_is_current(self, job, project=None):
+        return job_is_current(job,project or self.get_project(job['project_id']))
+
+    def study_settings(self, project_id, study):
+        """A named, scoped input view; legacy flat settings remain supported."""
+        from opensim.application.studies import input_values,input_signature
+        if study not in STUDIES:raise ValueError('Unknown study')
+        project=self.get_project(project_id);definition=STUDIES[study]
+        return {'study':study,'title':definition.title,'parameters':input_values(study,project['parameters']),
+                'input_signature':input_signature(study,project['cad'],project['parameters']),
+                'job_kind':definition.job_kind,'result_view':definition.result_view}
 
     def list_open_projects(self) -> list[dict]:
         with self.connect() as connection:
-            ids = [row["project_id"] for row in connection.execute(
-                "SELECT o.project_id FROM open_projects o JOIN projects p ON p.id=o.project_id ORDER BY o.opened DESC")]
-        return [self.get_project(project_id) for project_id in ids]
+            rows=connection.execute("SELECT p.* FROM open_projects o JOIN projects p ON p.id=o.project_id ORDER BY o.opened DESC").fetchall()
+        return [self._decode_project(row) for row in rows]
 
     def rename_project(self, project_id: str, name: str) -> dict:
         self.get_project(project_id)
@@ -186,45 +158,7 @@ class Workspace:
 
     def set_parameters(self, project_id: str, parameters: dict) -> dict:
         project = self.get_project(project_id)
-        geometry_keys={'cfd_domain_mode','cfd_flow_axis','cfd_padding','cfd_mesh_size_m','cfd_cad_scale'}
-        parameters=dict(parameters)
-        if any(key in parameters and parameters[key]!=project['parameters'][key] for key in geometry_keys):
-            parameters.setdefault('cfd_inlet_region',{});parameters.setdefault('cfd_outlet_region',{})
-        parameters = {key: {} if key in {"support_region", "load_region"} and value is None else value for key, value in parameters.items()}
-        if set(parameters) - set(DEFAULT_PARAMETERS):
-            raise ValueError("Unsupported analysis parameter")
-        merged = project["parameters"] | parameters
-        validate_thermal_parameters(merged)
-        validate_cfd_parameters(merged)
-        from opensim.load_case_parameters import validate_load_cases
-        validate_load_cases(merged['load_cases'])
-        if not isinstance(merged['material_name'],str) or len(merged['material_name'])>100: raise ValueError('Invalid material name')
-        numeric = [value for key, value in merged.items() if key not in TEXT_PARAMETERS]
-        if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
-               for value in numeric):
-            raise ValueError("All parameters must be finite numbers")
-        if (merged["element_order"] not in {1, 2} or merged["load_axis"] not in LOAD_AXES
-                or merged["load_kind"] not in LOAD_KINDS or merged["load_surface"] not in LOAD_SURFACES):
-            raise ValueError("Choose element order 1/2, X/Y/Z or surface normal, face/point/traction and a bounding-plane surface")
-        if merged["load_axis"] in NORMAL_AXES and merged["load_kind"] != "traction":
-            raise ValueError("Perpendicular surface loading requires uniform surface traction")
-        if any(merged[key] <= 0 for key in ("mesh_size_m", "cad_scale", "young_Pa")):
-            raise ValueError("Mesh size, CAD scale and Young's modulus must be positive")
-        from opensim.modal_parameters import validate_modal_parameters
-        validate_modal_parameters(merged["density_kg_m3"], merged["mode_count"])
-        from opensim.convergence import validate_convergence_parameters
-        if isinstance(merged["convergence_levels"], float) and merged["convergence_levels"].is_integer():
-            merged["convergence_levels"] = int(merged["convergence_levels"])
-            if "convergence_levels" in parameters:
-                parameters["convergence_levels"] = merged["convergence_levels"]
-        validate_convergence_parameters(merged["convergence_levels"], merged["convergence_ratio"],
-                                        merged["convergence_tolerance_percent"], merged["convergence_target"])
-        validate_region(merged["support_region"])
-        validate_region(merged["load_region"])
-        if merged["load_region"] and merged["load_kind"] != "traction":
-            raise ValueError("A selected load region requires uniform surface traction")
-        if not -1 < merged["poisson"] < 0.5 or (merged["load_N"] == 0 and not merged['load_cases']):
-            raise ValueError("Use -1 < Poisson ratio < 0.5 and a nonzero axial load")
+        parameters, merged = prepare_parameters(project["parameters"], parameters)
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             self._assert_idle(connection, project_id)
@@ -236,202 +170,6 @@ class Workspace:
                                    (json.dumps(current_parameters), project_id))
         return self.get_project(project_id)
 
-    def start_job(self, project_id: str, kind: str, example="perforated_plate") -> dict:
-        if kind not in {"example", "mesh", "solve", "modal", "convergence", "thermal", "cfd", "cfd_validation", "cfd_mesh"}:
-            raise ValueError("Unsupported job kind")
-        if example not in {"perforated_plate", "axial_bar", "cantilever_beam", "heat_sink"}:
-            raise ValueError("Unsupported test object")
-        job_id = uuid.uuid4().hex
-        with self.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            self._assert_idle(connection, project_id)
-            row = connection.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
-            if row is None:
-                raise ValueError("Unknown project")
-            project = dict(row)
-            if kind not in {"example", "cfd", "cfd_validation"} and not project["cad"]:
-                raise ValueError("Import CAD or create a test object first")
-            if kind == "example":
-                project["revision"] += 1
-                parameters = DEFAULT_PARAMETERS | json.loads(project["parameters"])
-                parameters.update({"support_region": {}, "load_region": {}, "load_cases": [], "thermal_fixed_region": {}, "thermal_source_region": {}, "cfd_inlet_region":{}, "cfd_outlet_region":{}})
-                if example == 'heat_sink':
-                    from opensim.heat_sink import HEAT_SINK_PARAMETERS
-                    parameters.update(HEAT_SINK_PARAMETERS)
-                project["parameters"] = json.dumps(parameters)
-                connection.execute("UPDATE projects SET revision=?,parameters=? WHERE id=?", (project["revision"], project["parameters"], project_id))
-            payload = {"cad": project["cad"], "parameters": DEFAULT_PARAMETERS | json.loads(project["parameters"]), "example": example}
-            selected_study = connection.execute("SELECT study FROM project_studies WHERE project_id=?", (project_id,)).fetchone()
-            payload['study'] = selected_study['study'] if selected_study else 'static'
-            now = time.time()
-            connection.execute("INSERT INTO jobs(id,project_id,kind,status,revision,payload,result,error,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                               (job_id, project_id, kind, "queued", project["revision"],
-                                json.dumps(payload), None, None, now, now))
-            connection.execute("INSERT INTO job_progress VALUES(?,?,?)", (job_id, "queued", now))
-            study = {"solve": "static", "modal": "modal", "convergence": "convergence", "thermal": "thermal"}.get(kind)
-            if kind in {'cfd','cfd_mesh','cfd_validation'}:study='cfd'
-            if kind == 'example' and example == 'heat_sink':
-                study = 'thermal'
-                payload['study'] = 'thermal'
-                connection.execute('UPDATE jobs SET payload=? WHERE id=?', (json.dumps(payload), job_id))
-            if study:
-                connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))
-        directory = self.job_directory(job_id)
-        directory.mkdir(parents=True)
-        try:
-            with (directory / "worker.log").open("w", encoding="utf-8") as log:
-                process = subprocess.Popen(
-                    [sys.executable, "-m", "opensim.worker", "--workspace", str(self.root), "--job", job_id],
-                    stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-        except OSError as error:
-            self.finish_job(job_id, error=str(error))
-            raise
-        threading.Thread(target=self._watch, args=(process, job_id), daemon=True).start()
-        return self.get_job(job_id)
-
-    def _watch(self, process, job_id):
-        process.wait()
-        if self.get_job(job_id)["status"] in {"queued", "running"}:
-            self.finish_job(job_id, error=f"Worker exited unexpectedly ({process.returncode}); inspect worker.log")
-
-    def get_job(self, job_id: str) -> dict:
-        with self.connect() as connection:
-            row = connection.execute("SELECT jobs.*,job_progress.stage AS progress_stage FROM jobs LEFT JOIN job_progress ON jobs.id=job_progress.job_id WHERE jobs.id=?", (job_id,)).fetchone()
-        if row is None:
-            raise ValueError("Unknown job")
-        job = dict(row)
-        if job["status"] in TERMINAL_STATUSES:
-            job["progress_stage"] = job["status"]
-        elif not job["progress_stage"]:
-            job["progress_stage"] = "queued" if job["status"] == "queued" else "starting"
-        job["payload"] = json.loads(job["payload"])
-        job["result"] = json.loads(job["result"]) if job["result"] else None
-        return job
-
-    def list_jobs(self, project_id: str) -> list[dict]:
-        with self.connect() as connection:
-            rows = connection.execute("SELECT id FROM jobs WHERE project_id=? ORDER BY created DESC", (project_id,)).fetchall()
-        return [self.get_job(row["id"]) for row in rows]
-
-    def job_directory(self, job_id: str) -> Path:
-        job = self.get_job(job_id)
-        return self.root / job["project_id"] / "jobs" / job_id
-
-    def finish_job(self, job_id: str, result: dict | None = None, error: str | None = None):
-        with self.connect() as connection:
-            # A stopped job stays stopped even if its worker reports late.
-            updated = connection.execute("UPDATE jobs SET status=?,result=?,error=?,updated=? WHERE id=? AND status IN ('queued','running')",
-                                         ("failed" if error else "completed", json.dumps(result) if result else None,
-                                          error, time.time(), job_id)).rowcount
-            if not updated:
-                return
-            connection.execute("INSERT INTO job_progress VALUES(?,?,?) ON CONFLICT(job_id) DO UPDATE SET stage=excluded.stage,updated=excluded.updated",
-                               (job_id, "failed" if error else "completed", time.time()))
-
-    def cancel_job(self, job_id: str) -> dict:
-        """Stop a queued or running job. Its worker notices within a second and ends any solver process."""
-        self.get_job(job_id)
-        with self.connect() as connection:
-            now = time.time()
-            updated = connection.execute("UPDATE jobs SET status='cancelled',error=?,updated=? WHERE id=? AND status IN ('queued','running')",
-                                         (CANCEL_MESSAGE, now, job_id)).rowcount
-            if not updated:
-                raise ValueError("This job has already finished; only queued or running jobs can be stopped")
-            connection.execute("INSERT INTO job_progress VALUES(?,?,?) ON CONFLICT(job_id) DO UPDATE SET stage=excluded.stage,updated=excluded.updated",
-                               (job_id, "cancelled", now))
-        return self.get_job(job_id)
-
-    def active_job(self, project_id: str) -> dict | None:
-        return next((job for job in self.list_jobs(project_id) if job["status"] in ACTIVE_STATUSES), None)
-
-    def set_job_progress(self, job_id: str, stage: str):
-        if stage not in STAGE_LABELS or stage in TERMINAL_STATUSES:
-            raise ValueError("Choose a running job stage; completion is recorded by finish_job or cancel_job")
-        self.get_job(job_id)
-        with self.connect() as connection:
-            now = time.time()
-            connection.execute("INSERT INTO job_progress(job_id,stage,updated) SELECT id,?,? FROM jobs WHERE id=? AND status IN ('queued','running') ON CONFLICT(job_id) DO UPDATE SET stage=excluded.stage,updated=excluded.updated",
-                               (stage, now, job_id))
-            connection.execute("UPDATE jobs SET updated=? WHERE id=? AND status IN ('queued','running')", (now, job_id))
-
-    def current_artifact(self, project_id: str, view="results", mode=1) -> Path | None:
-        project = self.get_project(project_id)
-        for job in self.list_jobs(project_id):
-            if job["revision"] != project["revision"] or job["status"] != "completed":
-                continue
-            directory = self.job_directory(job["id"])
-            if view == "modal" and job["kind"] == "modal":
-                if isinstance(mode, bool) or not isinstance(mode, int) or not 1 <= mode <= job["result"]["mode_count"]:
-                    raise ValueError("Selected mode is outside the completed result range")
-                return directory / "modal" / f"mode-{mode}.html"
-            if view == "results" and job["kind"] == "solve":
-                return directory / "solve" / "results.html"
-            if view == "thermal" and job["kind"] == "thermal":
-                return directory / "thermal" / "results.html"
-            if view in {'cfd','cfd_slice','cfd_report'} and job['kind'] in {'cfd','cfd_validation'}:
-                folder=directory/job['kind'];name='report.html' if view=='cfd_report' or job['kind']=='cfd_validation' else 'slice.html' if view=='cfd_slice' and (folder/'slice.html').is_file() else 'results.html'
-                candidate=folder/name
-                if not candidate.is_file():candidate=folder/'report.html'
-                return candidate
-            if view in {"geometry", "mesh"}:
-                if view=='geometry' and job['kind']=='cfd_mesh' and (directory/'preview-body.html').is_file():return directory/'preview-body.html'
-                relative = "modal/mode-1.html" if job["kind"] == "modal" else "thermal/results.html" if job["kind"] == "thermal" else "solve/results.html" if job["kind"] == "solve" else "preview.html"
-                candidate = directory / relative
-                if candidate.is_file():
-                    return candidate
-        return None
-
-    def get_results(self, project_id: str) -> dict:
-        project = self.get_project(project_id)
-        for job in self.list_jobs(project_id):
-            if job["revision"] == project["revision"] and job["kind"] == "solve" and job["status"] == "completed":
-                return {"job_id": job["id"], "summary": job["result"],
-                        "artifacts": {name: str(self.job_directory(job["id"]) / "solve" / name)
-                                      for name in ("results.html", "results.vtk", "model.frd", "manifest.json")}}
-        raise ValueError("No completed solve for the current project inputs")
-
-    def get_convergence_results(self, project_id: str) -> dict:
-        project = self.get_project(project_id)
-        for job in self.list_jobs(project_id):
-            if job["revision"] == project["revision"] and job["kind"] == "convergence" and job["status"] == "completed":
-                directory = self.job_directory(job["id"]) / "convergence"
-                return {"job_id": job["id"], "summary": job["result"],
-                        "artifacts": {name: str(directory / name) for name in ("report.html", "convergence.json", "convergence.csv")},
-                        "meshes": [{"mesh": level["level"], "tetrahedra": level["tetrahedra"], "viewer": str(directory / level["viewer"])}
-                                   for level in job["result"]["levels"]]}
-        raise ValueError("No completed convergence study for the current project inputs")
-
-    def get_cfd_results(self, project_id: str) -> dict:
-        project = self.get_project(project_id)
-        for job in self.list_jobs(project_id):
-            if job['revision'] == project['revision'] and job['kind'] in {'cfd', 'cfd_validation'} and job['status'] == 'completed':
-                directory = self.job_directory(job['id']) / job['kind']
-                return {'job_id': job['id'], 'summary': job['result'], 'artifacts': {
-                    name: str(directory/name) for name in ('report.html', 'plot.png', 'data.csv', 'flow.npz', 'manifest.json', 'report.json', 'results.html','slice.html','results.vtk','history.csv','solver.log') if (directory/name).is_file()
-                }}
-        raise ValueError('No completed CFD study for the current project inputs')
-
-    def get_thermal_results(self, project_id: str) -> dict:
-        project = self.get_project(project_id)
-        for job in self.list_jobs(project_id):
-            if job["revision"] == project["revision"] and job["kind"] == "thermal" and job["status"] == "completed":
-                directory = self.job_directory(job["id"]) / "thermal"
-                return {"job_id": job["id"], "summary": job["result"], "artifacts": {name: str(directory / name)
-                        for name in ("thermal.npz", "results.html", "results.vtk", "temperatures.csv", "model.frd", "manifest.json")}}
-        raise ValueError("No completed thermal solve for the current project inputs")
-
-    def get_modal_results(self, project_id: str) -> dict:
-        project = self.get_project(project_id)
-        for job in self.list_jobs(project_id):
-            if job["revision"] == project["revision"] and job["kind"] == "modal" and job["status"] == "completed":
-                directory = self.job_directory(job["id"]) / "modal"
-                return {"job_id": job["id"], "summary": job["result"],
-                        "artifacts": {name: str(directory / name) for name in ("modes.npz", "model.frd", "manifest.json")},
-                        "modes": [{"mode": index, "frequency_Hz": frequency, "viewer": str(directory / f"mode-{index}.html"),
-                                   "vtk": str(directory / f"mode-{index}.vtk")}
-                                  for index, frequency in enumerate(job["result"]["frequencies_Hz"], start=1)]}
-        raise ValueError("No completed modal solve for the current project inputs")
 
     def show_project(self, project_id: str, view="geometry", mode=1) -> dict:
         self.get_project(project_id)
@@ -443,8 +181,8 @@ class Workspace:
             self.current_artifact(project_id, view, mode)
         with self.connect() as connection:
             connection.execute("INSERT OR IGNORE INTO open_projects VALUES(?,?)", (project_id, time.time()))
-            if view in {"modal", "results", "thermal",'cfd','cfd_slice','cfd_report'}:
-                study = 'cfd' if view.startswith('cfd') else "thermal" if view == "thermal" else "modal" if view == "modal" else "static"
+            if view in VIEW_STUDIES:
+                study = VIEW_STUDIES[view]
                 connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))
             connection.execute("UPDATE ui SET project_id=?,view=?,modal_mode=? WHERE id=1", (project_id, view, mode))
         return self.ui_state()
@@ -452,7 +190,7 @@ class Workspace:
     def select_study(self, project_id: str, study: str) -> dict:
         """Select a study's settings without solving or changing numerical inputs."""
         if study not in STUDY_TYPES:
-            raise ValueError("Choose static, modal, convergence or thermal study")
+            raise ValueError('Choose a study: '+', '.join(STUDY_TYPES))
         self.get_project(project_id)
         with self.connect() as connection:
             connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))

@@ -5,20 +5,39 @@ permissions:
 jobs:
   windows-structural:
     runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONFAULTHANDLER: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0, Node 24
         with:
           python-version: '3.12'
       - name: Install pinned dependencies and CalculiX
         shell: pwsh
         run: ./tools/setup.ps1 -Python python
-      - name: Run tests including real solver
+      - name: Run structural pipeline with real solver
         shell: pwsh
-        run: ./.venv/Scripts/python.exe -m pytest tests/test_pipeline.py -q
-      - name: Install desktop and MCP dependencies
+        run: ./.venv/Scripts/python.exe tools/run_tests.py tests/test_pipeline.py -q --junitxml=test-results/pipeline.xml
+      - name: Install desktop, MCP and native CFD dependencies
         shell: pwsh
-        run: ./tools/install-desktop.ps1 -Python python
-      - name: Run desktop, MCP and worker tests
+        run: |
+          ./tools/install-desktop.ps1 -Python python
+          ./.venv/Scripts/python.exe tools/install_su2.py
+          if ($LASTEXITCODE -ne 0) { throw 'Native SU2 installation failed.' }
+      - name: Run complete suite including desktop, workers and real solvers
         shell: pwsh
-        run: ./.venv/Scripts/python.exe -m pytest -q
+        run: |
+          New-Item -ItemType Directory -Force test-results | Out-Null
+          ./.venv/Scripts/python.exe tools/run_tests.py -q --junitxml=test-results/full-suite.xml -o faulthandler_timeout=90 2>&1 | Tee-Object -FilePath test-results/full-suite.log
+          $testExitCode = $LASTEXITCODE
+          Write-Output "Test process exit code: $testExitCode"
+          exit $testExitCode
+      - name: Preserve test reports and shutdown diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24
+        with:
+          name: windows-test-results
+          path: test-results/
+          if-no-files-found: warn
