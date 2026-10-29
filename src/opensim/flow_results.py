@@ -18,18 +18,18 @@ def clip_polygon(values,axis,bound,keep_above):
     return result
 
 
-def surface_view(path,points,faces,velocity,pressure,summary,face_ids=None):
+def surface_view(path,points,faces,velocity,pressure,summary,face_ids=None,flow_preview=None):
     used=np.unique(faces);inverse=np.full(len(points),-1,dtype=int);inverse[used]=np.arange(len(used))
     write_viewer_data(Path(path),{'points':points[used].tolist(),'faces':inverse[np.array(faces)].tolist(),
         'face_ids':face_ids or [0]*len(faces),'displacement':np.zeros((len(used),3)).tolist(),
-        'velocity_m_s':velocity[used].tolist(),'pressure_Pa':pressure[used].tolist(),'summary':summary})
+        'velocity_m_s':velocity[used].tolist(),'pressure_Pa':pressure[used].tolist(),'summary':summary,'flow_preview':flow_preview})
 
 
-def write_flow_views(directory,mesh,velocity,pressure,summary,groups):
+def write_flow_views(directory,mesh,velocity,pressure,summary,groups,flow_preview=None):
     directory=Path(directory)
     faces=groups['wall'] if summary.get('domain',{}).get('mode')=='external' else mesh.boundary_faces()
     ids={tuple(sorted(f[:3])):int(tag) for tag,ff in mesh.surface_groups.items() for f in ff}
-    surface_view(directory/'results.html',mesh.points,faces,velocity,pressure,summary,[ids.get(tuple(sorted(f[:3])),0) for f in faces])
+    surface_view(directory/'results.html',mesh.points,faces,velocity,pressure,summary,[ids.get(tuple(sorted(f[:3])),0) for f in faces],flow_preview)
     normal=1 if summary.get('flow_axis','x')!='y' else 0
     body=summary.get('domain',{}).get('body_bounds_m')
     plane=float(np.mean(np.array(body)[:,normal])) if body else float(np.mean([mesh.points[:,normal].min(),mesh.points[:,normal].max()]))
@@ -61,4 +61,4 @@ def write_flow_views(directory,mesh,velocity,pressure,summary,groups):
         # Add the actual solid wall to the slice; no triangles are invented inside the solid.
         offset=len(points);points.extend(mesh.points);vel.extend(velocity);pr.extend(pressure)
         triangles.extend((np.array(groups['wall'])+offset).tolist())
-        surface_view(directory/'slice.html',np.array(points),triangles,np.array(vel),np.array(pr),summary|{'display':'Near-model fluid center slice + solid walls' if body else 'Fluid center slice + solid walls'})
+        surface_view(directory/'slice.html',np.array(points),triangles,np.array(vel),np.array(pr),summary|{'display':'Near-model fluid center slice + solid walls' if body else 'Fluid center slice + solid walls'},flow_preview=flow_preview)

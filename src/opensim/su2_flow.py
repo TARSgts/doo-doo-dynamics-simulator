@@ -147,12 +147,14 @@ def solve_su2(cad,output,p,progress=None):
         'Re_reference':rho*speed*domain.get('body_span_m',np.ptp(mesh.points,axis=0).max())/p['cfd_viscosity_Pa_s'],
         'cad_faces':mesh.surface_catalog(),'limitations':'Steady incompressible flow. Convergence and boundary flux checks are necessary, not a mesh-accuracy guarantee. Near-wall resolution and turbulence modeling affect drag. Unsteady or separated flows may not converge to a steady solution.'}
     if progress:progress('exporting')
+    from opensim.flow_preview import flow_preview_data
+    preview=flow_preview_data(mesh,p,domain)
     np.savez_compressed(output/'flow.npz',points=mesh.points,tetrahedra=mesh.tetrahedra,velocity_m_s=velocity,pressure_Pa=pressure)
     with (output/'data.csv').open('w',newline='') as file:
         writer=csv.writer(file);writer.writerow(['x_m','y_m','z_m','ux_m_s','uy_m_s','uz_m_s','pressure_Pa']);writer.writerows(np.column_stack((mesh.points,velocity,pressure)))
     write_vtk(output/'results.vtk',mesh,velocity,quantity='velocity_m_s')
     with (output/'results.vtk').open('a') as file:file.write('SCALARS pressure_Pa double 1\nLOOKUP_TABLE default\n'+'\n'.join(map(str,pressure))+'\n')
-    write_flow_views(output,mesh,velocity,pressure,summary,groups)
+    write_flow_views(output,mesh,velocity,pressure,summary,groups,preview)
     (output/'manifest.json').write_text(json.dumps({'parameters':p,'summary':summary,'internal_units':{'length_m':length,'speed_m_s':speed,'pressure_Pa':rho*speed**2}},indent=2,allow_nan=False),encoding='utf-8')
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg

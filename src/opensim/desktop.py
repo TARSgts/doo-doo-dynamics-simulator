@@ -977,6 +977,7 @@ class SimulatorWindow(CFDStudyMixin,QMainWindow):
     def mark_dirty(self):
         self.sync_force_direction()
         self.update_study_panel()
+        self.apply_flow_preview()
         self.dirty = True
         self.details_note.setText("Settings changed. Apply settings or Solve to use them.")
         if "load_surface" in self.selectors:
@@ -1628,6 +1629,16 @@ class SimulatorWindow(CFDStudyMixin,QMainWindow):
             f"if(typeof setModeAnimation==='function')setModeAnimation({json.dumps(mode == 'modal' and self.animate_mode.isChecked())});"
             f"if(typeof setModalAmplitude==='function')setModalAmplitude({json.dumps(self.modal_amplitude.currentData())});"
             f"if(typeof setResultComponent==='function')setResultComponent({json.dumps(component)});")
+        self.apply_flow_preview()
+
+    def apply_flow_preview(self):
+        settings=None
+        if self.project_id and self.workspace.ui_state()['study']=='cfd':
+            p=self.workspace.get_project(self.project_id)['parameters']
+            settings={key:p[key] for key in ('cfd_inlet_region','cfd_outlet_region')}
+            settings.update({key:self.selectors[key].currentData() for key in ('cfd_backend','cfd_flow_axis')})
+            settings.update({key:self.fields[key].value() for key in ('cfd_speed_m_s','cfd_pressure_drop_Pa')})
+        self.view.page().runJavaScript(f"if(typeof setFlowPreview==='function')setFlowPreview({json.dumps(settings)});")
 
     def apply_camera(self, *args):
         if self.camera.currentIndex()==4:

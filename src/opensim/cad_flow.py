@@ -135,8 +135,9 @@ def solve_cad_flow(cad,output,parameters,progress=None):
         writer=csv.writer(file);writer.writerow(['x_m','y_m','z_m','ux_m_s','uy_m_s','uz_m_s','pressure_Pa']);writer.writerows(np.column_stack((mesh.points,u,pressure)))
     write_vtk(output/'results.vtk',mesh,u,quantity='velocity_m_s')
     with (output/'results.vtk').open('a') as file:file.write('SCALARS pressure_Pa double 1\nLOOKUP_TABLE default\n'+'\n'.join(map(str,pressure))+'\n')
+    from opensim.flow_preview import flow_preview_data
     write_viewer_data(output/'results.html',{'points':mesh.points.tolist(),'faces':mesh.boundary_faces(),'face_ids':mesh.boundary_face_ids(),
-        'displacement':np.zeros_like(u).tolist(),'velocity_m_s':u.tolist(),'pressure_Pa':pressure.tolist(),'summary':summary})
+        'displacement':np.zeros_like(u).tolist(),'velocity_m_s':u.tolist(),'pressure_Pa':pressure.tolist(),'summary':summary,'flow_preview':flow_preview_data(mesh,p)})
     (output/'manifest.json').write_text(json.dumps({'parameters':p,'summary':summary},indent=2,allow_nan=False),encoding='utf-8')
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg

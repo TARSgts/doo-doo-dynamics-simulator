@@ -15,6 +15,12 @@ Fluid Dynamics is a study in the main model tree alongside Static Structural, Mo
 
 The displayed center slice is cropped near the body for readability; the solver uses the complete enclosure. CSV, NPZ and VTK retain full-volume fields in SI. Pressure is gauge pressure relative to the outlet reference.
 
+### Preview the flow direction
+
+CFD previews show cyan **inlet** arrows, orange **outlet** arrows and a camera-aligned **Flow +X/Y/Z** indicator. Open **Fluid mesh** to see the actual enclosure boundaries; the direction indicator stays visible on body-only views. Arrows show boundary setup, not solved streamlines or a prediction of the wake. Their lengths are illustrative. Outlet arrows indicate outward pressure-boundary orientation, not a prescribed outlet speed.
+
+Changing flow direction or speed updates the preview immediately. Face-picking drafts update arrows before saving. An inlet that points sideways or out of the selected surface turns red and displays a warning: change the flow direction or restore automatic inlet/outlet regions. Rebuild the fluid mesh after changing geometry settings. New meshes include exact boundary geometry; older saved external previews reconstruct planar enclosure arrows from their surface catalogue. Rebuild older meshes for detailed region-box previews.
+
 ## Internal passages
 
 Import the closed volume **occupied by fluid**, rather than pipe-wall material. Choose **Existing fluid volume / passage**. Pick inlet/outlet faces on the fluid mesh using **Pick flow inlet/outlet**, then save. Blank selections use the minimum/maximum planes along the chosen axis. Other surfaces are stationary no-slip walls.

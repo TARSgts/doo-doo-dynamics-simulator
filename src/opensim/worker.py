@@ -137,16 +137,18 @@ def execute(workspace: Workspace, job_id: str):
                 result.update(build_load_preview(mesh,parameters,include_loads=job['payload'].get('study')!='modal'))
             if job['kind']=='cfd_mesh':
                 from opensim.results import write_viewer_data
-                result.update(analysis='cfdcad',limitations='Fluid mesh preview: pick inlet/outlet faces; all other surfaces are no-slip walls.')
+                from opensim.flow_preview import flow_preview_data
+                flow_preview=flow_preview_data(mesh,parameters,domain)
+                result.update(analysis='cfdcad',limitations='Setup arrows show prescribed inlet flow and outward outlet direction, not solved streamlines. External enclosure side faces are farfield; body surfaces are no-slip walls.')
                 write_viewer_data(directory/'preview.html',{'points':mesh.points.tolist(),'faces':mesh.boundary_faces(),'face_ids':mesh.boundary_face_ids(),
-                    'displacement':np.zeros_like(mesh.points).tolist(),'velocity_m_s':np.zeros_like(mesh.points).tolist(),'pressure_Pa':np.zeros(len(mesh.points)).tolist(),'summary':result})
+                    'displacement':np.zeros_like(mesh.points).tolist(),'velocity_m_s':np.zeros_like(mesh.points).tolist(),'pressure_Pa':np.zeros(len(mesh.points)).tolist(),'summary':result,'flow_preview':flow_preview})
                 if domain.get('mode')=='external':
                     from opensim.su2_flow import boundary_groups
                     from opensim.flow_domain import classify_external
                     from opensim.flow_results import surface_view
                     groups=classify_external(mesh,boundary_groups(mesh,parameters),domain)
                     ids={tuple(sorted(f[:3])):int(tag) for tag,ff in mesh.surface_groups.items() for f in ff}
-                    surface_view(directory/'preview-body.html',mesh.points,groups['wall'],np.zeros_like(mesh.points),np.zeros(len(mesh.points)),result,[ids.get(tuple(sorted(f[:3])),0) for f in groups['wall']])
+                    surface_view(directory/'preview-body.html',mesh.points,groups['wall'],np.zeros_like(mesh.points),np.zeros(len(mesh.points)),result,[ids.get(tuple(sorted(f[:3])),0) for f in groups['wall']],flow_preview)
             else:
                 write_viewer(directory / "preview.html", mesh, np.zeros_like(mesh.points), result)
         workspace.finish_job(job_id, result=result)

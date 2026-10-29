@@ -334,6 +334,96 @@ function drawAxisTriad(){
   context.font=`bold ${12*pixel}px Segoe UI`;context.fillText('H',origin[0]-45*pixel,origin[1]+43*pixel);triadTargets.push({x:origin[0]-45*pixel,y:origin[1]+43*pixel,axis:'H'});
   context.restore();
 }
+// Setup glyphs only: prescribed inlet velocity and an outward pressure-outlet
+// indication. These are deliberately independent of solved velocity fields.
+let flowPreviewSettings=simulation.flow_preview?.settings||null,flowPreviewKey='',flowPreviewArrows=[];
+const flowPreviewState=window.flowPreviewState={warnings:[],arrows:[],visible:0};
+function setFlowPreview(settings){flowPreviewSettings=settings;flowPreviewKey='';draw();}
+function flowBoundaryRecords(){
+  if(simulation.flow_preview?.boundaries)return simulation.flow_preview.boundaries;
+  // Older saved external studies retain a surface catalogue. Only reconstruct
+  // planar enclosure ports, whose outward normals are unambiguous.
+  const box=simulation.summary.domain?.enclosure_bounds_m||simulation.summary.bounds_m||[bounds.map(b=>b[0]),bounds.map(b=>b[1])];
+  const tolerance=Math.max(...box[1].map((v,i)=>v-box[0][i]))*1e-6;
+  return (simulation.summary.cad_faces||[]).flatMap(face=>{
+    const c=face.centroid_m,n=[0,0,0];
+    for(let a=0;a<3;a++)for(let side=0;side<2;side++)if(Math.abs(c[a]-box[side][a])<tolerance)n[a]=(side?1:-1)*face.area_m2;
+    return Math.hypot(...n)?[[face.id,...c,...n]]:[];
+  });
+}
+function updateFlowPreview(){
+  const settings=flowPreviewSettings;if(!isFlow||!settings)return;
+  const regions=[settings.cfd_inlet_region||{},settings.cfd_outlet_region||{}];
+  if(facePickMode){regions[0]={faces:[...facePickSets.support]};regions[1]={faces:[...facePickSets.load]};}
+  const key=JSON.stringify([settings,regions]);if(key===flowPreviewKey)return;flowPreviewKey=key;
+  const axis=settings.cfd_backend==='stokes'?0:'xyz'.indexOf(settings.cfd_flow_axis||'x');
+  const direction=[0,0,0];direction[axis]=1;
+  const records=flowBoundaryRecords(),box=simulation.flow_preview?.bounds_m||simulation.summary.domain?.enclosure_bounds_m||simulation.summary.bounds_m||[bounds.map(b=>b[0]),bounds.map(b=>b[1])];
+  const tolerance=Math.max(...box[1].map((v,i)=>v-box[0][i]))*1e-6;
+  flowPreviewArrows=[];flowPreviewState.warnings=[];
+  regions.forEach((region,role)=>{
+    const selected=records.filter(row=>{
+      const point=row.slice(1,4);
+      if(region.faces?.length&&!region.faces.includes(row[0]))return false;
+      if(region.box_m?.length)return point.every((v,i)=>v>=region.box_m[i]&&v<=region.box_m[i+3]);
+      return region.faces?.length||Math.abs(point[axis]-box[role][axis])<tolerance;
+    });
+    if(!selected.length){flowPreviewState.warnings.push(`${role?'Outlet':'Inlet'} preview unavailable; build the fluid mesh.`);return;}
+    const area=selected.reduce((v,r)=>v+Math.hypot(...r.slice(4)),0);
+    const bad=selected.reduce((v,r)=>v+(r[4+axis]>=-Math.hypot(...r.slice(4))*.1?Math.hypot(...r.slice(4)):0),0);
+    const mismatch=role===0&&settings.cfd_backend!=='stokes'&&bad>area*.01;
+    if(mismatch)flowPreviewState.warnings.push('Inlet does not face into the chosen flow. Change direction or inlet faces.');
+    const count=Math.min(6,selected.length);
+    for(let i=0;i<count;i++){
+      const r=selected[Math.floor((i+.5)*selected.length/count)],normal=r.slice(4),length=Math.hypot(...normal);
+      flowPreviewArrows.push({point:r.slice(1,4),direction:role||settings.cfd_backend==='stokes'?normal.map(v=>v/length*(role?1:-1)):direction,
+        role:role?'Outlet':'Inlet',color:mismatch?'#ff6969':role?'#ffa61f':'#1ad9e6'});
+    }
+  });
+  flowPreviewState.arrows=flowPreviewArrows;
+}
+function drawFlowArrow(point,direction,color,role,pixel){
+  const tipReference=projection.project(point.map((v,i)=>v+span*.1*direction[i])),anchor=projection.project(point);
+  if(anchor[0]<12*pixel||anchor[0]>canvas.width-12*pixel||anchor[1]<130*pixel||anchor[1]>canvas.height-30*pixel)return false;
+  const dx=tipReference[0]-anchor[0],dy=tipReference[1]-anchor[1],length=Math.hypot(dx,dy);
+  context.strokeStyle=color;context.fillStyle=color;context.lineWidth=2.5*pixel;
+  if(length<1.5*pixel){
+    context.beginPath();context.arc(anchor[0],anchor[1],7*pixel,0,2*Math.PI);context.stroke();
+    if(tipReference[2]>anchor[2]){context.beginPath();context.arc(anchor[0],anchor[1],2*pixel,0,2*Math.PI);context.fill();}
+    else{context.beginPath();context.moveTo(anchor[0]-4*pixel,anchor[1]-4*pixel);context.lineTo(anchor[0]+4*pixel,anchor[1]+4*pixel);context.moveTo(anchor[0]-4*pixel,anchor[1]+4*pixel);context.lineTo(anchor[0]+4*pixel,anchor[1]-4*pixel);context.stroke();}
+  }else{
+    const ux=dx/length,uy=dy/length,out=role==='Outlet',tip=[anchor[0]+(out?42:0)*pixel*ux,anchor[1]+(out?42:0)*pixel*uy];
+    context.beginPath();context.moveTo(tip[0]-ux*42*pixel,tip[1]-uy*42*pixel);context.lineTo(...tip);context.stroke();
+    context.beginPath();context.moveTo(...tip);context.lineTo(tip[0]-ux*10*pixel-uy*5*pixel,tip[1]-uy*10*pixel+ux*5*pixel);context.lineTo(tip[0]-ux*10*pixel+uy*5*pixel,tip[1]-uy*10*pixel-ux*5*pixel);context.closePath();context.fill();
+  }
+  return true;
+}
+function drawFlowPreview(){
+  if(!flowPreviewSettings)return;updateFlowPreview();
+  const pixel=devicePixelRatio,s=flowPreviewSettings;
+  context.save();context.font=`${12*pixel}px Segoe UI`;
+  const y=facePickMode?91:72;
+  context.fillStyle=themeDark?'#d7e6f5':'#243b53';
+  context.fillText(s.cfd_backend==='stokes'?`Setup: pressure-driven inlet → outlet · ${s.cfd_pressure_drop_Pa} Pa`:`Setup: +${(s.cfd_flow_axis||'x').toUpperCase()} · ${s.cfd_speed_m_s} m/s · cyan IN / orange OUT`,20*pixel,y*pixel);
+  context.fillText('Boundary directions only; not solved streamlines',20*pixel,(y+18)*pixel);
+  flowPreviewState.visible=flowPreviewArrows.filter(a=>drawFlowArrow(a.point,a.direction,a.color,a.role,pixel)).length;
+  if(!flowPreviewState.visible){
+    context.fillStyle=themeDark?'#b5cada':'#34485f';context.fillText('Open Fluid mesh to see inlet / outlet locations',20*pixel,(y+36)*pixel);
+  }
+  flowPreviewState.warnings.slice(0,2).forEach((warning,i)=>{context.fillStyle='#ff6969';context.fillText(warning,20*pixel,(y+54+18*i)*pixel);});
+  // A camera-aligned compass remains visible when ports are outside a body-only view.
+  if(s.cfd_backend!=='stokes'){
+    const axis='xyz'.indexOf(s.cfd_flow_axis||'x'),origin=projection.project(center),ref=projection.project(center.map((v,i)=>v+(i===axis?span:0)));
+    const dx=ref[0]-origin[0],dy=ref[1]-origin[1],len=Math.hypot(dx,dy);
+    const p=[canvas.width*.65,canvas.height-50*pixel],d=len>1?[dx/len,dy/len]:[0,0];
+    context.strokeStyle='#1ad9e6';context.fillStyle='#1ad9e6';context.lineWidth=3*pixel;
+    context.beginPath();context.moveTo(p[0]-d[0]*35*pixel,p[1]-d[1]*35*pixel);context.lineTo(p[0]+d[0]*35*pixel,p[1]+d[1]*35*pixel);context.stroke();
+    if(len>1){const tip=[p[0]+d[0]*35*pixel,p[1]+d[1]*35*pixel];context.beginPath();context.moveTo(...tip);context.lineTo(tip[0]-d[0]*10*pixel-d[1]*5*pixel,tip[1]-d[1]*10*pixel+d[0]*5*pixel);context.lineTo(tip[0]-d[0]*10*pixel+d[1]*5*pixel,tip[1]-d[1]*10*pixel-d[0]*5*pixel);context.closePath();context.fill();}
+    else{context.beginPath();context.arc(...p,7*pixel,0,2*Math.PI);context.stroke();context.fillText(ref[2]>origin[2]?'Toward you':'Away from you',p[0]+12*pixel,p[1]);}
+    context.fillText(`Flow +${'XYZ'[axis]}`,p[0]-28*pixel,canvas.height-15*pixel);
+  }
+  context.restore();
+}
 function drawOverlay(){
   drawAxisTriad();
   const pixel=devicePixelRatio,range=scalarRanges[componentIndex()];
@@ -343,6 +433,7 @@ function drawOverlay(){
     context.fillStyle=facePickMode==='support'?'#1ad9e6':'#ffa61f';
     context.fillText(`Pick ${isFlow?(facePickMode==='support'?'inlet (cyan)':'outlet (orange)'):thermalPicking?(facePickMode==='support'?'fixed temperature (cyan)':'temperature / heat input (orange)'):(facePickMode==='support'?'fixed support (cyan)':'force faces (orange)')} · ${selectedFaces.size} face(s) · click to toggle`,20*pixel,48*pixel);
     context.fillText(`Draft: ${facePickSets.support.size} support / ${facePickSets.load.size} load faces · drag to rotate · Save picked faces to apply`,20*pixel,68*pixel);
+    if(isFlow)drawFlowPreview();
     return;
   }
   if(viewportMode==='results'){
@@ -354,7 +445,8 @@ function drawOverlay(){
     context.fillStyle=themeDark?'#c6d7ec':'#34485f';context.fillText((isFlow?(resultComponent==='stress'?'Pressure':resultComponent==='magnitude'?'Speed':`V${resultComponent}`):isThermal?(resultComponent==='stress'?'Temperature':resultComponent==='magnitude'?'|q|':`q${resultComponent}`):resultComponent==='stress'?'von Mises':resultComponent==='magnitude'?'|U|':`U${resultComponent}`)+' '+units,canvas.width-150*pixel,58*pixel);
     context.fillText((range[1]*unitScale).toPrecision(4),canvas.width-92*pixel,85*pixel);context.fillText((range[0]*unitScale).toPrecision(4),canvas.width-92*pixel,210*pixel);
   }
-  if(isThermal||isFlow)return;
+  if(isFlow){drawFlowPreview();return;}
+  if(isThermal)return;
   const anchor=projection.project(simulation.summary.support_point_m || [bounds[0][0],center[1],center[2]]);
   if(simulation.summary.support_preview_valid!==false){context.fillStyle=themeDark?'#41c8d6':'#087f8c';context.beginPath();context.arc(anchor[0],anchor[1],4*pixel,0,2*Math.PI);context.fill();context.fillText(catMode?'NO ZOOMIES':'FIXED',anchor[0]-15*pixel,anchor[1]+25*pixel);}
   if(isModal)return;
