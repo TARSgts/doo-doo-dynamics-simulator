@@ -25,6 +25,7 @@ from opensim.hover_help import FIELD_HELP, BUTTON_HELP
 from opensim.load_settings import NORMAL_AXES
 from opensim.project_dialogs import FileLocationsDialog, ProjectLibraryDialog, ask_project_name, open_folder
 from opensim.discord_presence import DiscordPresence, activity_for, load_presence_preferences
+from opensim.desktop_cfd import CFDStudyMixin
 
 
 STYLE = """
@@ -162,7 +163,7 @@ class ScrollSafeSpinBox(QSpinBox):
         forward_wheel_to_panel(self, event)
 
 
-class SimulatorWindow(QMainWindow):
+class SimulatorWindow(CFDStudyMixin,QMainWindow):
     def __init__(self, workspace: Workspace):
         set_process_identity()
         super().__init__()
@@ -649,6 +650,7 @@ class SimulatorWindow(QMainWindow):
             selector.currentIndexChanged.connect(self.mark_dirty)
             form.addRow(label, selector)
             self.selectors[key] = selector
+        self.build_cfd_properties(form,layout)
         for key, control in {**self.fields, **self.selectors}.items():
             label_widget = form.labelForField(control)
             label_widget.setToolTip(FIELD_HELP[key])
@@ -879,17 +881,13 @@ class SimulatorWindow(QMainWindow):
         self.loads_dialog.show();self.loads_dialog.raise_()
 
     def show_cfd_validation(self):
-        self.show_cfd()
-        if not self.cfd_dialog.job_id:
-            self.cfd_dialog.run(validation=True)
+        self.save_before_project_change()
+        project=self.workspace.create_project('CFD analytical verification / '+datetime.now().strftime('%H:%M:%S'))
+        self.workspace.select_study(project['id'],'cfd');self.workspace.start_job(project['id'],'cfd_validation')
+        self.workspace.show_project(project['id'],'cfd_report');self.project_revision=None;self.refresh()
 
     def show_cfd(self):
-        from opensim.cfd_desktop import CFDDialog
-        if not hasattr(self, 'cfd_dialog'):
-            self.cfd_dialog = CFDDialog(self.workspace, self)
-        self.cfd_dialog.show()
-        self.cfd_dialog.raise_()
-        self.cfd_dialog.activateWindow()
+        self.cfd_select()
 
     def create_heat_sink(self):
         self.save_before_project_change()
@@ -1001,6 +999,7 @@ class SimulatorWindow(QMainWindow):
     def update_study_panel(self):
         state = self.workspace.ui_state()
         study = state["study"]
+        if self.cfd_panel(study):return
         modal = study == "modal"
         thermal = study == "thermal"
         common = {"mesh_size_m", "cad_scale", "young_Pa", "poisson", "element_order"}
@@ -1075,15 +1074,16 @@ class SimulatorWindow(QMainWindow):
         self.panel_context = context
 
     def run_selected_study(self):
-        {"static": self.solve, "modal": self.modal, "convergence": self.convergence, "thermal": self.thermal}[self.workspace.ui_state()["study"]]()
+        {"static": self.solve, "modal": self.modal, "convergence": self.convergence, "thermal": self.thermal,'cfd':self.cfd_run}[self.workspace.ui_state()["study"]]()
 
     def show_selected_results(self):
         study = self.workspace.ui_state()['study']
         if study == 'convergence':
             return self.show_convergence_report()
-        self.change_view({'static':'results','modal':'modal','thermal':'thermal'}[study])
+        self.change_view({'static':'results','modal':'modal','thermal':'thermal','cfd':'cfd_slice'}[study])
 
     def show_plots(self):
+        if self.workspace.ui_state()['study']=='cfd':return self.change_view('cfd_report')
         if self.dirty:
             raise ValueError("Apply settings and solve this study before plotting edited inputs")
         from opensim.plots import load_plot_source
@@ -1105,10 +1105,12 @@ class SimulatorWindow(QMainWindow):
     def save_parameters(self):
         parameters = {key: field.value() for key, field in self.fields.items()}
         parameters["mesh_size_m"] /= 1000
+        parameters['cfd_mesh_size_m']/=1000
         parameters["young_Pa"] *= 1e9
         for key in ("thermal_fixed_temperature_K", "thermal_source_temperature_K"):
             parameters[key] += 273.15
         parameters.update({key: selector.currentData() for key, selector in self.selectors.items()})
+        if self.workspace.ui_state()['study']=='cfd':parameters['cfd_cad_scale']=parameters['cad_scale']
         from opensim.materials import material_name
         current=self.workspace.get_project(self.require_project())['parameters']
         parameters['material_name']=material_name(current|parameters)
@@ -1118,8 +1120,8 @@ class SimulatorWindow(QMainWindow):
 
     def mesh(self):
         self.save_parameters()
-        self.workspace.start_job(self.require_project(), "mesh")
-        self.workspace.show_project(self.project_id, "mesh")
+        self.workspace.start_job(self.require_project(), 'cfd_mesh' if self.workspace.ui_state()['study']=='cfd' else "mesh")
+        self.workspace.show_project(self.project_id, 'geometry' if self.workspace.ui_state()['study']=='cfd' else "mesh")
 
     def solve(self):
         self.save_parameters()
@@ -1336,6 +1338,9 @@ class SimulatorWindow(QMainWindow):
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         entries = {}
         roles = (("support_region", "Fixed support"),) if self.workspace.ui_state()["study"] == "modal" or project['parameters']['load_cases'] else (("support_region", "Fixed support"), ("load_region", "Uniform traction"))
+        if self.workspace.ui_state()['study']=='cfd':
+            roles=(('cfd_inlet_region','Flow inlet'),('cfd_outlet_region','Flow outlet'));dialog.setWindowTitle('Flow inlet / outlet')
+            note.setText('Choose faces from the fluid mesh. Empty selections use automatic ports. The regions are independent of structural and thermal boundaries.')
         if self.workspace.ui_state()["study"] == "thermal":
             roles = (("thermal_fixed_region", "Fixed temperature"), ("thermal_source_region", "Second temperature / heat input"))
             dialog.setWindowTitle("Thermal boundary regions")
@@ -1397,10 +1402,17 @@ class SimulatorWindow(QMainWindow):
     def begin_face_picking(self, mode):
         if mode not in {"support", "load"}:
             raise ValueError("Choose support or load faces")
+        if self.workspace.ui_state()['study']=='cfd' and self.workspace.ui_state()['view']!='mesh':
+            if not any(j['kind']=='cfd_mesh' and j['status']=='completed' for j in self.workspace.list_jobs(self.require_project())):
+                raise ValueError('Build the fluid mesh before selecting inlet/outlet faces')
+            def ready(ok):
+                self.view.loadFinished.disconnect(ready)
+                if ok:self.safe(lambda:self.begin_face_picking(mode))
+            self.view.loadFinished.connect(ready);self.workspace.show_project(self.project_id,'mesh');self.refresh();return
         project = self.workspace.get_project(self.require_project())
         if mode == "load" and self.workspace.ui_state()["study"] == "modal":
             raise ValueError("Modal studies use fixed supports only. Select Static Structural or Convergence to apply forces")
-        if mode=='load' and project['parameters']['load_cases'] and self.workspace.ui_state()['study']!='thermal' and not getattr(self,'load_pick_callback',None):
+        if mode=='load' and project['parameters']['load_cases'] and self.workspace.ui_state()['study'] in {'static','convergence'} and not getattr(self,'load_pick_callback',None):
             raise ValueError('Use Independent forces / pressures, choose an entry, then Pick faces for this load')
         if self.dirty:
             raise ValueError("Apply settings and generate a mesh before picking faces")
@@ -1416,6 +1428,7 @@ class SimulatorWindow(QMainWindow):
         parameters = project["parameters"]
         fixed_key = "thermal_fixed_region" if session['study'] == 'thermal' else "support_region"
         source_key = "thermal_source_region" if session['study'] == 'thermal' else "load_region"
+        if session['study']=='cfd':fixed_key,source_key='cfd_inlet_region','cfd_outlet_region'
         initial_load_faces=getattr(self,'load_pick_initial_faces',[]) if getattr(self,'load_pick_callback',None) else parameters[source_key].get('faces',[])
         script = ("typeof setFacePicking==='function' && "
                   f"setFacePicking('support',{json.dumps(parameters[fixed_key].get('faces', []))}) && "
@@ -1476,17 +1489,19 @@ class SimulatorWindow(QMainWindow):
             if not faces:
                 raise ValueError("Select at least one face for each edited region. Use the regions dialog to restore defaults")
             key = ("thermal_fixed_region" if role == "support" else "thermal_source_region") if session['study'] == 'thermal' else role + "_region"
+            if session['study']=='cfd':key='cfd_inlet_region' if role=='support' else 'cfd_outlet_region'
             if role=='load' and getattr(self,'load_pick_callback',None):
                 independent_region={'faces':sorted(set(faces))}
                 continue
             updates[key] = {"faces": sorted(set(faces))}
-            if role == "load" and session['study'] != 'thermal':
+            if role == "load" and session['study'] not in {'thermal','cfd'}:
                 updates["load_kind"] = "traction"
         if updates:
             self.workspace.set_parameters(project["id"], updates)
             self.selection_preview = {"project_id": project["id"], "cad": project["cad"],
                                       "mesh": [project["parameters"][key] for key in ("mesh_size_m", "cad_scale", "element_order")],
                                       "artifact": session["view"][0]}
+            if session['study']=='cfd':self.selection_preview['flow_signature']=[project['parameters'][k] for k in ('cfd_backend','cfd_domain_mode','cfd_flow_axis','cfd_padding','cfd_mesh_size_m','cfd_cad_scale')]
             self.workspace.show_project(project["id"], "geometry")
         callback=getattr(self,'load_pick_callback',None);self.load_pick_callback=None
         self.cancel_face_picking()
@@ -1549,9 +1564,22 @@ class SimulatorWindow(QMainWindow):
             branch.setExpanded(active)
             if active:
                 self.tree.setCurrentItem(solution if state["view"] in {"results", "modal", "thermal"} else branch)
+        branch=node(root,'Fluid Dynamics',study='cfd')
+        node(branch,'Fluid domain / '+parameters['cfd_domain_mode'],study='cfd')
+        node(branch,'Fluid properties and flow conditions',study='cfd')
+        node(branch,'Inlet / outlet boundaries','mesh','cfd')
+        node(branch,'Fluid mesh','mesh','cfd')
+        node(branch,'Velocity / center slice','cfd_slice','cfd')
+        node(branch,'Surface pressure','cfd','cfd')
+        node(branch,'Convergence / export','cfd_report','cfd')
+        branch.setExpanded(project_id==state['project_id'] and state['study']=='cfd')
+        if project_id==state['project_id'] and state['study']=='cfd':
+            self.tree.setCurrentItem(branch);self.tree.scrollToItem(branch,QTreeWidget.ScrollHint.PositionAtTop)
 
     def select_tree_item(self, item, column):
         data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data and item.data(0,Qt.ItemDataRole.UserRole+1)=='cfd':
+            self.cfd_select(data[0]);self.workspace.show_project(*data);self.refresh();return
         if data:
             if data[0] != self.project_id:
                 try:
@@ -1583,11 +1611,12 @@ class SimulatorWindow(QMainWindow):
     def apply_view_options(self, *args):
         state = self.workspace.ui_state()
         mode = state["view"]
-        if mode == "thermal":
+        if mode == "thermal" or mode in {'cfd','cfd_slice'}:
             mode = "results"
         animation_label = "Pause mode" if self.animate_mode.isChecked() else "Animate mode"
         self.animate_mode.setText(cat_text(animation_label) if self.language == "cat" else animation_label)
         scale = ["auto", 1, 10, 100, 500][self.deformation.currentIndex()]
+        if state['study']=='cfd':scale=0
         if mode == "modal":
             scale = "auto"
         component = ["magnitude", "x", "y", "z", "stress"][self.result_component.currentIndex()]
@@ -1685,16 +1714,21 @@ class SimulatorWindow(QMainWindow):
         self.workspace.heartbeat()
         state = self.workspace.ui_state()
         thermal_view = state['view'] == 'thermal'
+        flow_view=state['view'] in {'cfd','cfd_slice'}
         blocker = QSignalBlocker(self.result_component)
         labels = ('Heat flux |q|', 'Heat flux X', 'Heat flux Y', 'Heat flux Z', 'Temperature (°C)') if thermal_view else ('Total |U|', 'Ux', 'Uy', 'Uz', 'von Mises stress')
+        if flow_view:labels=('Speed (m/s)','Velocity X','Velocity Y','Velocity Z','Pressure (Pa)')
         for index, label in enumerate(labels):
             self.result_component.setItemText(index, label)
         if thermal_view != getattr(self, 'previous_thermal_view', False):
             self.result_component.setCurrentIndex(4 if thermal_view else 0)
         self.previous_thermal_view = thermal_view
+        if flow_view and state['view']!=getattr(self,'previous_flow_view',None):self.result_component.setCurrentIndex(4 if state['view']=='cfd' else 0)
+        self.previous_flow_view=state['view'] if flow_view else None
         del blocker
-        self.result_component.model().item(4).setEnabled(state["view"] in {"results", "thermal"})
+        self.result_component.model().item(4).setEnabled(state["view"] in {"results", "thermal",'cfd','cfd_slice'})
         self.result_component.setToolTip("Choose temperature in °C or heat-flux magnitude / signed global X/Y/Z components in W/m²." if thermal_view else "Choose total movement, movement along X/Y/Z, or recovered von Mises stress.")
+        if flow_view:self.result_component.setToolTip('Choose solved speed, signed velocity X/Y/Z in m/s, or gauge pressure in Pa. Slice and surface fields use the same undeformed fluid solution.')
         if state["view"] == "modal" and self.result_component.currentIndex() == 4:
             blocker = QSignalBlocker(self.result_component)
             self.result_component.setCurrentIndex(0)
@@ -1732,7 +1766,7 @@ class SimulatorWindow(QMainWindow):
         if project and not self.dirty and self.project_revision != project["revision"]:
             for key, field in self.fields.items():
                 value = project["parameters"][key]
-                if key == "mesh_size_m":
+                if key in {"mesh_size_m",'cfd_mesh_size_m'}:
                     value *= 1000
                 if key == "young_Pa":
                     value /= 1e9
@@ -1760,7 +1794,7 @@ class SimulatorWindow(QMainWindow):
         matching = next((job for job in jobs if project and job["revision"] == project["revision"]), None)
         self.update_job_progress(active or matching)
         self.apply_button.setEnabled(bool(project) and not active)
-        plot_kind = {"static": "solve", "modal": "modal", "convergence": "convergence", "thermal": "thermal"}[state["study"]]
+        plot_kind = {"static": "solve", "modal": "modal", "convergence": "convergence", "thermal": "thermal",'cfd':'cfd'}[state["study"]]
         can_plot = bool(project) and not self.dirty and any(job["kind"] == plot_kind and job["status"] == "completed" and job["revision"] == project["revision"] for job in jobs)
         for button in self.result_plot_buttons:
             button.setEnabled(can_plot)
@@ -1792,7 +1826,7 @@ class SimulatorWindow(QMainWindow):
                 except ValueError:
                     pass
             self.modal_tools.setVisible(state["view"] == "modal")
-            self.deformation.setEnabled(state["view"] not in {"modal", "thermal"})
+            self.deformation.setEnabled(state["view"] not in {"modal", "thermal"} and state['study']!='cfd')
             self.animate_mode.setEnabled(bool(modal_result))
             self.export_gif_button.setEnabled(bool(modal_result) and self.gif_export is None)
             self.modal_selector.setEnabled(bool(modal_result))
@@ -1811,7 +1845,8 @@ class SimulatorWindow(QMainWindow):
             preview = self.selection_preview
             if (not artifact and state["view"] == "geometry" and preview and preview["project_id"] == selected
                     and preview["cad"] == project["cad"]
-                    and preview["mesh"] == [project["parameters"][key] for key in ("mesh_size_m", "cad_scale", "element_order")]):
+                    and preview["mesh"] == [project["parameters"][key] for key in ("mesh_size_m", "cad_scale", "element_order")]
+                    and (state['study']!='cfd' or preview.get('flow_signature')==[project['parameters'][k] for k in ('cfd_backend','cfd_domain_mode','cfd_flow_axis','cfd_padding','cfd_mesh_size_m','cfd_cad_scale')])):
                 candidate = Path(preview["artifact"])
                 if candidate.is_file():
                     artifact = candidate
@@ -1820,9 +1855,10 @@ class SimulatorWindow(QMainWindow):
                 self.cancel_face_picking()
             if view_key != self.loaded_view:
                 self.loaded_view = view_key
-                self.viewport_title.setText(project["name"].upper() + "  /  " + state["view"].upper())
+                view_title={'cfd_slice':'Velocity slice','cfd':'Surface pressure','cfd_report':'Flow convergence / exports'}.get(state['view'],state['view'])
+                self.viewport_title.setText(project["name"].upper() + "  /  " + view_title.upper())
                 if artifact:
-                    url = QUrl.fromLocalFile(str(self.viewer_for_artifact(artifact)))
+                    url = QUrl.fromLocalFile(str(artifact if artifact.name=='report.html' else self.viewer_for_artifact(artifact)))
                     url.setQuery("desktop=1")
                     self.view.setUrl(url)
                 else:
@@ -1862,6 +1898,19 @@ class SimulatorWindow(QMainWindow):
             if self.messages.toPlainText() != text:
                 self.messages.setPlainText(text)
             try:
+                if state['study']=='cfd' and state['view'] in {'cfd','cfd_slice','cfd_report'}:
+                    summary=self.workspace.get_cfd_results(selected)['summary']
+                    if summary.get('analysis') in {'cfd','cfd_validation'}:
+                        self.result_cards[0].setText('CFD reference study\n'+summary.get('case','All three models'))
+                        self.result_cards[1].setText('Verification\n'+summary.get('result','Numerical benchmark'))
+                        self.result_cards[2].setText('Scope\nSee reference report')
+                        self.legend.setText('  Analytical reference studies · Own CAD uses the Fluid Dynamics study’s model, fluid mesh and boundary conditions')
+                        self.apply_language();return
+                    self.result_cards[0].setText(f"Maximum speed\n{summary.get('maximum_speed_m_s',0):.5g} m/s")
+                    self.result_cards[1].setText(f"Outlet flow\n{summary.get('outlet_flow_m3_s',0):.5g} m³/s")
+                    self.result_cards[2].setText(f"Flow balance error\n{summary.get('relative_mass_imbalance',0):.2e}")
+                    self.legend.setText('  Fluid dynamics · '+summary.get('method',summary.get('analysis',''))+' · Inspect convergence and refine the mesh before interpreting forces')
+                    self.apply_language();return
                 if state['view'] == 'thermal':
                     summary = self.workspace.get_thermal_results(selected)['summary']
                     self.result_cards[0].setText(f"Minimum temperature\n{summary['minimum_temperature_K']-273.15:.5g} °C")

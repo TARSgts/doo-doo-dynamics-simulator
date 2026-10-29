@@ -9,6 +9,8 @@ CFD_DEFAULTS = {
     'cfd_chord_m': .1, 'cfd_alpha_min_deg': -8., 'cfd_alpha_max_deg': 8.,
     'cfd_alpha_step_deg': 2.,
     'cfd_mesh_size_m':.0025,'cfd_cad_scale':.001,'cfd_inlet_region':{},'cfd_outlet_region':{},
+    'cfd_backend':'stokes','cfd_domain_mode':'fluid','cfd_flow_axis':'x','cfd_turbulence':'none',
+    'cfd_padding':3.,'cfd_iterations':3000,'cfd_residual_target':-6.,'cfd_setup':0,
 }
 CASE_LABELS = {'cylinder': 'Cylinder in a flow', 'pipe': 'Laminar round pipe',
                'flat_plate': 'Flat-plate airfoil · CL vs α', 'cad':'CAD fluid volume · 3D creeping flow'}
@@ -25,12 +27,18 @@ def validate_cfd_parameters(parameters):
     if p['cfd_case'] not in CASE_LABELS:
         raise ValueError('Choose cylinder, pipe or flat_plate CFD case')
     from opensim.region_settings import validate_region
+    if any(not isinstance(p[key],str) or p[key] not in choices for key,choices in {
+        'cfd_backend':{'stokes','su2'},'cfd_domain_mode':{'fluid','external'},'cfd_flow_axis':{'x','y','z'},'cfd_turbulence':{'none','sa'}}.items()):
+        raise ValueError('Choose a valid flow solver, domain, direction and turbulence model')
     for key in ('cfd_inlet_region','cfd_outlet_region'):validate_region(p[key])
-    for key in CFD_DEFAULTS.keys() - {'cfd_case','cfd_inlet_region','cfd_outlet_region'}:
+    for key in CFD_DEFAULTS.keys() - {'cfd_case','cfd_inlet_region','cfd_outlet_region','cfd_backend','cfd_domain_mode','cfd_flow_axis','cfd_turbulence'}:
         v = p[key]
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
             raise ValueError('CFD inputs must be finite numbers')
     n = p['cfd_resolution']
+    if p['cfd_iterations']!=int(p['cfd_iterations']) or not 100<=p['cfd_iterations']<=20000:raise ValueError('Flow iteration limit must be an integer from 100 to 20000')
+    if not 1<=p['cfd_padding']<=10 or not -12<=p['cfd_residual_target']<=-3:raise ValueError('Use enclosure padding 1–10 model lengths and residual target −12 to −3')
+    if p['cfd_case']=='cad' and p['cfd_backend']=='stokes' and p['cfd_domain_mode']=='external':raise ValueError('Automatic surrounding fluid requires the SU2 solver; creeping flow requires an existing fluid volume')
     if n != int(n) or not 12 <= n <= 256:
         raise ValueError('CFD resolution must be an integer from 12 to 256')
     for key in ('cfd_speed_m_s', 'cfd_density_kg_m3', 'cfd_viscosity_Pa_s',

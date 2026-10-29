@@ -26,8 +26,8 @@ DEFAULT_PARAMETERS = {"mesh_size_m": 0.004, "cad_scale": 1.0, "young_Pa": 210e9,
                       "convergence_levels": 4, "convergence_ratio": 1.4, "convergence_tolerance_percent": 2.0,
                       "convergence_target": "displacement"} | THERMAL_DEFAULTS | CFD_DEFAULTS
 TEXT_PARAMETERS = {"load_axis", "load_kind", "load_surface", "support_region", "load_region", "convergence_target",
-                   "thermal_boundary_mode", "thermal_fixed_region", "thermal_source_region", "cfd_case", "load_cases", "material_name", "cfd_inlet_region", "cfd_outlet_region"}
-STUDY_TYPES = ("static", "modal", "convergence", "thermal")
+                   "thermal_boundary_mode", "thermal_fixed_region", "thermal_source_region", "cfd_case", "load_cases", "material_name", "cfd_inlet_region", "cfd_outlet_region",'cfd_backend','cfd_domain_mode','cfd_flow_axis','cfd_turbulence'}
+STUDY_TYPES = ("static", "modal", "convergence", "thermal", "cfd")
 CAPABILITIES = [
     {"name": "CAD import", "enabled": True, "detail": "Single-solid STEP, IGES, BREP; closed STL, OBJ or 3MF surface meshes"},
     {"name": "Tetrahedral meshing", "enabled": True, "detail": "Gmsh C3D4 or quadratic C3D10"},
@@ -39,7 +39,7 @@ CAPABILITIES = [
     {"name": "Convergence study", "enabled": True, "detail": "Static solve on 3–6 successively finer meshes; change, verdict, Richardson extrapolation and GCI per quantity"},
     {"name": "Modal analysis", "enabled": True, "detail": "Undamped unprestressed modes; X-min face fixed; positive density"},
     {"name": "Thermal analysis", "enabled": True, "detail": "Steady isotropic conduction; fixed temperature plus second temperature or total surface heat input; other surfaces insulated"},
-    {"name": "Fluid dynamics", "enabled": True, "detail": "Imported single CAD fluid volumes: 3D incompressible creeping flow, pressure ports and no-slip walls, peak Re<=1. Also inviscid 2D cylinder/flat plate and laminar pipe benchmarks. No finite-Re Navier-Stokes, turbulence or heat transfer"},
+    {"name": "Fluid dynamics", "enabled": True, "detail": "Main-window CFD on user CAD: automatic external fluid enclosures or existing fluid volumes. Native SU2 incompressible Navier-Stokes, laminar or Spalart-Allmaras RANS; velocity slices, pressure, residual/flux checks. Legacy pressure-driven Stokes and analytical benchmarks remain available. No thermal coupling or time-accurate CFD."},
     *[{"name": name, "enabled": False, "detail": "Planned — not implemented"} for name in
       ("Transient dynamics",
        "Electromagnetics", "Contact", "Nonlinear materials", "Optimization", "GPU solve")],
@@ -186,6 +186,10 @@ class Workspace:
 
     def set_parameters(self, project_id: str, parameters: dict) -> dict:
         project = self.get_project(project_id)
+        geometry_keys={'cfd_domain_mode','cfd_flow_axis','cfd_padding','cfd_mesh_size_m','cfd_cad_scale'}
+        parameters=dict(parameters)
+        if any(key in parameters and parameters[key]!=project['parameters'][key] for key in geometry_keys):
+            parameters.setdefault('cfd_inlet_region',{});parameters.setdefault('cfd_outlet_region',{})
         parameters = {key: {} if key in {"support_region", "load_region"} and value is None else value for key, value in parameters.items()}
         if set(parameters) - set(DEFAULT_PARAMETERS):
             raise ValueError("Unsupported analysis parameter")
@@ -265,6 +269,7 @@ class Workspace:
                                 json.dumps(payload), None, None, now, now))
             connection.execute("INSERT INTO job_progress VALUES(?,?,?)", (job_id, "queued", now))
             study = {"solve": "static", "modal": "modal", "convergence": "convergence", "thermal": "thermal"}.get(kind)
+            if kind in {'cfd','cfd_mesh','cfd_validation'}:study='cfd'
             if kind == 'example' and example == 'heat_sink':
                 study = 'thermal'
                 payload['study'] = 'thermal'
@@ -364,7 +369,13 @@ class Workspace:
                 return directory / "solve" / "results.html"
             if view == "thermal" and job["kind"] == "thermal":
                 return directory / "thermal" / "results.html"
+            if view in {'cfd','cfd_slice','cfd_report'} and job['kind'] in {'cfd','cfd_validation'}:
+                folder=directory/job['kind'];name='report.html' if view=='cfd_report' or job['kind']=='cfd_validation' else 'slice.html' if view=='cfd_slice' and (folder/'slice.html').is_file() else 'results.html'
+                candidate=folder/name
+                if not candidate.is_file():candidate=folder/'report.html'
+                return candidate
             if view in {"geometry", "mesh"}:
+                if view=='geometry' and job['kind']=='cfd_mesh' and (directory/'preview-body.html').is_file():return directory/'preview-body.html'
                 relative = "modal/mode-1.html" if job["kind"] == "modal" else "thermal/results.html" if job["kind"] == "thermal" else "solve/results.html" if job["kind"] == "solve" else "preview.html"
                 candidate = directory / relative
                 if candidate.is_file():
@@ -397,7 +408,7 @@ class Workspace:
             if job['revision'] == project['revision'] and job['kind'] in {'cfd', 'cfd_validation'} and job['status'] == 'completed':
                 directory = self.job_directory(job['id']) / job['kind']
                 return {'job_id': job['id'], 'summary': job['result'], 'artifacts': {
-                    name: str(directory/name) for name in ('report.html', 'plot.png', 'data.csv', 'flow.npz', 'manifest.json', 'report.json', 'results.html','results.vtk') if (directory/name).is_file()
+                    name: str(directory/name) for name in ('report.html', 'plot.png', 'data.csv', 'flow.npz', 'manifest.json', 'report.json', 'results.html','slice.html','results.vtk','history.csv','solver.log') if (directory/name).is_file()
                 }}
         raise ValueError('No completed CFD study for the current project inputs')
 
@@ -424,7 +435,7 @@ class Workspace:
 
     def show_project(self, project_id: str, view="geometry", mode=1) -> dict:
         self.get_project(project_id)
-        if view not in {"geometry", "mesh", "results", "modal", "thermal"}:
+        if view not in {"geometry", "mesh", "results", "modal", "thermal",'cfd','cfd_slice','cfd_report'}:
             raise ValueError("View must be geometry, mesh, results, modal or thermal")
         if isinstance(mode, bool) or not isinstance(mode, int) or not 1 <= mode <= 30:
             raise ValueError("Mode must be an integer from 1 to 30")
@@ -432,8 +443,8 @@ class Workspace:
             self.current_artifact(project_id, view, mode)
         with self.connect() as connection:
             connection.execute("INSERT OR IGNORE INTO open_projects VALUES(?,?)", (project_id, time.time()))
-            if view in {"modal", "results", "thermal"}:
-                study = "thermal" if view == "thermal" else "modal" if view == "modal" else "static"
+            if view in {"modal", "results", "thermal",'cfd','cfd_slice','cfd_report'}:
+                study = 'cfd' if view.startswith('cfd') else "thermal" if view == "thermal" else "modal" if view == "modal" else "static"
                 connection.execute("INSERT INTO project_studies VALUES(?,?) ON CONFLICT(project_id) DO UPDATE SET study=excluded.study", (project_id, study))
             connection.execute("UPDATE ui SET project_id=?,view=?,modal_mode=? WHERE id=1", (project_id, view, mode))
         return self.ui_state()

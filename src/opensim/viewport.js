@@ -346,7 +346,7 @@ function drawOverlay(){
     return;
   }
   if(viewportMode==='results'){
-    context.fillText(isFlow?'Steady creeping flow · undeformed fluid volume':isThermal?'Steady thermal conduction · undeformed geometry':isModal?`${catMode?'Wiggle':'Mode'} ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · ${catMode?'purr shape · dance speed':'normalized shape · playback'} ${exportingGif?'slowed to about 1 cycle per second':'1 Hz'}`:`${catMode?'Wiggle exaggeration':'Deformation display'}: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
+    context.fillText(isFlow?((simulation.summary.method||'').startsWith('SU2')?'Steady Navier–Stokes · undeformed fluid domain':'Steady creeping flow · undeformed fluid volume'):isThermal?'Steady thermal conduction · undeformed geometry':isModal?`${catMode?'Wiggle':'Mode'} ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · ${catMode?'purr shape · dance speed':'normalized shape · playback'} ${exportingGif?'slowed to about 1 cycle per second':'1 Hz'}`:`${catMode?'Wiggle exaggeration':'Deformation display'}: ${factor.toPrecision(3)}×`,20*pixel,46*pixel);
     const gradient=context.createLinearGradient(0,75*pixel,0,210*pixel);
     for(let stop=0;stop<=6;stop++)gradient.addColorStop(stop/6,`hsl(${225*stop/6} 75% 57%)`);
     context.fillStyle=gradient;context.fillRect(canvas.width-112*pixel,75*pixel,14*pixel,135*pixel);
@@ -554,7 +554,7 @@ canvas.addEventListener('wheel',event=>{
 document.getElementById('reset').onclick=resetViewport;
 document.getElementById('range').textContent=isThermal?`Temperature: ${scalarRanges[4][0].toPrecision(5)} → ${scalarRanges[4][1].toPrecision(5)} °C`:isModal?'Normalized mode shape: 0 → 1 (dimensionless); amplitude is arbitrary':`0 m → ${maximum.toExponential(5)} m`;
 if(isThermal){document.querySelector('h1').textContent='Steady thermal analysis';document.querySelector('main>p').textContent='Temperature and heat flux · SI solver units · Celsius display';slider.parentElement.style.display='none';document.querySelector('main>p:last-child').textContent='Steady conduction only; unassigned surfaces are insulated. No thermal expansion is calculated.';}
-if(isFlow){document.querySelector('h1').textContent='CAD fluid-volume flow';document.querySelector('main>p').textContent='3D creeping flow · velocity (m/s), pressure (Pa)';slider.parentElement.style.display='none';document.querySelector('main>p:last-child').textContent=simulation.summary.limitations;document.getElementById('range').textContent=`Surface speed: 0 → ${maximum.toExponential(5)} m/s. Interior centroid speeds are in the report and NPZ.`;}
+if(isFlow){document.querySelector('h1').textContent='Fluid dynamics';document.querySelector('main>p').textContent=(simulation.summary.method||'Fluid mesh')+' · velocity (m/s), pressure (Pa)';slider.parentElement.style.display='none';document.querySelector('main>p:last-child').textContent=simulation.summary.limitations;document.getElementById('range').textContent=`Displayed speed: 0 → ${maximum.toExponential(5)} m/s. Full volume data are retained in the report and NPZ.`;}
 if(isModal){
   document.querySelector('main>p').textContent=`Modal analysis · Mode ${simulation.summary.mode_number} · ${simulation.summary.frequency_Hz.toPrecision(6)} Hz · undamped, unprestressed`;
   slider.parentElement.style.display='none';

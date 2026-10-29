@@ -245,9 +245,9 @@ def _rebuild_solid_from_surface(points, faces, stl_path: Path, size: float, repo
                      "Export STEP from the original CAD, or repair the mesh in your modeling tool and re-import it") from last_error
 
 
-def _mesh_volume(size, order, output: Path) -> "Mesh":
+def _mesh_volume(size, order, output: Path, max_size=None) -> "Mesh":
     gmsh.option.setNumber("Mesh.MeshSizeMin", size)
-    gmsh.option.setNumber("Mesh.MeshSizeMax", size)
+    gmsh.option.setNumber("Mesh.MeshSizeMax", size if max_size is None else max_size)
     gmsh.option.setNumber("Mesh.ElementOrder", order)
     gmsh.option.setNumber("Mesh.SecondOrderLinear", 1)
     gmsh.option.setNumber("General.NumThreads", 1)

@@ -122,6 +122,7 @@ def stokes_mesh(mesh,viscosity,density,pressure_drop,inlet_region=None,outlet_re
 def solve_cad_flow(cad,output,parameters,progress=None):
     from opensim.cfd_parameters import CFD_DEFAULTS,validate_cfd_parameters
     parameters=validate_cfd_parameters(CFD_DEFAULTS|parameters)
+    if parameters['cfd_backend']!='stokes' or parameters['cfd_domain_mode']!='fluid':raise ValueError('The creeping-flow solver requires an existing fluid volume. Use SU2 for external enclosures or Navier–Stokes flow.')
     if cad is None or not Path(cad).is_file():raise ValueError('Import a single closed CAD fluid volume first')
     p=parameters;output=Path(output);output.mkdir(parents=True,exist_ok=False)
     if progress:progress('meshing')

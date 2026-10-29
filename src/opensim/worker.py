@@ -82,8 +82,12 @@ def execute(workspace: Workspace, job_id: str):
             result = run_cfd_validation(directory / 'cfd_validation', progress=progress)
         elif job['kind'] == 'cfd':
             if parameters['cfd_case']=='cad':
-                from opensim.cad_flow import solve_cad_flow
-                result=solve_cad_flow(cad,directory/'cfd',parameters,progress=progress)
+                if parameters['cfd_backend']=='su2':
+                    from opensim.su2_flow import solve_su2
+                    result=solve_su2(cad,directory/'cfd',parameters,progress=progress)
+                else:
+                    from opensim.cad_flow import solve_cad_flow
+                    result=solve_cad_flow(cad,directory/'cfd',parameters,progress=progress)
             else:
                 from opensim.cfd import run_cfd
                 result = run_cfd(directory / 'cfd', parameters, progress=progress)
@@ -115,8 +119,13 @@ def execute(workspace: Workspace, job_id: str):
                            support_region=parameters["support_region"], load_region=parameters["load_region"], progress=progress, load_cases=parameters['load_cases'])
         else:
             progress("meshing")
-            mesh = import_and_mesh(cad, parameters["mesh_size_m"], parameters["cad_scale"], directory / "mesh.msh",
-                                   order=parameters["element_order"], tip_point=parameters["load_kind"] == "point" and not parameters['load_cases'] and job['payload'].get('study') != 'thermal')
+            domain={}
+            if job['kind']=='cfd_mesh':
+                from opensim.flow_domain import prepare_flow_mesh
+                mesh,domain=prepare_flow_mesh(cad,parameters,directory/'mesh.msh')
+            else:
+                mesh = import_and_mesh(cad, parameters["mesh_size_m"], parameters["cad_scale"], directory / "mesh.msh",
+                                       order=parameters["element_order"], tip_point=parameters["load_kind"] == "point" and not parameters['load_cases'] and job['payload'].get('study') != 'thermal')
             result = {"nodes": len(mesh.points), "tetrahedra": len(mesh.tetrahedra), "view": "mesh",
                       "mesh_repair": mesh.repair_report,
                       "cad_faces": mesh.surface_catalog(),
@@ -131,6 +140,13 @@ def execute(workspace: Workspace, job_id: str):
                 result.update(analysis='cfdcad',limitations='Fluid mesh preview: pick inlet/outlet faces; all other surfaces are no-slip walls.')
                 write_viewer_data(directory/'preview.html',{'points':mesh.points.tolist(),'faces':mesh.boundary_faces(),'face_ids':mesh.boundary_face_ids(),
                     'displacement':np.zeros_like(mesh.points).tolist(),'velocity_m_s':np.zeros_like(mesh.points).tolist(),'pressure_Pa':np.zeros(len(mesh.points)).tolist(),'summary':result})
+                if domain.get('mode')=='external':
+                    from opensim.su2_flow import boundary_groups
+                    from opensim.flow_domain import classify_external
+                    from opensim.flow_results import surface_view
+                    groups=classify_external(mesh,boundary_groups(mesh,parameters),domain)
+                    ids={tuple(sorted(f[:3])):int(tag) for tag,ff in mesh.surface_groups.items() for f in ff}
+                    surface_view(directory/'preview-body.html',mesh.points,groups['wall'],np.zeros_like(mesh.points),np.zeros(len(mesh.points)),result,[ids.get(tuple(sorted(f[:3])),0) for f in groups['wall']])
             else:
                 write_viewer(directory / "preview.html", mesh, np.zeros_like(mesh.points), result)
         workspace.finish_job(job_id, result=result)

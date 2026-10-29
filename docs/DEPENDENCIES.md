@@ -18,7 +18,7 @@ Reviewed October 26, 2026 (America/Phoenix).
 
 `requirements-win-py312.lock` records every installed project/test/build wheel version and SHA-256 for Windows x64 / Python 3.12. Pip's installation reports were used to capture artifact hashes. `tools/rea/package-lock.json` records REA's dependency graph and registry integrity values. Pip and the existing runtimes are bootstrap prerequisites, not included in those locks.
 
-SciPy 1.16.3 was installed as a binary wheel from the official PyPI index. The Windows CPython 3.12 x64 wheel SHA-256 is `56edc65510d1331dae01ef9b658d428e33ed48b4f77b1d51caf479a0253f96dc`, recorded in the base lock and inherited by the desktop lock. Its [upstream BSD license and bundled notices](https://github.com/scipy/scipy/blob/v1.16.3/LICENSE.txt) remain applicable. No new external CFD executable is downloaded or invoked.
+SciPy 1.16.3 was installed as a binary wheel from the official PyPI index. The Windows CPython 3.12 x64 wheel SHA-256 is `56edc65510d1331dae01ef9b658d428e33ed48b4f77b1d51caf479a0253f96dc`, recorded in the base lock and inherited by the desktop lock. Its [upstream BSD license and bundled notices](https://github.com/scipy/scipy/blob/v1.16.3/LICENSE.txt) remain applicable. The native finite-inertia CAD adapter additionally invokes the separately installed SU2 executable described below.
 
 CalculiX archive: `https://www.dhondt.de/calculix_2.23_4win.zip`.
 Observed SHA-256: `87fc4e1721df37370ec67d0a244bb14f9bf804b0a95df49e2ae7369d30ec72e8`.
@@ -34,3 +34,9 @@ Official references:
 - [CalculiX source archive](https://www.dhondt.de/ccx_2.23.src.tar.bz2)
 
 The default `.gitignore` excludes `.venv`, `.tools`, Python caches and `runs`. REA is not a dependency of the simulation package. No proprietary Ansys files are required.
+
+## Native SU2 adapter (October 28, 2026)
+
+SU2 8.5.0 is installed separately from the [official su2code/SU2 release](https://github.com/su2code/SU2/releases/tag/v8.5.0), Windows x64 OpenMP asset `SU2-v8.5.0-win64-omp.zip`. SHA-256 verified against the GitHub release asset digest: `4466fe21aedb5e0bad57afd45f829acbdec6ec79fe8c3f8954ddea06a4b4bc11`. `tools/install_su2.py` pins and verifies those bytes, checks archive extraction paths, extracts the nested upstream archive and preserves COPYING. It installs under ignored `.tools/su2/v8.5.0`; no solver binaries enter Git. No administrator access or WSL is required.
+
+SU2 is LGPL-2.1; retain its [COPYING](https://github.com/su2code/SU2/blob/v8.5.0/COPYING), upstream dependency notices and corresponding-source obligations when redistributing binaries. The [matching source](https://github.com/su2code/SU2/tree/v8.5.0) is public. This repository supplies an original process/file adapter, without modifying upstream solver source. Other platforms can supply `SU2_CFD_EXECUTABLE`. Native operation was checked using the release executable, not an unverified third-party build.

@@ -1,6 +1,6 @@
 # Roadmap
 
-Current CFD milestone: [CAD fluid-volume creeping flow](CAD_FLOW.md) is implemented with MINI tetrahedra, independent pressure ports, no-slip walls, sparse solve, flow conservation and recorded duct refinement. The [three original benchmark models](CFD.md) remain available. General finite-Re Navier–Stokes, turbulence, separated-flow drag/stall and conjugate heat transfer remain future work.
+Current CFD milestone: [own-model CAD flow](CAD_FLOW.md) runs in the main window with automatic external fluid enclosures, native SU2 incompressible Navier–Stokes and optional Spalart–Allmaras RANS. Velocity slices, surface pressure, convergence/flux checks and SI exports are implemented. Legacy Stokes and the [three analytical benchmark models](CFD.md) remain available. Independent aerodynamic validation, near-wall prism layers, transient wakes, integrated lift/drag studies and conjugate heat transfer remain future work.
 
 Current thermal milestone: steady isotropic conduction is implemented, with conductivity, independent prescribed-temperature/heat-input faces, energy balance, temperature/flux contours and plots, SI exports and three MCP tools. See [scope](THERMAL.md) and [eight analytical comparisons](thermal/REPORT.md). Transient thermal, convection, radiation and thermoelastic coupling remain future stages.
 

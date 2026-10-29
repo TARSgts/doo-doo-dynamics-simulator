@@ -228,9 +228,13 @@ def main():
                     raise ValueError('CFD JSON accepts only cfd_* settings')
                 parameters = {'cfd_case':arguments.case, 'cfd_resolution':arguments.resolution} | parameters
                 if parameters['cfd_case']=='cad':
-                    from opensim.cad_flow import solve_cad_flow
                     if not arguments.cad:raise ValueError('Use --cad with the imported CAD fluid volume')
-                    result=solve_cad_flow(arguments.cad,arguments.out,CFD_DEFAULTS|parameters)
+                    if parameters.get('cfd_backend',CFD_DEFAULTS['cfd_backend'])=='su2':
+                        from opensim.su2_flow import solve_su2
+                        result=solve_su2(arguments.cad,arguments.out,CFD_DEFAULTS|parameters)
+                    else:
+                        from opensim.cad_flow import solve_cad_flow
+                        result=solve_cad_flow(arguments.cad,arguments.out,CFD_DEFAULTS|parameters)
                 else:result = run_cfd(arguments.out, parameters)
             print(json.dumps(result, indent=2))
             if result.get('result') == 'FAIL': parser.exit(1, 'CFD verification failed\n')

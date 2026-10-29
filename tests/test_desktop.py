@@ -66,7 +66,7 @@ def test_study_tree_switches_properties_without_solving_or_losing_hidden_inputs(
         return not control.isHidden()
     try:
         root = window.tree.topLevelItem(0)
-        assert root.childCount() == 6
+        assert root.childCount() == 7
         assert [root.child(i).text(0) for i in (2, 3, 4)] == ["Static Structural", "Modal Analysis", "Convergence Study"]
         assert visible("load_N") and not visible("density_kg_m3") and not visible("convergence_levels")
         window.fields["load_N"].setValue(23.4)

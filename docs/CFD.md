@@ -1,10 +1,8 @@
-# CFD workbench — first stage
+# CFD studies and analytical benchmarks
 
-**CAD fluid volumes are now supported through a separate 3D creeping-flow model (Re≤1).** See [CAD import, inlet/outlet picking, validity range and recorded accuracy](CAD_FLOW.md). The three original benchmark models below remain available. General finite-Re Navier–Stokes, turbulence and heat-transfer coupling remain future work.
+For your own model, use the [main-window CAD workflow](CAD_FLOW.md). It supports automatic fluid enclosures around imported solids, existing internal fluid volumes, native SU2 Navier–Stokes and optional Spalart–Allmaras RANS. The legacy pressure-driven Stokes solver remains limited to Re≤1.
 
-Open **Solution → CFD**, or **Fluid dynamics** in the right toolbox. Choose a case, enter its conditions and select **Run flow study**. Each new study saves its own project, inputs, background job and report. **Saved CFD studies** reopens previous runs; **New study** starts another. CAD geometry and structural/thermal supports are not used or changed.
-
-The first stage is three numerical benchmark models, not a general CAD Navier–Stokes solver. It uses the existing NumPy and Matplotlib dependencies. No additional executable or downloaded solver is needed.
+The original analytical benchmark models below remain available through **Validation → CFD checks**. Their reports display in the main viewport. They are distinct simplified equations, not validation of the general SU2 CAD adapter. These benchmark models use NumPy and Matplotlib without an external solver.
 
 | Case | Numerical method | What you get | Supported physics |
 |---|---|---|---|
@@ -16,17 +14,26 @@ External-flow models require Mach ≤ 0.3 using the entered speed of sound. Thei
 
 ## Flat-plate angle sweep
 
-1. Select **Flat-plate airfoil · CL vs α**.
-2. Enter chord in mm, freestream speed in m/s, and air density in kg/m³. Example: 100 mm, 10 m/s, 1.225 kg/m³.
-3. Set start, end and step in degrees. The default −8° to +8° at 2° intervals gives nine cases. At most 101 samples are allowed, and the end angle is included even when the step does not divide the range.
-4. Use **Run flow study**. The report plots solved CL against both `2π sin(α)` and the small-angle `2πα`, where α in the latter formula is radians. Positive α gives positive lift.
-5. **Export CSV** saves angle, CL, both references and lift per unit span. The full NPZ additionally includes panel circulation and the approximate pressure-jump distribution at every angle. Integrated CL agreement does not establish local pressure accuracy near the singular leading edge.
+Use `open-sim cfd --case flat_plate --parameters plate.json --out runs/plate` for a custom sweep. Example JSON:
+
+```json
+{
+  "cfd_chord_m": 0.1,
+  "cfd_speed_m_s": 10,
+  "cfd_density_kg_m3": 1.225,
+  "cfd_alpha_min_deg": -8,
+  "cfd_alpha_max_deg": 8,
+  "cfd_alpha_step_deg": 2
+}
+```
+
+The report plots solved CL against `2π sin(α)` and small-angle `2πα` (radians). CSV retains CL, both references and lift per unit span. NPZ retains circulation and approximate pressure-jump arrays. Integrated CL agreement does not establish local accuracy near the singular leading edge. The main-window validation action runs the standard reference sweep; its CFD properties are for imported CAD, not editing these analytical models.
 
 Resolution is 12–256 panels or radial cells. More pipe cells reduce the error; increasing panels cannot add missing viscous or separated-flow physics. Reports retain their actual input values. Editing controls marks the result as outdated until rerun; previously completed reports remain in job history.
 
 ## Verification
 
-**Verify all three models**, or **Validation → CFD checks**, runs all three cases at three resolutions, with a report containing every acceptance check. This is numerical verification against analytical solutions, not experimental validation. See [recorded results](cfd/REPORT.md).
+**Validation → CFD checks** runs all three cases at three resolutions, with a report containing every acceptance check. This is numerical verification against analytical solutions, not experimental validation. See [recorded results](cfd/REPORT.md).
 
 - Cylinder: `Cp = 1 − 4 sin²θ`; compare exterior velocities at radii 1.25R, 2R and 4R to the analytical potential field. The finest 96-panel field must be within 1% of freestream, with decreasing error on refinement. Surface Cp alone is insufficient: regular polygon symmetry can reproduce it at collocation points to roundoff.
 - Pipe: `u(r) = Δp(R² − r²)/(4μL)`, `Q = πR⁴Δp/(8μL)` and Darcy `f = 64/Re`. The 48-cell flow-rate error must be below 0.05%, with approximately fourfold error reduction per doubling of cells.
@@ -55,4 +62,4 @@ open-sim validate-cfd --out runs/cfd-verification
 - [Oregon State University: discrete vortex panels, quarter/three-quarter placement](https://open.oregonstate.education/intermediate-fluid-mechanics/chapter/the-panel-method-an-introduction/).
 - [OpenStax: viscosity, laminar flow and Poiseuille's law](https://openstax.org/books/college-physics-ap-courses/pages/12-4-viscosity-and-laminar-flow-poiseuilles-law).
 
-Future stages: a maintained general flow-solver adapter, actual fluid-domain meshing and boundary conditions, viscous external flow and independently verified wakes/airfoil drag, then turbulence and conjugate heat transfer. Each requires additional verification and an explicit validity range.
+Future stages: independent aerodynamic validation of the SU2 adapter, near-wall prism layers, integrated force studies, transient wakes and conjugate heat transfer. Each needs additional verification and an explicit validity range.

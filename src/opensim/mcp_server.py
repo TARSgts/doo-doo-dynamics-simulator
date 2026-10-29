@@ -15,7 +15,7 @@ def create_server(workspace: Workspace) -> FastMCP:
         "Undamped unprestressed modal analysis is available with positive density and default or selected fixed support. "
         "Steady thermal conduction is available through set_thermal_parameters/run_thermal_analysis/get_thermal_results; Kelvin, W, W/m/K. No convection, radiation or thermal expansion. "
         "Static load_cases independently specify name, kind force/pressure, components_N or pressure_Pa, region, surface, enabled. Nonempty load_cases replace the legacy single load. Pressure is positive inward. material_preset selects editable generic Steel, Aluminum or solid ABS defaults. "
-        "CFD uses set_cfd_parameters/run_cfd_analysis/get_cfd_results. cfd_case=cad solves an imported fluid volume using 3D creeping flow (peak Re<=1): cfd_mesh_size_m, cfd_cad_scale, cfd_inlet_region/cfd_outlet_region, viscosity, density, pressure_drop. This is fluid space, not a solid body; all nonport walls are no-slip. No finite-Re Navier-Stokes, turbulence or thermal coupling. Existing cylinder, pipe and flat_plate benchmarks remain available. "
+        "CFD is a main-window project study. With cfd_case=cad and cfd_backend=su2, the imported CAD may be a solid (cfd_domain_mode=external builds surrounding fluid) or an existing fluid passage (fluid). Configure cfd_speed_m_s, fluid density/viscosity, cfd_flow_axis x/y/z, near-model mesh size, CAD scale, and cfd_turbulence none/sa. SU2 solves steady incompressible Navier-Stokes or SA RANS. cfd_backend=stokes retains pressure-driven Re<=1 flow on existing fluid volumes. No thermal coupling or time-accurate wakes. show_in_desktop views cfd_slice, cfd and cfd_report select main-window flow results. "
         "run_convergence_study checks whether results depend on mesh size. Use cancel_job to stop a job that is taking too long. Inspect get_capabilities before requesting other physics. The desktop reflects shared workspace changes."))
 
     @server.tool()
@@ -125,7 +125,7 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def set_cfd_parameters(project_id: str, parameters: dict[str, Any]) -> dict[str, Any]:
-        """Set cfd_* inputs. Cases: cad / cylinder / pipe / flat_plate. cad requires an imported single fluid volume, cfd_mesh_size_m, cfd_cad_scale, cfd_inlet_region/cfd_outlet_region (face IDs or box_m); default ports X-min/X-max, other walls no-slip, peak Re<=1. Positive pressure drop Pa drives the flow. Viscosity Pa.s, density kg/m3. Benchmark resolution 12–256; angles degrees (±10). Pipe Re<2000; external potential models Mach<=0.3. No turbulence or thermal coupling."""
+        """Set cfd_* inputs. For real CAD use cfd_case=cad, cfd_backend=su2, cfd_domain_mode=external (solid body with automatic enclosure) or fluid (existing passage). Set cfd_mesh_size_m, cfd_cad_scale, cfd_speed_m_s, cfd_density_kg_m3, cfd_viscosity_Pa_s, cfd_flow_axis=x/y/z, cfd_turbulence=none/sa, cfd_iterations and cfd_residual_target (log10). Independent cfd_inlet_region/cfd_outlet_region accept faces or box_m; blank uses automatic ports. Legacy stokes is pressure-driven Re<=1 on fluid volumes. Other benchmark cases remain available. No thermal coupling or time-accurate CFD."""
         from opensim.cfd_parameters import CFD_DEFAULTS
         if set(parameters) - set(CFD_DEFAULTS):
             raise ValueError('Use only cfd_* parameters from the CFD defaults')
@@ -133,7 +133,7 @@ def create_server(workspace: Workspace) -> FastMCP:
 
     @server.tool()
     def run_cfd_analysis(project_id: str, validate_all: bool = False) -> dict[str, Any]:
-        """Start the selected flow model. cad meshes the project's imported fluid volume and solves 3D creeping flow (peak Re<=1); others use built-in cylinder/pipe/plate geometry. validate_all runs the three original analytical benchmark comparisons. Poll get_job, then get_cfd_results. No turbulence, finite-Re CAD Navier-Stokes, stall or heat transfer."""
+        """Start the current project's CFD. cad uses SU2 Navier-Stokes/SA RANS on user solids or fluid volumes when cfd_backend=su2, or legacy Stokes otherwise. validate_all runs the original analytical reference checks. Poll get_job then get_cfd_results; display cfd_slice/cfd/cfd_report in the main desktop. Failed convergence is not returned as a valid solution."""
         return workspace.start_job(project_id, 'cfd_validation' if validate_all else 'cfd')
 
     @server.tool()

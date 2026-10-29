@@ -24,9 +24,9 @@ FIELD_HELP = {
 }
 
 BUTTON_HELP = {
-    "CFD": "Open flow studies: imported CAD fluid volumes at creeping-flow Reynolds numbers (Re≤1), plus cylinder, laminar pipe and flat-plate benchmarks. No turbulence or heat transfer.",
+    "CFD": "Set up flow on this project in the main window. SU2 supports surrounding fluid around your solid model, velocity-driven flow and optional Spalart–Allmaras turbulence.",
     "CFD checks": "Run cylinder, laminar pipe and flat-plate theory comparisons at three spatial resolutions, with a saved verification report.",
-    "Fluid dynamics": "Import a closed fluid volume for 3D creeping flow (Re≤1), or run the cylinder/pipe/plate theory comparisons. Import fluid space, not the solid object.",
+    "Fluid dynamics": "Add a flow study to this project. Use your solid CAD with an automatic surrounding fluid enclosure, or import the volume occupied by fluid in a passage.",
     "Heat sink": "Create a separate six-fin heat sink with a 20 W heated base and 20 °C fin tips. This demonstrates conduction to fixed-temperature tips, not air convection.",
     "Thermal bar": "Open the independent Fourier-conduction verification report. It does not change your project.",
     "Thermal": "Run steady isotropic heat conduction. Configure conductivity and thermal boundary temperatures or power first.",
